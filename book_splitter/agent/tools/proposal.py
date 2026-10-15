@@ -11,10 +11,10 @@ from ...core.constants import DEFAULT_MIN_CHAPTERS
 from ...documents.io import load_lines
 from ...documents.text import excerpt, jdump, normalize_filename
 from ...slicing.validation import validate_split_map
-from .registry import register_tool
+from .registry import split_stage
 
 
-@register_tool
+@split_stage
 @tool
 def validate_split_map_tool(file_path: str, split_mapping: list[dict]) -> str:
     """Dry-run a proposed chapter map and report problems before slicing anything.
@@ -35,7 +35,7 @@ def validate_split_map_tool(file_path: str, split_mapping: list[dict]) -> str:
     return jdump(result)
 
 
-@register_tool
+@split_stage
 @tool
 def propose_split_map(
     split_mapping: list[dict], strategy: str = "unspecified", notes: str = ""

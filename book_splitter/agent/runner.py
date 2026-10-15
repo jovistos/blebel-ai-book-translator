@@ -5,8 +5,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ..core.constants import DEFAULT_FRONT_MATTER_LINES, DEFAULT_MIN_CHAPTERS, DEFAULT_RECURSION_LIMIT
-from ..core.constants import MAX_FEEDBACK_LOOPS, TRACE_FILENAME
+from ..core.constants import (
+    DEFAULT_FRONT_MATTER_LINES,
+    DEFAULT_MIN_CHAPTERS,
+    DEFAULT_RECURSION_LIMIT,
+    MAX_FEEDBACK_LOOPS,
+    TRACE_FILENAME,
+)
 from ..core.settings import LLMSettings
 from .graph import build_graph
 from .result import SplitterResult

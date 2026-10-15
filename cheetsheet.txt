@@ -1,0 +1,2 @@
+cd /home/jovis/Documents/WORK/BleBelTranslateBook
+source .venv_splitter/bin/activate

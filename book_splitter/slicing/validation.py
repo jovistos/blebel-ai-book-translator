@@ -8,7 +8,8 @@ resulting gap structure is plausible.
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from ..analysis.candidates import nearest_title_markers
 from ..analysis.toc import detect_toc_block, line_in_toc

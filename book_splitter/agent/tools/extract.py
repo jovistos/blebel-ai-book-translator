@@ -10,15 +10,14 @@ from langchain_core.tools import tool
 from ...analysis.toc import detect_toc_block
 from ...core.constants import (
     DEFAULT_FRONT_MATTER_LINES,
-    DEFAULT_MAX_HEADERS,
     MAX_FRONT_MATTER_CHARS,
     MAX_FRONT_MATTER_LINES,
     TOC_SCAN_LINES,
 )
 from ...documents.io import load_lines
-from ...documents.markdown import header_of
 from ...documents.text import excerpt, jdump
-from .registry import register_tool
+from .registry import split_stage
+from .shared import extract_markdown_headers, scan_markdown_headers  # noqa: F401  (re-export)
 
 
 def detect_native_toc(file_path: str | Path) -> dict[str, Any]:
@@ -76,23 +75,7 @@ def detect_native_toc(file_path: str | Path) -> dict[str, Any]:
     }
 
 
-def scan_markdown_headers(file_path: str, max_headers: int = DEFAULT_MAX_HEADERS) -> dict[str, Any]:
-    """Every Markdown ATX header with its exact line number."""
-    lines = load_lines(file_path)
-    headers: list[dict[str, Any]] = []
-    for idx, raw in enumerate(lines, start=1):
-        head = header_of(raw)
-        if head:
-            headers.append({"line_number": idx, "level": head[0], "text": excerpt(head[1], 120)})
-    return {
-        "line_count": len(lines),
-        "count": len(headers),
-        "truncated": len(headers) > max_headers,
-        "headers": headers[:max_headers],
-    }
-
-
-@register_tool
+@split_stage
 @tool
 def extract_native_toc(file_path: str) -> str:
     """Extract the built-in table of contents stored as file metadata.
@@ -105,22 +88,7 @@ def extract_native_toc(file_path: str) -> str:
     return jdump(detect_native_toc(file_path))
 
 
-@register_tool
-@tool
-def extract_markdown_headers(file_path: str, max_headers: int = DEFAULT_MAX_HEADERS) -> str:
-    """Scan a file for Markdown ATX headers (`#`, `##`, ...) and return their line numbers.
-
-    Returns `{"line_count", "count", "truncated", "headers": [{"line_number",
-    "level", "text"}]}`. Header text is capped at 120 characters per entry.
-
-    Warning: in a file converted from PDF, most headers can be junk (page
-    numbers, figure captions, running heads). Always judge the returned list
-    before trusting it.
-    """
-    return jdump(scan_markdown_headers(file_path, max_headers))
-
-
-@register_tool
+@split_stage
 @tool
 def detect_toc_block_tool(file_path: str, scan_lines: int = TOC_SCAN_LINES) -> str:
     """Find the printed table of contents in the front matter and report its line range.
@@ -132,7 +100,7 @@ def detect_toc_block_tool(file_path: str, scan_lines: int = TOC_SCAN_LINES) -> s
     return jdump(detect_toc_block(load_lines(file_path), scan_lines=scan_lines))
 
 
-@register_tool
+@split_stage
 @tool
 def extract_front_matter(file_path: str, max_lines: int = DEFAULT_FRONT_MATTER_LINES) -> str:
     """Read only the first `max_lines` lines of the book to locate a printed TOC.

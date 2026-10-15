@@ -13,10 +13,10 @@ from ...core.constants import FRONT_MATTER_FILENAME
 from ...documents.text import jdump
 from ...slicing.slice import slice_book
 from ...slicing.verify import verify_output_dir
-from .registry import register_tool
+from .registry import split_stage
 
 
-@register_tool
+@split_stage
 @tool
 def slice_book_by_line_numbers(
     file_path: str,
@@ -45,7 +45,7 @@ def slice_book_by_line_numbers(
     return jdump(manifest)
 
 
-@register_tool
+@split_stage
 @tool
 def verify_sliced_output(output_dir: str) -> str:
     """Verify the split output: files present, ranges contiguous, no content lost.

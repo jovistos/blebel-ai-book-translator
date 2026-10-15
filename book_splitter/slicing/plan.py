@@ -13,7 +13,8 @@ Two responsibilities:
 from __future__ import annotations
 
 import re
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 from ..core.constants import FRONT_MATTER_FILENAME, MAX_GAP_LINES, MIN_GAP_LINES
 from ..core.errors import ToolError

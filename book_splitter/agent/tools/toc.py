@@ -13,10 +13,10 @@ from ...core.constants import (
 )
 from ...documents.io import load_lines
 from ...documents.text import jdump
-from .registry import register_tool
+from .registry import split_stage
 
 
-@register_tool
+@split_stage
 @tool
 def locate_toc_titles_in_file(
     file_path: str,
@@ -50,7 +50,7 @@ def locate_toc_titles_in_file(
     )
 
 
-@register_tool
+@split_stage
 @tool
 def extract_heuristic_candidates(file_path: str, max_candidates: int = DEFAULT_MAX_CANDIDATES) -> str:
     """Fallback: list lines that *look like* a chapter title without any `#` markup.
