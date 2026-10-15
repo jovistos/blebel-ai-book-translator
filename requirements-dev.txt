@@ -1,0 +1,6 @@
+# Development-only dependencies for the book splitter.
+pytest>=8.0
+
+# Optional, for the lint/type config in pyproject.toml.
+# ruff>=0.6
+# mypy>=1.11

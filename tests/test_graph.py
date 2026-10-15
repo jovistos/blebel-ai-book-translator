@@ -1,0 +1,194 @@
+"""Tests for the LangGraph pipeline, using a scripted model double."""
+
+from __future__ import annotations
+
+from langchain_core.messages import AIMessage, HumanMessage
+
+from book_splitter.agent import build_graph
+
+from _fixtures import SAMPLE
+
+
+class ScriptedModel:
+    """Minimal chat-model double: replays canned AIMessages."""
+
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.seen_messages = []
+
+    def invoke(self, messages, *_, **__):
+        self.seen_messages.append(list(messages))
+        index = min(len(self.seen_messages) - 1, len(self.responses) - 1)
+        return self.responses[index]
+
+
+def _tool_call(name, args, call_id="call_1"):
+    return AIMessage(
+        content="",
+        tool_calls=[{"name": name, "args": args, "id": call_id, "type": "tool_call"}],
+    )
+
+
+def _invoke_graph(model, source, output_dir, **extra):
+    app = build_graph(model=model)
+    state = {
+        "source_path": str(source),
+        "output_dir": str(output_dir),
+        "front_matter_lines": 200,
+        "max_attempts": 4,
+        "include_front_matter": True,
+        "dry_run": False,
+        "attempts": 0,
+        "usage": {},
+        "log": [],
+        "feedback": [],
+        "messages": [],
+        **extra,
+    }
+    return app.invoke(state, config={"recursion_limit": 40})
+
+
+def test_graph_runs_full_pipeline_with_scripted_model(plain, tmp_path, plan):
+    mapping = plan(
+        [(12, "01-predgovor.md"), (18, "02-dolazak.md"), (28, "03-oluja.md"),
+         (38, "04-odlazak.md"), (44, "05-biljeske.md")]
+    )
+    model = ScriptedModel([
+        _tool_call("validate_split_map_tool", {"file_path": str(plain), "split_mapping": mapping}, "c1"),
+        _tool_call("propose_split_map", {"split_mapping": mapping, "strategy": "toc_titles"}, "c2"),
+    ])
+    final = _invoke_graph(model, plain, tmp_path)
+
+    assert final["validation"]["ok"], final["validation"]["issues"]
+    assert final["manifest"]["file_count"] == 6
+    assert final["verification"]["ok"]
+    assert final["verification"]["reassembles_byte_for_byte"]
+    assert (tmp_path / "01-predgovor.md").is_file()
+    assert (tmp_path / "_manifest.json").is_file()
+    # scout + 2 agent turns
+    assert final["attempts"] == 2
+
+
+def test_graph_rejects_a_bad_plan_and_loops_back(plain, tmp_path, plan):
+    bad = plan([(3, "01-toc.md"), (5, "02-toc.md"), (7, "03-toc.md")])  # all inside the TOC
+    good = plan([(12, "01-predgovor.md"), (18, "02-dolazak.md"), (28, "03-oluja.md")])
+    model = ScriptedModel([
+        _tool_call("propose_split_map", {"split_mapping": bad, "strategy": "heuristics"}, "c1"),
+        _tool_call("propose_split_map", {"split_mapping": good, "strategy": "toc_titles"}, "c2"),
+    ])
+    final = _invoke_graph(model, plain, tmp_path)
+
+    assert final["attempts"] == 2, "the graph must ask the model to correct the map"
+    assert final["validation"]["ok"]
+    assert final["verification"]["ok"]
+    # The correction prompt told the model exactly what was wrong.
+    joined = " ".join(
+        m.content if isinstance(m, HumanMessage) else "" for m in model.seen_messages[-1]
+    )
+    assert "inside the printed table of contents" in joined
+
+
+def test_graph_blocks_slicing_before_validation(plain, tmp_path, plan):
+    mapping = plan([(12, "01-a.md"), (18, "02-b.md"), (28, "03-c.md")])
+    model = ScriptedModel([
+        _tool_call(
+            "slice_book_by_line_numbers",
+            {"file_path": str(plain), "split_mapping": mapping, "output_dir": str(tmp_path)},
+            "c1",
+        ),
+        _tool_call("propose_split_map", {"split_mapping": mapping, "strategy": "toc_titles"}, "c2"),
+    ])
+    final = _invoke_graph(model, plain, tmp_path)
+    blocked = [
+        m for m in final["messages"] if getattr(m, "name", "") == "slice_book_by_line_numbers"
+    ]
+    assert blocked and "blocked until the map passes validation" in blocked[0].content
+    assert final["verification"]["ok"]
+
+
+def test_graph_reports_unknown_tools(plain, tmp_path, plan):
+    mapping = plan([(12, "01-a.md"), (18, "02-b.md"), (28, "03-c.md")])
+    model = ScriptedModel([
+        _tool_call("not_a_real_tool", {}, "c1"),
+        _tool_call("propose_split_map", {"split_mapping": mapping, "strategy": "toc_titles"}, "c2"),
+    ])
+    final = _invoke_graph(model, plain, tmp_path)
+    assert any("unknown tool" in line for line in final["log"])
+    assert final["verification"]["ok"]
+
+
+def test_graph_gives_up_when_the_model_never_submits(plain, tmp_path):
+    model = ScriptedModel([AIMessage(content="I am not sure what to do.")])
+    final = _invoke_graph(model, plain, tmp_path, max_attempts=3)
+    assert final["attempts"] == 3
+    assert "manifest" not in final or not final.get("manifest")
+    assert final["result"]["ok"] is False
+    assert not list(tmp_path.glob("*.md"))
+
+
+def test_graph_dry_run_validates_but_writes_nothing(plain, tmp_path, plan):
+    mapping = plan([(12, "01-a.md"), (18, "02-b.md"), (28, "03-c.md")])
+    model = ScriptedModel([
+        _tool_call("propose_split_map", {"split_mapping": mapping, "strategy": "toc_titles"}, "c1"),
+    ])
+    final = _invoke_graph(model, plain, tmp_path, dry_run=True)
+    assert final["validation"]["ok"]
+    assert final["manifest"]["dry_run"] is True
+    assert "verification" not in final or not final.get("verification")
+    assert not list(tmp_path.glob("*.md"))
+
+
+def test_llm_context_never_contains_book_body_text(sample, tmp_path, plan):
+    """The core promise: chapter prose must never reach the model."""
+    body_markers = [
+        "Kao bolnički kardiolog, video sam i obra",
+        "Nesporno je da seksualna aktivnost može da ima snažan uticaj",
+        "Danas već ina ljudi prihvataju ideju da prekomjeran stres",
+    ]
+    mapping = plan([(46, "01-a.md"), (78, "02-b.md"), (136, "03-c.md"), (170, "04-d.md")])
+    model = ScriptedModel([
+        _tool_call("propose_split_map", {"split_mapping": mapping, "strategy": "markdown_headers"}, "c1"),
+    ])
+    _invoke_graph(model, sample, tmp_path)
+
+    seen = "\n".join(str(m.content) for batch in model.seen_messages for m in batch)
+    for marker in body_markers:
+        assert marker not in seen, f"book body leaked into the model context: {marker!r}"
+    # ...while the structural signal it *is* allowed to see is present.
+    assert "GLAVA 1" in seen
+    assert "printed_toc_block" in seen
+
+
+def test_llm_context_is_bounded(sample, tmp_path, plan):
+    mapping = plan([(46, "01-a.md"), (78, "02-b.md"), (136, "03-c.md"), (170, "04-d.md")])
+    model = ScriptedModel([
+        _tool_call("extract_front_matter", {"file_path": str(sample), "max_lines": 100000}, "c1"),
+        _tool_call("propose_split_map", {"split_mapping": mapping, "strategy": "toc_titles"}, "c2"),
+    ])
+    _invoke_graph(model, sample, tmp_path)
+    longest = max(
+        (len(str(m.content)) for batch in model.seen_messages for m in batch), default=0
+    )
+    assert longest <= 25_000, "a single tool result exceeded the context guardrail"
+
+
+def test_scout_report_lists_no_body_text(plain):
+    from book_splitter.agent.nodes.scout import build_scout_report
+    from book_splitter.analysis.headers import assess_headers
+    from book_splitter.analysis.toc import detect_toc_block
+    from book_splitter.agent.tools import scan_markdown_headers
+    from book_splitter.documents.io import load_lines
+
+    lines = load_lines(str(plain))
+    headers = scan_markdown_headers(str(plain))
+    report = build_scout_report(
+        source=str(plain),
+        line_count=len(lines),
+        headers_payload=headers,
+        toc_block=detect_toc_block(lines),
+        assessment=assess_headers(headers["headers"], len(lines)),
+        native_toc={"available": False},
+    )
+    assert "Ova knjiga je nastala iz niza razgovora" not in report
+    assert "SCOUT REPORT" in report
+    assert "printed_toc_block" in report

@@ -1,0 +1,100 @@
+# --------------------------------------------------------------------------- #
+# Secrets and credentials — never commit
+# --------------------------------------------------------------------------- #
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.*
+credentials.*
+*_secret.*
+*_credentials.*
+
+# --------------------------------------------------------------------------- #
+# Python
+# --------------------------------------------------------------------------- #
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.eggs/
+dist/
+build/
+pip-wheel-metadata/
+.venv/
+venv/
+.venv_*/
+env/
+
+# --------------------------------------------------------------------------- #
+# Test / lint / type-checker caches
+# --------------------------------------------------------------------------- #
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pytype/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+nosetests.xml
+junit*.xml
+.tox/
+.nox/
+.cache/
+
+# --------------------------------------------------------------------------- #
+# Generated documents — regenerate with `python -m book_splitter split`
+# --------------------------------------------------------------------------- #
+# Everything the splitter writes lives under data/output/ (chapters, manifests,
+# agent traces). The folder itself is kept with a committed .gitkeep.
+data/output/*
+!data/output/.gitkeep
+
+# Legacy location of the split output, before the data/ layout.
+chapters/
+tests/fixtures/_out_plain/
+tests/fixtures/_out_*/
+
+# --------------------------------------------------------------------------- #
+# Source documents — kept out of version control (licensed material)
+# --------------------------------------------------------------------------- #
+# Drop books into data/input/ locally; the folder is kept with a .gitkeep.
+data/input/*
+!data/input/.gitkeep
+
+# --------------------------------------------------------------------------- #
+# External projects — NOT part of this repository
+# --------------------------------------------------------------------------- #
+# `external/` holds third-party checkouts (e.g. TranslateBooksWithLLMs, which is
+# its own git repository). Nothing in it is ever committed from here: the whole
+# folder is ignored, and only its signpost README is tracked.
+external/*
+!external/README.md
+
+# Legacy location, before the checkout moved into external/.
+TranslateBooksWithLLMs/
+
+# --------------------------------------------------------------------------- #
+# Editors and OS noise
+# --------------------------------------------------------------------------- #
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --------------------------------------------------------------------------- #
+# Local scratch — ad-hoc scripts must not be committed
+# --------------------------------------------------------------------------- #
+/scratch_*.py
+/tmp_*.py
+/debug_*.py
+/logs/
+*.log

@@ -1,0 +1,16 @@
+# Runtime dependencies of the book splitter (the LangGraph agent itself).
+langgraph>=0.2
+langchain-core>=0.3
+langchain-openai>=0.2
+python-dotenv>=1.0
+
+# Optional: let `resolve_api_key` reuse keys from ~/.dsh/.credentials.yaml.
+# PyYAML>=6.0
+
+# Optional: `extract_native_toc` for the original PDF/EPUB sources.
+# PyMuPDF>=1.24
+# ebooklib>=0.18
+# beautifulsoup4>=4.12
+
+# Development only (see requirements-dev.txt).
+# pytest>=8.0
