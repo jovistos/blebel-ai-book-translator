@@ -16,6 +16,7 @@ import re
 from collections.abc import Iterable
 from typing import Any
 
+from ..analysis.backmatter import is_back_matter_role
 from ..core.constants import FRONT_MATTER_FILENAME, MAX_GAP_LINES, MIN_GAP_LINES
 from ..core.errors import ToolError
 from ..documents.markdown import header_of
@@ -70,35 +71,43 @@ def plan_files(
     Shared by the real slicer and by ``--dry-run`` previews, so what you preview
     is exactly what gets written. Raises :class:`ToolError` for out-of-range
     line numbers.
+
+    An entry carrying ``role: "back-matter"`` is planned with ``kind ==
+    "back-matter"`` instead of ``"chapter"``, so the manifest, the chapter count
+    and stage 2 all see the trailing publisher/author block for what it is.
     """
     entries = sorted(
         (
-            (int(e["line_number"]), normalize_filename(str(e.get("filename", ""))))
+            (
+                int(e["line_number"]),
+                normalize_filename(str(e.get("filename", ""))),
+                "back-matter" if is_back_matter_role(e.get("role") or e.get("kind")) else "chapter",
+            )
             for e in split_mapping
         ),
-        key=lambda pair: pair[0],
+        key=lambda entry: entry[0],
     )
     if not entries:
         raise ToolError("split_mapping is empty; nothing to slice")
-    for ln, _ in entries:
+    for ln, _, _ in entries:
         if not 1 <= ln <= len(lines):
             raise ToolError(f"line {ln} is outside the file (1..{len(lines)})")
 
-    deduped: list[tuple[int, str]] = []
-    for ln, name in entries:
+    deduped: list[tuple[int, str, str]] = []
+    for ln, name, kind in entries:
         if deduped and deduped[-1][0] == ln:
             continue
-        deduped.append((ln, name))
+        deduped.append((ln, name, kind))
     entries = deduped
 
     used: set[str] = set()
-    plan: list[tuple[int, str]] = []
-    for ln, name in entries:
+    plan: list[tuple[int, str, str]] = []
+    for ln, name, kind in entries:
         name = reconcile_filename(name, lines[ln - 1])
         if name in used or name == normalize_filename(front_matter_filename):
             name = f"{name[:-3]}-{ln}.md"
         used.add(name)
-        plan.append((ln, name))
+        plan.append((ln, name, kind))
 
     planned: list[dict[str, Any]] = []
     if include_front_matter and plan[0][0] > 1:
@@ -115,9 +124,9 @@ def plan_files(
             }
         )
 
-    for i, (start, name) in enumerate(plan):
+    for i, (start, name, role) in enumerate(plan):
         end = plan[i + 1][0] - 1 if i + 1 < len(plan) else len(lines)
-        kind = "front-matter" if i == 0 and start == 1 else "chapter"
+        kind = role if role == "back-matter" else ("front-matter" if i == 0 and start == 1 else "chapter")
         planned.append({"filename": name, "start_line": start, "end_line": end, "kind": kind})
     return planned
 
@@ -131,7 +140,7 @@ def gap_warnings(points: list[dict[str, Any]], max_gap_lines: int = MAX_GAP_LINE
     """Plausibility warnings about the distance between consecutive split points."""
     warnings: list[str] = []
     ordered = sorted(points, key=lambda p: p["line_number"])
-    for prev, cur in zip(ordered, ordered[1:]):
+    for prev, cur in zip(ordered, ordered[1:], strict=False):
         gap = cur["line_number"] - prev["line_number"]
         if gap < MIN_GAP_LINES:
             warnings.append(

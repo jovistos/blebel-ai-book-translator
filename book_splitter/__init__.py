@@ -1,4 +1,6 @@
-"""Two LangGraph agents that turn a long Markdown book into clean chapter files.
+"""Two LangGraph agents, a dictionary funnel, a glossary, a chunker and a per-chunk glossary.
+
+The pipeline turns one long Markdown book into translation-ready material.
 
 Stage 1 — :mod:`book_splitter.agent` — splits one long Markdown book into one
 file per chapter **without reading its body**. Design contract:
@@ -22,21 +24,57 @@ Stage 2 — :mod:`book_splitter.preprocess_agent` — repairs each chapter file,
 * A per-line provenance map proves that only the declared lines changed, and
   that the only lines deleted were page artefacts.
 
+Stage 3 — :mod:`book_splitter.dictionary` — reduces every chapter to the raw
+sentences that carry a named entity, one chapter at a time. No LLM and no
+LangGraph here: a deterministic sentence funnel plus an optional NER tagger
+(CLASSLA for South Slavic, stanza for English) used purely as a gatekeeper. The
+tagger only filters; it cannot recognise an invented term, so it never builds the
+dictionary.
+
+Stage 4 — :mod:`book_splitter.glossary` — is the LLM pass stage 3 was built for.
+It walks the first mentions first to last and grows **one book-wide dictionary**
+for a translation: for every person, place, organisation, artifact and recurring
+term of art it locks in a single rendering in the target language (Pydantic
+structured output, retries, token accounting), handing each chapter the
+dictionary the earlier ones produced so the renderings stay compatible. English
+into Serbian by default.
+
+Stage 5 — :mod:`book_splitter.chunking` — cuts each chapter into
+translation-sized chunks (1000 tokens by default) with chonkie's recursive
+chunker, preferring paragraph over sentence over line over word boundaries. Every
+chunk is an exact slice of its chapter, the manifest records its chapter and
+global order, and concatenating the chunks recreates the chapter byte for byte.
+
+Stage 6 — :mod:`book_splitter.chunk_glossary` — joins the two halves of the
+translation material. It runs stage 3's NER tagger over **every** chunk first,
+collecting the entity terms each chunk mentions; only then does it fuzzy-match
+each term against stage 4's glossary (``rapidfuzz``, 95 % by default) and write
+the relevant terms per chunk, under the chunk's own name in ``chunk-glossary/``.
+
 Package layout::
 
     book_splitter/
         paths.py        where documents live (input/output folders)
-        cli.py          `inspect` / `split` / `preprocess` / `tools` commands
+        cli.py          `inspect` / `split` / `preprocess` / `dictionary` /
+                        `glossary` / `chunk` / `chunk-glossary` / `tools`
         core/           constants, errors, LLM settings
         documents/      reading, markdown/bodyline shapes, chapter discovery
         analysis/       TOC detection, header assessment, title location
         slicing/        stage 1: planning, verbatim slicing, verification
         preprocess/     stage 2: header inspection, damage scan, repair engine
+        dictionary/     stage 3: sentence funnel, language routing, NER gate
+        glossary/       stage 4: ordered LLM pass that builds the glossary
+        chunking/       stage 5: reversible, sentence-safe chapter chunks
+        chunk_glossary/ stage 6: per-chunk NER + fuzzy glossary retrieval
         agent/          stage 1 agent: prompts, model, tools, graph
         preprocess_agent/  stage 2 agent: prompts, model, tools binding, graph
 """
 
 from .agent import SplitterResult, SplitterState, build_graph, run_split
+from .chunk_glossary import ChunkGlossaryResult, run_chunk_glossary
+from .chunking import ChunkingResult, run_chunking
+from .dictionary import DictionaryResult, run_dictionary
+from .glossary import GlossaryResult, run_glossary
 from .paths import (
     default_input_dir,
     default_output_dir,
@@ -51,17 +89,25 @@ from .preprocess_agent import (
 )
 
 __all__ = [
+    "ChunkGlossaryResult",
+    "ChunkingResult",
+    "DictionaryResult",
+    "GlossaryResult",
     "PreprocessResult",
     "PreprocessState",
     "SplitterResult",
     "SplitterState",
     "build_graph",
     "build_preprocess_graph",
+    "run_chunk_glossary",
+    "run_chunking",
     "default_input_dir",
     "default_output_dir",
     "resolve_book_path",
     "resolve_output_dir",
+    "run_dictionary",
+    "run_glossary",
     "run_preprocess",
     "run_split",
 ]
-__version__ = "2.1.0"
+__version__ = "2.4.0"

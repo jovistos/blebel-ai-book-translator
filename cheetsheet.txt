@@ -1,2 +1,7 @@
 cd /home/jovis/Documents/WORK/BleBelTranslateBook
 source .venv_splitter/bin/activate
+
+.venv_splitter/bin/python scripts/run_pipeline.py \
+  "Dont You Forget About Me - Alexandra Potter.md" \
+  --skip-if-present \
+  --cpu

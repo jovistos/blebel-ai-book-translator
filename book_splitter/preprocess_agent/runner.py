@@ -17,8 +17,10 @@ The loop is written so that switching to parallel execution is a one-line change
 
 from __future__ import annotations
 
+import contextlib
 import json
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -60,6 +62,13 @@ class ChapterResult:
         return asdict(self)
 
 
+#: Called once per finished chapter as ``(chapter, completed, total)``, where
+#: ``chapter`` is the same record (:meth:`ChapterResult.to_dict`) the manifest
+#: stores. It runs in completion order, so with ``workers > 1`` it is not the
+#: chapter order.
+ProgressHook = Callable[[dict[str, Any], int, int], None]
+
+
 @dataclass
 class PreprocessResult:
     """Outcome of a whole stage-2 run."""
@@ -92,11 +101,16 @@ def run_preprocess(
     workers: int = 1,
     write_manifest: bool = True,
     model: Any | None = None,
+    progress: ProgressHook | None = None,
 ) -> PreprocessResult:
     """Preprocess every chapter in a stage-1 output folder.
 
     ``workers`` > 1 switches to a thread pool. Everything else stays identical:
     the same graph, the same per-chapter contract, the same book-level manifest.
+
+    ``progress`` is an optional reporting hook: it is called once per finished
+    chapter with ``(chapter_record, completed, total)``, which is how a CLI
+    narrates a run that can take minutes. It never influences the result.
     """
     chapters = discover_chapters(chapters_path)
     source_dir = Path(chapters_path).expanduser()
@@ -110,6 +124,18 @@ def run_preprocess(
     errors: list[str] = []
     lock = threading.Lock()
     usage_total: dict[str, int] = {}
+    finished = 0
+
+    def announce(result: ChapterResult) -> None:
+        """Hand one finished chapter to the hook, in completion order."""
+        nonlocal finished
+        if progress is None:
+            return
+        with lock:
+            finished += 1
+            completed = finished
+        with contextlib.suppress(Exception):  # a reporting hook must not break a run
+            progress(result.to_dict(), completed, len(chapters))
 
     def one(chapter: Chapter) -> ChapterResult:
         initial: PreprocessState = {
@@ -128,13 +154,15 @@ def run_preprocess(
         except Exception as exc:  # a broken chapter must not stop the book
             with lock:
                 errors.append(f"{chapter.filename}: {type(exc).__name__}: {exc}")
-            return ChapterResult(
+            failed = ChapterResult(
                 chapter_id=chapter.chapter_id,
                 filename=chapter.filename,
                 source_path=chapter.path,
                 source_lines=chapter.line_count,
                 error=f"{type(exc).__name__}: {exc}",
             )
+            announce(failed)
+            return failed
 
         result = summarise_chapter(chapter, final, dry_run=dry_run)
         with lock:
@@ -142,6 +170,7 @@ def run_preprocess(
                 usage_total[key] = usage_total.get(key, 0) + int(value or 0)
             if not result.ok:
                 errors.append(f"{chapter.filename}: {result.error or 'not verified'}")
+        announce(result)
         return result
 
     if workers and workers > 1 and len(chapters) > 1:
@@ -281,6 +310,7 @@ def write_preprocess_trace(out_dir: Path, result: PreprocessResult) -> Path:
 __all__ = [
     "ChapterResult",
     "PreprocessResult",
+    "ProgressHook",
     "chapter_records",
     "run_preprocess",
     "summarise_chapter",

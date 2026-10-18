@@ -28,6 +28,10 @@ venv/
 .venv_*/
 env/
 
+# Stage 3 model weights (CLASSLA / stanza / lingua), when kept inside the repo
+# instead of the default ~/classla_resources and ~/stanza_resources.
+.models/
+
 # --------------------------------------------------------------------------- #
 # Test / lint / type-checker caches
 # --------------------------------------------------------------------------- #

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from book_splitter.agent.tools import (
     extract_heuristic_candidates,
     extract_markdown_headers,
+    find_lines_matching,
     locate_toc_titles_in_file,
 )
 from book_splitter.analysis.headers import assess_headers
@@ -119,3 +121,124 @@ def test_heuristic_candidates_are_short_standalone_or_keyword_lines(plain):
     numbers = [c["line_number"] for c in result["candidates"]]
     assert 12 in numbers and 18 in numbers  # "Predgovor", "1. Dolazak"
     assert all(len(c["text"]) <= 91 for c in result["candidates"])
+
+
+# --------------------------------------------------------------------------- #
+# Pattern search: the regex the agent writes itself
+# --------------------------------------------------------------------------- #
+
+#: A book that lost all its markup: chapter markers, page numbers, a short line
+#: that mentions a chapter, and a long standalone paragraph.
+MARKERLESS_BOOK = "\n".join(
+    [
+        "DON'T YOU FORGET ABOUT ME",  # 1
+        "Alexandra Potter",  # 2
+        "",  # 3
+        "Chapter 1",  # 4
+        "",  # 5
+        "Two months, one week and three days since we had that conversation.",  # 6
+        "",  # 7
+        "19",  # 8
+        "",  # 9
+        "Chapter 2",  # 10
+        "",  # 11
+        "In actual fact it was mostly Seb telling me he loved me.",  # 12
+        "",  # 13
+        "The chapter of accidents, as my mother would say, was not over yet, and I had the "
+        "distinct feeling it was only just beginning.",  # 14
+        "",  # 15
+        "Chapter 3",  # 16
+        "",  # 17
+        "Nothing will ever be the same again.",  # 18
+        "",  # 19
+        "A last line of prose that leads nowhere in particular.",  # 20
+        "",  # 21
+        "And one more, so a one-match cap is genuinely too small.",  # 22
+        "",  # 23
+    ]
+)
+
+
+@pytest.fixture
+def markerless(tmp_path):
+    path = tmp_path / "markerless.md"
+    path.write_text(MARKERLESS_BOOK, encoding="utf-8")
+    return path
+
+
+def test_pattern_search_recovers_every_chapter_marker(markerless):
+    """One regex, one call: the whole spine of a book with no markup at all."""
+    result = json.loads(
+        find_lines_matching.invoke({"file_path": str(markerless), "pattern": r"^Chapter \d+$"})
+    )
+    assert result["match_count"] == 3
+    assert result["truncated"] is False and result["timed_out"] is False
+    assert result["valid_split_points"] == 3
+    assert [m["line_number"] for m in result["matches"]] == [4, 10, 16]
+    assert all(m["standalone"] and m["title_like"] for m in result["matches"])
+    assert not any(m["is_page_number"] for m in result["matches"])
+
+
+def test_pattern_search_flags_prose_that_merely_mentions_a_marker(markerless):
+    """A paragraph that contains the word is a match, but not a split point."""
+    result = json.loads(
+        find_lines_matching.invoke({"file_path": str(markerless), "pattern": "chapter"})
+    )
+    assert result["match_count"] == 1  # the long paragraph on line 14 only
+    paragraph = result["matches"][0]
+    assert paragraph["line_number"] == 14
+    assert paragraph["standalone"] is True
+    assert paragraph["title_like"] is False  # 128 characters: prose, not a heading
+    assert result["valid_split_points"] == 0
+
+
+def test_pattern_search_case_folding_is_the_agents_choice(markerless):
+    sensitive = json.loads(
+        find_lines_matching.invoke({"file_path": str(markerless), "pattern": "chapter"})
+    )
+    folded = json.loads(
+        find_lines_matching.invoke(
+            {"file_path": str(markerless), "pattern": "CHAPTER", "ignore_case": True}
+        )
+    )
+    assert sensitive["match_count"] == 1
+    assert folded["ignore_case"] is True
+    assert folded["match_count"] == 4  # the three markers + the paragraph
+    assert folded["valid_split_points"] == 3
+
+
+def test_pattern_search_caps_matches_and_says_so(markerless):
+    result = json.loads(
+        find_lines_matching.invoke(
+            {"file_path": str(markerless), "pattern": r"^Chapter \d+$", "max_matches": 2}
+        )
+    )
+    assert result["returned"] == 2
+    assert result["match_count"] == 3
+    assert result["truncated"] is True
+    assert "narrow the pattern" in result["hint"]
+
+
+def test_pattern_search_rejects_a_bad_pattern_without_raising(markerless):
+    for bad in ["", "   ", "Chapter ("]:
+        result = json.loads(
+            find_lines_matching.invoke({"file_path": str(markerless), "pattern": bad})
+        )
+        assert "error" in result and "hint" in result
+        assert "matches" not in result
+
+
+def test_pattern_search_is_bounded_by_the_shared_result_cap(markerless):
+    # A pattern that matches every non-blank line still returns clipped excerpts.
+    result = json.loads(find_lines_matching.invoke({"file_path": str(markerless), "pattern": "."}))
+    assert result["match_count"] == sum(1 for line in MARKERLESS_BOOK.splitlines() if line)
+    assert result["returned"] == result["match_count"]
+    assert all(len(m["text"]) <= 90 for m in result["matches"])
+
+
+def test_pattern_search_reports_a_too_broad_pattern(markerless):
+    result = json.loads(
+        find_lines_matching.invoke({"file_path": str(markerless), "pattern": ".", "max_matches": 1})
+    )
+    assert result["truncated"] is True
+    assert "too broad" in result["hint"]

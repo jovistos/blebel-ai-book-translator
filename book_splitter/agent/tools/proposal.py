@@ -6,6 +6,7 @@ from typing import Any
 
 from langchain_core.tools import tool
 
+from ...analysis.prose import entry_evidence
 from ...analysis.toc import detect_toc_block
 from ...core.constants import DEFAULT_MIN_CHAPTERS
 from ...documents.io import load_lines
@@ -20,9 +21,11 @@ def validate_split_map_tool(file_path: str, split_mapping: list[dict]) -> str:
     """Dry-run a proposed chapter map and report problems before slicing anything.
 
     Call this with your candidate mapping (objects with `line_number`,
-    `filename`, optional `title`) and fix every entry listed under `issues`
-    before submitting the plan. Returns `{"ok", "issues", "warnings", "points"}`,
-    where each point echoes the short text found at that line.
+    `filename`, optional `title`, optional `role`, and `evidence` for a
+    `role: "prose-chapter"` entry) and fix every entry listed under `issues`
+    before submitting the plan. Returns `{"ok", "issues", "warnings", "points",
+    "prose_chapter_count"}`, where each point echoes the short text found at that
+    line.
     """
     lines = load_lines(file_path)
     result = validate_split_map(
@@ -45,8 +48,26 @@ def propose_split_map(
     `split_mapping` is the complete list of split points in ascending order,
     each an object with `line_number` (1-indexed, the first line of the
     chapter), `filename` (e.g. `01-predgovor.md`) and optional `title`.
+
+    Two roles are recognised:
+
+    - `role: "prose-chapter"` — a chapter whose heading the conversion dropped
+      completely, so it starts on a plain paragraph. The line must be the FIRST
+      line of a paragraph (nothing but a blank line above it) and the entry must
+      carry `evidence`: which published contents list (or which surviving
+      headings, and what they imply) says this line opens a chapter. Use it only
+      for the chapters the headings cannot account for — never as a shortcut for
+      a line you have not justified.
+    - `role: "back-matter"` — take that entry from `inspect_book_tail`'s
+      `proposed_split` when the book ends with publisher/author furniture. It is
+      accepted only as the LAST entry.
+
+    Every other entry must be a heading or a standalone title line, and
+    validation rejects a `role: "back-matter"` entry that is not last, and a
+    `prose-chapter` entry that does not open a paragraph or carries no evidence.
+
     `strategy` is one of `native_toc`, `markdown_headers`, `toc_titles`,
-    `heuristics`.
+    `heuristics`, `prose_chapters`.
 
     Everything the tool accepts is echoed back and then validated by the graph;
     if validation fails you will be asked to correct it, so never submit a map
@@ -67,13 +88,18 @@ def propose_split_map(
                 }
             )
         name = entry.get("filename") or entry.get("file") or entry.get("title") or f"{ln}.md"
-        cleaned.append(
-            {
-                "line_number": ln,
-                "filename": normalize_filename(str(name)),
-                "title": excerpt(str(entry.get("title") or entry.get("original_header") or ""), 100),
-            }
-        )
+        item: dict[str, Any] = {
+            "line_number": ln,
+            "filename": normalize_filename(str(name)),
+            "title": excerpt(str(entry.get("title") or entry.get("original_header") or ""), 100),
+        }
+        role = entry.get("role") or entry.get("kind")
+        if role:
+            item["role"] = str(role).strip().lower()
+        evidence = entry_evidence(entry)
+        if evidence:
+            item["evidence"] = excerpt(evidence, 300)
+        cleaned.append(item)
     cleaned.sort(key=lambda e: e["line_number"])
     if not cleaned:
         return jdump({"accepted": False, "error": "split_mapping was empty"})

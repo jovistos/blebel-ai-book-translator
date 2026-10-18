@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from langchain_core.messages import AIMessage, HumanMessage
+import json
 
 from book_splitter.agent import build_graph
-
-from _fixtures import SAMPLE
+from langchain_core.messages import AIMessage, HumanMessage
 
 
 class ScriptedModel:
@@ -67,6 +66,37 @@ def test_graph_runs_full_pipeline_with_scripted_model(plain, tmp_path, plan):
     assert (tmp_path / "_manifest.json").is_file()
     # scout + 2 agent turns
     assert final["attempts"] == 2
+
+
+def test_graph_slices_a_prose_chapter_start_submitted_by_the_model(plain, tmp_path):
+    """A chapter whose heading is gone, submitted as role=prose-chapter + evidence."""
+    mapping = [
+        {"line_number": 12, "filename": "01-predgovor.md"},
+        {"line_number": 18, "filename": "02-dolazak.md"},
+        {
+            "line_number": 20,
+            "filename": "03-dolazak-nastavak.md",
+            "role": "prose-chapter",
+            "evidence": "printed TOC lists a section here; no heading survives in the file",
+        },
+        {"line_number": 28, "filename": "04-oluja.md"},
+        {"line_number": 44, "filename": "05-biljeske.md"},
+    ]
+    model = ScriptedModel([
+        _tool_call(
+            "propose_split_map",
+            {"split_mapping": mapping, "strategy": "prose_chapters"},
+            "c1",
+        ),
+    ])
+    final = _invoke_graph(model, plain, tmp_path)
+
+    assert final["validation"]["ok"], final["validation"]["issues"]
+    assert final["validation"]["prose_chapter_count"] == 1
+    assert final["verification"]["reassembles_byte_for_byte"]
+    assert (tmp_path / "03-dolazak-nastavak.md").is_file()
+    # The evidence the model gave is echoed into the trace, not silently dropped.
+    assert final["proposed_splits"][2]["evidence"].startswith("printed TOC")
 
 
 def test_graph_rejects_a_bad_plan_and_loops_back(plain, tmp_path, plan):
@@ -174,9 +204,9 @@ def test_llm_context_is_bounded(sample, tmp_path, plan):
 
 def test_scout_report_lists_no_body_text(plain):
     from book_splitter.agent.nodes.scout import build_scout_report
+    from book_splitter.agent.tools import scan_markdown_headers
     from book_splitter.analysis.headers import assess_headers
     from book_splitter.analysis.toc import detect_toc_block
-    from book_splitter.agent.tools import scan_markdown_headers
     from book_splitter.documents.io import load_lines
 
     lines = load_lines(str(plain))
@@ -192,3 +222,30 @@ def test_scout_report_lists_no_body_text(plain):
     assert "Ova knjiga je nastala iz niza razgovora" not in report
     assert "SCOUT REPORT" in report
     assert "printed_toc_block" in report
+
+
+def test_a_failed_split_still_writes_its_trace(monkeypatch, tmp_path, plain):
+    """A run that never proposes a plan has no output folder yet.
+
+    That is precisely the run whose trace explains the failure (proposed map,
+    validation issues, tool log), so ``write_trace`` must create the folder
+    instead of raising FileNotFoundError and losing the evidence.
+    """
+    from book_splitter.agent import runner
+    from book_splitter.core.constants import TRACE_FILENAME
+
+    silent = ScriptedModel([AIMessage(content="I cannot decide on a split map.")])
+    real_build = runner.build_graph
+    monkeypatch.setattr(runner, "build_graph", lambda settings=None: real_build(model=silent))
+
+    out_dir = tmp_path / "chapters"
+    result = runner.run_split(str(plain), str(out_dir), max_attempts=2, recursion_limit=30)
+
+    assert not result.ok
+    assert result.error == "failed to produce a valid chapter map"
+    trace = out_dir / TRACE_FILENAME
+    assert trace.is_file()
+    payload = json.loads(trace.read_text(encoding="utf-8"))
+    assert payload["result"]["ok"] is False
+    assert payload["tool_log"], "the agent's own narration must survive a failed run"
+    assert not payload["validation"]  # no plan ever reached the validator

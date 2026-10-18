@@ -1,0 +1,55 @@
+# Optional dependencies of stage 3 (`book_splitter dictionary`) and the NER half
+# of stage 6 (`book_splitter chunk-glossary`).
+#
+# The rest of the pipeline never imports these: the whole dictionary stage is
+# lazily imported, so the splitter and the preprocessor keep working without
+# them. Install this file only when you want to run `dictionary` or
+# `chunk-glossary`.
+#
+#   pip install -r requirements-dictionary.txt
+#
+# Watch out for the torch pin — read this first
+# ---------------------------------------------
+# `classla` declares `torch<=2.6` for Python < 3.14, so a plain
+# `pip install classla` on a box that already has a newer torch will DOWNGRADE
+# it and pull ~2 GB of CUDA wheels. That is usually not what you want. Install
+# classla without letting it touch torch:
+#
+#   pip install numpy requests tqdm "protobuf==4.21.2" obeliks reldi-tokeniser lxml
+#   pip install --no-deps classla==2.2.3
+#
+# This has been verified to work with torch 2.14 (CLASSLA 2.2.3 loads its Serbian
+# models and tags correctly), so the pin is stricter than it needs to be.
+# If you are starting from scratch instead, the plain install is fine:
+#
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install -r requirements-dictionary.txt
+#
+# Other notes
+# -----------
+# * `classla` covers Serbian, Croatian, Slovenian and Bulgarian. Macedonian (`mk`)
+#   ships without a NER model, and everything else falls through to stanza.
+# * Model weights download on first use. For the Serbian `standard` package that
+#   is ~450 MB (tokenize/pos/lemma/depparse/ner/pretrain), not ~150 MB; set
+#   `CLASSLA_RESOURCES_DIR=/some/path` to keep them out of `~/classla_resources`.
+#   Only `tokenize,ner` are requested here, so a fresh install is smaller than the
+#   package defaults, and loading them takes ~2 s from disk.
+# * stanza's models live in the user cache dir as of 1.15
+#   (`~/.cache/stanza/<version>/resources`, not `~/stanza_resources`); set
+#   `STANZA_RESOURCES_DIR=/some/path` to move them. It also caches the resources
+#   index under `$XDG_CACHE_HOME`, so a read-only `~/.cache` fails the load — the
+#   run reports that as one line instead of a traceback.
+# * On the sample book (16 chapters, 4 271 sentences) stage 3 takes ~5 s in total
+#   on CPU: ~2 s to load the models, ~3.3 s to tag the 640 sentences that reach
+#   the gate (~5 ms each, ~200 sentences/s). A GPU is not required for this size,
+#   but `--gpu N` / `--cpu` select one; the default is GPU 1, or whatever
+#   `CUDA_VISIBLE_DEVICES` already says. The run reports the device it actually
+#   used, so a silent CPU fallback is visible.
+# * `lingua-language-detector` 2.x (the Rust binding) needs Python >= 3.12 and its
+#   enums are not iterable; 1.x is pure Python and works on 3.11. The stage
+#   handles both, and pip picks whichever fits the interpreter. Note that its
+#   Serbian and Croatian models are not reliable — see the note in the README.
+
+classla>=2.2
+stanza>=1.8
+lingua-language-detector>=1.3

@@ -31,6 +31,12 @@ INPUT_DIRNAME = "data/input"
 OUTPUT_DIRNAME = "data/output"
 #: Sub-directory of an output folder that receives the chapter files.
 CHAPTERS_DIRNAME = "chapters"
+#: Sub-directory of an output folder that receives stage 3's reduced chapters.
+REDUCED_DIRNAME = "reduced"
+#: Sub-directory that receives stage 3's further-reduced chapters (first mentions).
+UNIQUE_DIRNAME = "reduced-unique"
+#: Sub-directory that receives stage 5's translation-sized chunks.
+CHUNKS_DIRNAME = "chunks"
 
 _MARKDOWN_SUFFIXES = (".md", ".markdown")
 

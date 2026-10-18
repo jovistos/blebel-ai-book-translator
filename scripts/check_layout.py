@@ -25,9 +25,20 @@ def main() -> int:
     """Verify the local layout and the importable optional pieces."""
     problems: list[str] = []
 
-    for required in ("langgraph", "langchain_core", "langchain_openai"):
+    for required in ("langgraph", "langchain_core", "langchain_openai", "pydantic"):
         if not _check(required):
             problems.append(f"missing required dependency: {required}")
+
+    # Stages 3, 5 and 6 are optional: report them, but never fail the check because of them.
+    optional = {
+        "classla": "stage 3/6 NER for sr/hr/sl/bg",
+        "stanza": "stage 3/6 NER for en",
+        "lingua": "stage 3/6 language detection (lingua-language-detector)",
+        "chonkie": "stage 5 chunking",
+        "tiktoken": "stage 5 exact token counts (falls back to an estimate)",
+        "rapidfuzz": "stage 6 fuzzy glossary retrieval",
+    }
+    absent = [f"{name} ({why})" for name, why in optional.items() if not _check(name)]
 
     input_dir = paths.default_input_dir()
     output_dir = paths.default_output_dir()
@@ -42,6 +53,10 @@ def main() -> int:
 
     books = sorted(p.name for p in input_dir.glob("*") if p.is_file() and p.name != ".gitkeep")
     print(f"source books: {', '.join(books) if books else '(none)'}")
+    print(
+        "optional deps: "
+        + ("all present" if not absent else "not installed: " + ", ".join(absent))
+    )
     if not books:
         problems.append(f"no source document in {input_dir}")
 

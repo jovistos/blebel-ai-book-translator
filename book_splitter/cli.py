@@ -1,11 +1,20 @@
-"""Command line interface for the two-stage book pipeline.
+"""Command line interface for the multi-stage book pipeline.
 
 Documents live in dedicated folders: sources are read from ``data/input/`` and
 every generated artifact is written under ``data/output/<book>/``. Both can be
 overridden with ``--in-dir`` / ``--out``.
 
 Stage 1 turns the book into chapter files; stage 2 cleans each chapter, one
-chapter at a time.
+chapter at a time; stage 3 reduces each chapter to the raw sentences that carry a
+named entity and then to the sentences that introduce a noun; stage 4 is the LLM
+pass that folder was built for — it walks the first mentions first to last and
+locks in one target-language rendering per entity, feeding each chapter the
+dictionary the earlier ones produced; stage 5 cuts each chapter into
+translation-sized chunks without breaking paragraphs or sentences, with the
+chapter and order of every chunk recorded so the text can be concatenated back;
+stage 6 runs NER over every chunk first, then fuzzy-matches each extracted term
+against the glossary and writes the relevant terms per chunk under the chunk's
+own name.
 
 Examples::
 
@@ -14,9 +23,25 @@ Examples::
     python -m book_splitter split mybook.md               # -> data/output/mybook/chapters/
     python -m book_splitter split mybook.md --out /tmp/out
     python -m book_splitter split mybook.md --dry-run
+    python -m book_splitter split mybook.md --skip-if-present   # reuse existing chapters
+    python -m book_splitter split mybook.md --map my-map.json   # no LLM, no network
     python -m book_splitter preprocess mybook              # -> data/output/mybook/preprocessed/
     python -m book_splitter preprocess mybook --dry-run
     python -m book_splitter scan mybook                    # damage profile, no LLM, no writes
+    python -m book_splitter dictionary mybook              # -> reduced/ and reduced-unique/
+    python -m book_splitter dictionary mybook --language sr --gpu 1
+    python -m book_splitter dictionary mybook --skip-if-present --limit 3
+    python -m book_splitter dictionary mybook --unique-only     # only the first mentions
+    python -m book_splitter glossary mybook                # -> glossary/ (en -> sr)
+    python -m book_splitter glossary mybook -s sr -t en    # the other direction
+    python -m book_splitter glossary mybook --limit 2 --dry-run  # price it first
+    python -m book_splitter glossary mybook --resume       # continue where it stopped
+    python -m book_splitter chunk mybook                   # -> chunks/ (1000-token default)
+    python -m book_splitter chunk mybook --chunk-size 700  # smaller translation units
+    python -m book_splitter chunk mybook --dry-run         # verify the cuts, write nothing
+    python -m book_splitter chunk-glossary mybook          # -> chunk-glossary/ (per chunk)
+    python -m book_splitter chunk-glossary mybook --match-threshold 90
+    python -m book_splitter chunk-glossary mybook --scorer wratio --limit 3
     python -m book_splitter tools --stage preprocess       # list the toolset per stage
 """
 
@@ -31,17 +56,42 @@ from .analysis.candidates import extract_candidates
 from .analysis.headers import assess_headers
 from .analysis.toc import detect_toc_block
 from .core.constants import (
+    CHUNK_GLOSSARY_SCORERS,
+    DEFAULT_CHUNK_GLOSSARY_CANDIDATES,
+    DEFAULT_CHUNK_GLOSSARY_MIN_TERM_CHARS,
+    DEFAULT_CHUNK_GLOSSARY_SCORER,
+    DEFAULT_CHUNK_GLOSSARY_THRESHOLD,
+    DEFAULT_CHUNK_TOKENIZER,
+    DEFAULT_CHUNK_TOKENS,
     DEFAULT_FRONT_MATTER_LINES,
+    DEFAULT_GLOSSARY_ATTEMPTS,
+    DEFAULT_GLOSSARY_CHUNK_CHARS,
+    DEFAULT_GPU_INDEX,
+    DEFAULT_KEEP_ENTITY_TYPES,
     DEFAULT_MAX_CANDIDATES,
     DEFAULT_MAX_HEADERS,
     DEFAULT_MIN_CHAPTERS,
+    DEFAULT_MIN_SENTENCE_WORDS,
     DEFAULT_RECURSION_LIMIT,
+    DEFAULT_SOURCE_LANGUAGE,
+    DEFAULT_TARGET_LANGUAGE,
     MAX_FEEDBACK_LOOPS,
     TOC_SCAN_LINES,
 )
-from .core.errors import ConfigError
+from .core.errors import ConfigError, MissingDependencyError, ToolError
 from .core.settings import PROVIDERS
-from .documents.chapters import discover_chapters, load_split_manifest
+from .documents.chapters import (
+    chapters_dir,
+    chunk_glossary_dir,
+    chunks_dir,
+    discover_chapters,
+    glossary_dir,
+    has_chapter_files,
+    has_chunk_files,
+    load_split_manifest,
+    reduced_dir,
+    unique_dir,
+)
 from .documents.io import load_lines, source_size_bytes
 from .paths import default_input_dir, default_output_dir, resolve_book_path, resolve_output_dir
 
@@ -234,12 +284,730 @@ def _print_preprocess_summary(result, dry_run: bool = False) -> None:
     )
 
 
-def cmd_split(args: argparse.Namespace) -> int:
-    from .agent import run_split  # imported late so `inspect` needs no LLM client
+def _parse_entity_types(value: str | None) -> tuple[str, ...]:
+    """``"PER, loc ,ORG"`` -> ``("PER", "LOC", "ORG")``."""
+    if not value:
+        return DEFAULT_KEEP_ENTITY_TYPES
+    wanted = tuple(part.strip().upper() for part in str(value).split(",") if part.strip())
+    return wanted or DEFAULT_KEEP_ENTITY_TYPES
+
+
+def cmd_dictionary(args: argparse.Namespace) -> int:
+    """Stage 3: reduce each chapter to its entity-bearing sentences, then to first mentions."""
+    from .dictionary import run_dictionary
+
+    # Accept either the chapters folder or the book folder that holds it, exactly
+    # like `scan` and `preprocess` do: `--out data/output/<book>` is a natural
+    # thing to type, and `discover_chapters` resolves the nested `chapters/`
+    # anyway, so the pre-flight check must agree with it.
+    chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
+    if not has_chapter_files(chapters_path):
+        print(
+            f"no chapter files in {chapters_path.expanduser().resolve()} — run `split` first",
+            file=sys.stderr,
+        )
+        return 2
+    out_dir = (
+        Path(args.reduced_out).expanduser() if args.reduced_out else reduced_dir(chapters_path)
+    )
+    # `--unique-only` is the shortcut for "I only want the small list"; otherwise
+    # both folders are written and each can still be switched off on its own.
+    save_reduced = not args.no_save_reduced and not args.unique_only
+    save_unique = not args.no_save_unique
+    unique_out_dir = (
+        Path(args.unique_out).expanduser() if args.unique_out else unique_dir(out_dir)
+    )
+    keep_types = _parse_entity_types(args.keep_types)
+
+    if not args.quiet:
+        device = "cpu" if args.cpu else f"gpu {args.gpu if args.gpu is not None else DEFAULT_GPU_INDEX}"
+        print(f"chapters={chapters_path.expanduser().resolve()}")
+        if save_reduced:
+            print(f"reduced={out_dir.expanduser().resolve()}")
+        if save_unique:
+            print(f"unique={unique_out_dir.expanduser().resolve()}")
+        print(f"language={args.language} device={device} keep_types={','.join(keep_types)}")
+        if not save_reduced and not save_unique:
+            print("save         : nothing is written except the manifest")
+        elif not save_reduced:
+            print("save         : first mentions only (--no-save-reduced)")
+        elif not save_unique:
+            print("save         : reduced chapters only (--no-save-unique)")
+
+    try:
+        result = run_dictionary(
+            str(chapters_path),
+            str(out_dir),
+            unique_output_dir=str(unique_out_dir),
+            language=args.language,
+            gpu=args.gpu,
+            use_gpu=not args.cpu,
+            min_words=args.min_words,
+            require_uppercase=not args.no_uppercase_filter,
+            keep_types=keep_types,
+            drop_temporal_only=args.drop_temporal_only,
+            skip_if_present=args.skip_if_present,
+            save_reduced=save_reduced,
+            save_unique=save_unique,
+            dry_run=args.dry_run,
+            limit=args.limit,
+            example_limit=args.examples,
+            unique_example_limit=args.examples,
+            progress=None if args.quiet else _dictionary_progress,
+        )
+    except MissingDependencyError as exc:
+        print(f"missing dependency: {exc}", file=sys.stderr)
+        return 2
+    except ToolError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        _print_json(result.to_dict())
+        return 0 if result.ok else 1
+    _print_dictionary_summary(result, dry_run=args.dry_run)
+    return 0 if result.ok else 1
+
+
+def _dictionary_progress(chapter: dict, done: int, total: int) -> None:
+    """One line per reduced chapter, printed as it finishes."""
+    unique = chapter.get("unique")
+    tail = f" -> {chapter.get('unique_kept', 0):<5} unique" if unique is not None else ""
+    print(
+        f"  [{done}/{total}] {chapter['filename']:<48} "
+        f"{chapter['sentences']:>5} sentences -> {chapter['kept']:<5} kept{tail}"
+        f"  ner {_human_seconds(float(chapter.get('ner_seconds') or 0.0)):>8}"
+    )
+
+
+def _human_seconds(value: float) -> str:
+    """``0.0213`` -> ``21 ms``; ``389.4`` -> ``6m 29.4s``."""
+    if value < 1:
+        return f"{value * 1000:.0f} ms"
+    if value < 60:
+        return f"{value:.2f} s"
+    minutes, seconds = divmod(value, 60)
+    if minutes < 60:
+        return f"{int(minutes)}m {seconds:04.1f}s"
+    hours, minutes = divmod(int(minutes), 60)
+    return f"{hours}h {minutes:02d}m {seconds:04.1f}s"
+
+
+def _print_dictionary_summary(result, dry_run: bool = False) -> None:
+    language = result.language or {}
+    print()
+    print(
+        f"language        : {language.get('language') or '—'} "
+        f"({language.get('method')}, confidence {language.get('confidence', 0):.2f})"
+        f"  backend: {result.backend or '—'}"
+        + (f" on {result.device}" if result.device else "")
+    )
+    if language.get("note"):
+        print(f"  note          : {language['note']}")
+    totals = result.totals or {}
+    unique_totals = result.unique_totals or {}
+    timing = result.timing or {}
+    save_unique = getattr(result, "save_unique", True)
+
+    def _unique_line(label: str) -> str:
+        dropped = unique_totals.get("dropped_duplicate_noun", 0)
+        return (
+            f"{label:<16}: {unique_totals.get('sentences', 0)} -> "
+            f"{unique_totals.get('kept', 0)} kept "
+            f"(duplicate-noun={dropped}, nouns={unique_totals.get('nouns', 0)})"
+        )
+
+    print(f"chapters        : {result.ok_count}/{result.chapter_count} ok"
+          + (f"  reused: {result.skipped_count}" if result.skipped_count else ""))
+    if result.skipped:
+        print(
+            "nothing to do   : every reduced chapter is already present"
+            + (" (both folders)" if save_unique else "")
+        )
+    else:
+        print(
+            f"sentences       : {totals.get('sentences', 0)} -> {totals.get('kept', 0)} kept"
+        )
+        print(
+            "dropped         : "
+            f"short={totals.get('dropped_short', 0)} "
+            f"no-uppercase={totals.get('dropped_no_uppercase', 0)} "
+            f"no-entity={totals.get('dropped_no_entity', 0)}"
+            + (
+                f" temporal-only={totals.get('dropped_temporal', 0)}"
+                if result.settings.get("drop_temporal_only")
+                else ""
+            )
+        )
+        if save_unique:
+            print(_unique_line("first mentions"))
+        entities = result.entities or {}
+        if entities:
+            print("entities        : " + ", ".join(f"{k}={v}" for k, v in entities.items()))
+        if timing:
+            tagged = int(totals.get("sentences_tagged", 0))
+            print(
+                f"ner time        : {_human_seconds(float(timing.get('ner_seconds', 0.0)))} "
+                f"for {tagged:,} sentence(s)"
+                + (
+                    f"  ({float(timing.get('milliseconds_per_sentence', 0.0)):.1f} ms each, "
+                    f"{float(timing.get('sentences_per_second', 0.0)):.0f}/s)"
+                    if tagged
+                    else ""
+                )
+            )
+            if timing.get("backend_load_seconds"):
+                where = result.device or ("cpu" if result.gpu is None else f"gpu {result.gpu}")
+                print(
+                    f"model load      : "
+                    f"{_human_seconds(float(timing['backend_load_seconds']))} "
+                    f"({result.backend or '—'}, {where})"
+                )
+            print(
+                f"total time      : {_human_seconds(float(timing.get('run_seconds', 0.0)))}"
+                f"  (chapters {_human_seconds(float(timing.get('chapter_seconds', 0.0)))})"
+            )
+    print(f"output dir      : {result.output_dir}")
+    if save_unique and getattr(result, "unique_dir", ""):
+        print(f"unique dir      : {result.unique_dir}")
+    if result.manifest_path:
+        print(f"manifest        : {result.manifest_path}")
+    if result.trace_path:
+        print(f"trace           : {result.trace_path}")
+    if not result.ok:
+        print("\nFAILED chapters:", file=sys.stderr)
+        for error in result.errors:
+            print(f"  - {error}", file=sys.stderr)
+        return
+    if result.skipped:
+        print("\nOK — nothing was written: the existing folders were reused.")
+        return
+    if dry_run:
+        print("\nDRY RUN — every chapter was reduced, nothing was written.")
+        return
+    lines = []
+    if result.save_reduced:
+        lines.append("OK — reduced chapters written.")
+    if save_unique:
+        lines.append("OK — first-mention chapters written.")
+    if not lines:
+        lines.append("OK — the manifest was written; no chapter files.")
+    print("\n" + "\n".join(lines))
+
+
+def cmd_chunk(args: argparse.Namespace) -> int:
+    """Stage 5: cut each chapter into chunks that concatenate back exactly."""
+    from .chunking import run_chunking
+
+    chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
+    if not has_chapter_files(chapters_path):
+        print(
+            f"no chapter files in {chapters_path.expanduser().resolve()} — run `split` first",
+            file=sys.stderr,
+        )
+        return 2
+    if int(args.chunk_size) <= 0:
+        print("error: --chunk-size must be greater than 0 tokens", file=sys.stderr)
+        return 2
+    out_dir = (
+        Path(args.chunks_out).expanduser() if args.chunks_out else chunks_dir(chapters_path)
+    )
+
+    if not args.quiet:
+        print(f"chapters={chapters_path.expanduser().resolve()}")
+        print(f"chunks={out_dir.expanduser().resolve()}")
+        print(
+            f"chunk size={args.chunk_size} tokens  "
+            f"tokenizer={args.chunk_tokenizer}  overlap=0  method=recursive"
+        )
+
+    try:
+        result = run_chunking(
+            str(chapters_path),
+            str(out_dir),
+            chunk_size=args.chunk_size,
+            tokenizer=args.chunk_tokenizer,
+            skip_if_present=args.skip_if_present,
+            dry_run=args.dry_run,
+            limit=args.limit,
+            write_manifest=not args.no_manifest and not args.dry_run,
+            progress=None if args.quiet else _chunk_progress,
+        )
+    except MissingDependencyError as exc:
+        print(f"missing dependency: {exc}", file=sys.stderr)
+        return 2
+    except (ToolError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        _print_json(result.to_dict())
+        return 0 if result.ok else 1
+    _print_chunk_summary(result, dry_run=args.dry_run)
+    return 0 if result.ok else 1
+
+
+def _chunk_progress(chapter: dict, done: int, total: int) -> None:
+    """One line per chunked (or reused) chapter, printed as it finishes."""
+    flag = "reuse" if chapter.get("skipped") else "ok   "
+    print(
+        f"  [{done}/{total}] {flag} {chapter['filename']:<44} "
+        f"{chapter.get('chunk_count', 0):>4} chunk(s)  "
+        f"{int(chapter.get('token_count') or 0):>8,} tok"
+    )
+
+
+def _print_chunk_summary(result, dry_run: bool = False) -> None:
+    settings = result.settings or {}
+    tokenizer = settings.get("tokenizer") or {}
+    verification = result.verification or {}
+    print()
+    print(
+        f"chapters        : {result.ok_count}/{result.chapter_count} ok"
+        + (f"  reused: {result.skipped_count}" if result.skipped_count else "")
+    )
+    print(
+        f"chunks          : {result.chunk_count:,}  "
+        f"(max {int(settings.get('chunk_size') or 0):,} tokens each, overlap 0)"
+    )
+    print(
+        f"tokenizer       : {tokenizer.get('used') or tokenizer.get('requested') or '—'}"
+        + (
+            f"  (requested {tokenizer.get('requested')}; local approximation is in use)"
+            if tokenizer.get("fallback")
+            else ""
+        )
+    )
+    if tokenizer.get("note"):
+        print(f"  note          : {tokenizer['note']}")
+    totals = result.totals or {}
+    print(
+        f"tokens          : {int(totals.get('chapter_tokens') or 0):,} in chapters "
+        f"-> {int(totals.get('chunk_tokens') or 0):,} across chunks"
+    )
+    kinds = verification.get("boundary_counts") or {}
+    shown = ", ".join(f"{kind}={count:,}" for kind, count in kinds.items() if count)
+    if shown:
+        print(f"boundaries      : {shown}")
+    print(
+        f"reconstruction  : chapters={verification.get('chapters_reconstruct_byte_for_byte')} "
+        f"book={verification.get('book_reconstructs_byte_for_byte')} "
+        f"word-breaks={verification.get('word_breaking_chunks', 0)}"
+    )
+    if verification.get("chunk_size_violations"):
+        print(f"  warning       : {verification['chunk_size_violations']} chunk(s) exceed the limit")
+    print(f"output dir      : {result.output_dir}")
+    if result.manifest_path:
+        print(f"manifest        : {result.manifest_path}")
+    if result.trace_path:
+        print(f"trace           : {result.trace_path}")
+    if not result.ok:
+        print("\nFAILED chapters:", file=sys.stderr)
+        for error in result.errors:
+            print(f"  - {error}", file=sys.stderr)
+        return
+    if dry_run:
+        print("\nDRY RUN — every cut was verified, nothing was written.")
+        return
+    if result.skipped:
+        print("\nOK — nothing was written: the existing chunks were reused.")
+        return
+    print(
+        "\nOK — chunks written; concatenate them in filename order to rebuild the book, "
+        "or per chapter via reconstruct_chapter()."
+    )
+
+
+def cmd_chunk_glossary(args: argparse.Namespace) -> int:
+    """Stage 6: NER over every chunk, then fuzzy-match each term to the glossary."""
+    from .chunk_glossary import run_chunk_glossary
+    from .chunk_glossary.runner import resolve_chunks_dir
+
+    chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
+    chunks_path = (
+        resolve_chunks_dir(Path(args.chunks_in).expanduser())
+        if args.chunks_in
+        else chunks_dir(chapters_path)
+    )
+    if not has_chunk_files(chunks_path):
+        print(
+            f"no chunk files in {chunks_path.expanduser().resolve()} — run `chunk` first",
+            file=sys.stderr,
+        )
+        return 2
+    glossary_path = (
+        Path(args.glossary_in).expanduser()
+        if args.glossary_in
+        else glossary_dir(chapters_path)
+    )
+    out_dir = (
+        Path(args.chunk_glossary_out).expanduser()
+        if args.chunk_glossary_out
+        else chunk_glossary_dir(chunks_path)
+    )
+    keep_types = _parse_entity_types(args.keep_types)
+
+    if not 0.0 <= float(args.threshold) <= 100.0:
+        print(
+            "error: --match-threshold is a percentage between 0 and 100",
+            file=sys.stderr,
+        )
+        return 2
+    if int(args.candidates) <= 0:
+        print("error: --match-candidates must be greater than 0", file=sys.stderr)
+        return 2
+    if int(args.min_term_chars) < 0:
+        print("error: --min-term-chars cannot be negative", file=sys.stderr)
+        return 2
+
+    if not args.quiet:
+        print(f"chapters={chapters_path.expanduser().resolve()}")
+        print(f"chunks={chunks_path.expanduser().resolve()}")
+        print(f"glossary={glossary_path.expanduser().resolve()}")
+        print(f"chunk-glossary={out_dir.expanduser().resolve()}")
+        print(
+            f"language={args.language}  threshold={args.threshold}  "
+            f"scorer={args.scorer}  candidates={args.candidates}  "
+            f"keep_types={','.join(keep_types)}  min_term_chars={args.min_term_chars}"
+        )
+        print("phases      : ner over every chunk, then fuzzy retrieval for every term")
+        if not args.drop_temporal_only:
+            print("              dates/times are kept; pass --drop-temporal-only to skip them")
+
+    try:
+        result = run_chunk_glossary(
+            str(chunks_path),
+            str(out_dir),
+            glossary_path=str(glossary_path),
+            language=args.language,
+            gpu=args.gpu,
+            use_gpu=not args.cpu,
+            keep_types=keep_types,
+            min_term_chars=args.min_term_chars,
+            drop_temporal_only=args.drop_temporal_only,
+            threshold=args.threshold,
+            scorer=args.scorer,
+            candidates=args.candidates,
+            dry_run=args.dry_run,
+            limit=args.limit,
+            write_manifest=not args.no_manifest and not args.dry_run,
+            progress=None if args.quiet else _chunk_glossary_progress,
+        )
+    except MissingDependencyError as exc:
+        print(f"missing dependency: {exc}", file=sys.stderr)
+        return 2
+    except ToolError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        _print_json(result.to_dict())
+        return 0 if result.ok else 1
+    _print_chunk_glossary_summary(result, dry_run=args.dry_run)
+    return 0 if result.ok else 1
+
+
+def _chunk_glossary_progress(chunk: dict, done: int, total: int) -> None:
+    """One line per chunk, printed as the retrieval phase finishes it."""
+    flag = "ok   " if chunk.get("ok") else "FAIL "
+    print(
+        f"  [{done}/{total}] {flag} {chunk['filename']:<44} "
+        f"entities={chunk.get('entity_count', 0):>3}  "
+        f"terms={chunk.get('term_count', 0):>3}  "
+        f"matched={chunk.get('matched_count', 0):>3}  "
+        f"unmatched={chunk.get('unmatched_count', 0):>3}"
+    )
+
+
+def _print_chunk_glossary_summary(result, dry_run: bool = False) -> None:
+    language = result.language or {}
+    settings = result.settings or {}
+    totals = result.totals or {}
+    timing = result.timing or {}
+    print()
+    print(
+        f"language        : {language.get('language') or '—'} "
+        f"({language.get('method')}, confidence {language.get('confidence', 0):.2f})"
+        f"  backend: {result.backend or '—'}"
+        + (f" on {result.device}" if result.device else "")
+    )
+    if language.get("note"):
+        print(f"  note          : {language['note']}")
+    print(f"chunks          : {result.ok_count}/{result.chunk_count} ok")
+    print(
+        f"entities        : {int(totals.get('entity_mentions') or 0):,} mention(s) "
+        f"-> {int(totals.get('terms') or 0):,} distinct term(s)"
+    )
+    print(f"glossary        : {result.entry_count:,} entr"
+          f"{'y' if result.entry_count == 1 else 'ies'} loaded")
+    print(
+        f"matched         : {int(totals.get('matched_terms') or 0):,} term(s) in "
+        f"{int(totals.get('matched_chunks') or 0):,} chunk(s)  "
+        f"(threshold {settings.get('threshold')}%, scorer {settings.get('scorer')}, "
+        f"unique dictionary entries {int(totals.get('unique_matched_glossary_terms') or 0):,})"
+    )
+    print(f"unmatched       : {int(totals.get('unmatched_terms') or 0):,} term(s)")
+    phases = result.phases or []
+    for phase in phases:
+        print(
+            f"{phase.get('name', 'phase'):<16}: "
+            f"{_human_seconds(float(phase.get('seconds') or 0.0))} "
+            f"for {int(phase.get('chunks') or 0):,} chunk(s)"
+        )
+    if timing:
+        print(f"total time      : {_human_seconds(float(timing.get('run_seconds') or 0.0))}")
+    print(f"output dir      : {result.output_dir}")
+    if result.manifest_path:
+        print(f"manifest        : {result.manifest_path}")
+    if result.trace_path:
+        print(f"trace           : {result.trace_path}")
+    if not result.ok:
+        print("\nFAILED chunks:", file=sys.stderr)
+        for error in result.errors:
+            print(f"  - {error}", file=sys.stderr)
+        return
+    if dry_run:
+        print("\nDRY RUN — both phases ran, nothing was written.")
+        return
+    if result.matched_term_count == 0:
+        print(
+            "\nOK — no chunk term reached the glossary; every chunk file records the "
+            "unmatched terms and their closest candidate."
+        )
+        return
+    print(
+        f"\nOK — {int(totals.get('matched_terms') or 0):,} relevant term(s) saved, "
+        "one file per chunk under the chunk's own name."
+    )
+
+
+def cmd_glossary(args: argparse.Namespace) -> int:
+    """Stage 4: build the book-wide glossary, one chapter at a time, first to last."""
     from .core.settings import resolve_settings
+    from .glossary import run_glossary
+    from .glossary.runner import resolve_sentences_dir
+
+    chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
+    if not has_chapter_files(chapters_path):
+        print(
+            f"no chapter files in {chapters_path.expanduser().resolve()} — run `split` first",
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        sentences_path = resolve_sentences_dir(
+            chapters_path, sentences_dir=args.sentences_in, sentences=args.sentences
+        )
+    except ToolError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    out_dir = (
+        Path(args.glossary_out).expanduser() if args.glossary_out else glossary_dir(chapters_path)
+    )
+
+    # The key is resolved before the run so a setup problem is one line, not a
+    # traceback from inside a provider client. A fully resumed run needs no key —
+    # it never calls the model — so a missing credential is carried, not fatal.
+    settings = None
+    config_error: ConfigError | None = None
+    try:
+        settings = resolve_settings(
+            provider=args.provider,
+            model=args.model,
+            base_url=args.base_url,
+            api_key=args.api_key,
+            temperature=args.temperature,
+        )
+    except ConfigError as exc:
+        config_error = exc
+
+    if not args.quiet:
+        where = (
+            f"{settings.provider}/{settings.model}"
+            if settings is not None
+            else "no model resolved"
+        )
+        print(f"chapters={chapters_path.expanduser().resolve()}")
+        print(f"sentences={sentences_path.expanduser().resolve()} ({args.sentences})")
+        print(f"glossary={out_dir.expanduser().resolve()}")
+        print(
+            f"language={args.source_language} -> {args.target_language}  "
+            f"model={where}  method={args.extraction_method}  attempts<={args.max_attempts}"
+        )
+        skipped = []
+        if not args.include_front_matter:
+            skipped.append("front matter")
+        if not args.include_back_matter:
+            skipped.append("back matter")
+        if skipped:
+            print(f"skip        : {', '.join(skipped)}")
+
+    try:
+        result = run_glossary(
+            str(chapters_path),
+            str(out_dir),
+            sentences_dir=str(sentences_path),
+            sentences=args.sentences,
+            source_language=args.source_language,
+            target_language=args.target_language,
+            book_title=args.book_title or "",
+            settings=settings,
+            max_attempts=args.max_attempts,
+            method=args.extraction_method,
+            max_tokens=args.max_tokens or None,
+            chunk_chars=args.max_chapter_chars,
+            max_context_entries=args.max_context_entries,
+            include_front_matter=args.include_front_matter,
+            include_back_matter=args.include_back_matter,
+            skip_if_present=args.resume,
+            dry_run=args.dry_run,
+            limit=args.limit,
+            progress=None if args.quiet else _glossary_progress,
+        )
+    except ConfigError as exc:
+        print(f"error: {config_error or exc}", file=sys.stderr)
+        return 2
+    except ToolError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        _print_json(result.to_dict())
+        return 0 if result.ok else 1
+    _print_glossary_summary(result, dry_run=args.dry_run)
+    return 0 if result.ok else 1
+
+
+def _glossary_progress(chapter: dict, done: int, total: int) -> None:
+    """One line per chapter, printed as its answer is folded into the dictionary."""
+    tokens = chapter.get("tokens") or {}
+    print(
+        f"  [{done}/{total}] {chapter['filename']:<44} "
+        f"{chapter['added']:>4} new  {chapter['repeats']:>3} locked  "
+        f"{chapter['conflicts']:>2} conflict  "
+        f"{int(tokens.get('total_tokens') or 0):>8,} tok  "
+        f"{chapter['attempts']} attempt(s)"
+    )
+
+
+def _print_glossary_summary(result, dry_run: bool = False) -> None:
+    print()
+    print(
+        f"glossary        : {result.source_language} -> {result.target_language}"
+        f"  {result.provider or '—'}/{result.model or '—'}"
+    )
+    if (getattr(result, "settings", None) or {}).get("json_only"):
+        print(
+            "  note          : the provider rejected native structured output; "
+            "the run used JSON mode"
+        )
+    print(
+        f"chapters        : {result.ok_count}/{result.body_chapter_count} body chapter(s) "
+        "processed"
+        + (f"  reused: {result.reused_count}" if result.reused_count else "")
+        + (f"  skipped: {result.skipped_count}" if result.skipped_count else "")
+    )
+    categories = result.categories or {}
+    print(
+        f"entries         : {result.entry_count}"
+        + (
+            "  (" + ", ".join(f"{name}={count}" for name, count in categories.items()) + ")"
+            if categories
+            else ""
+        )
+    )
+    if result.conflicts:
+        print(f"conflicts       : {len(result.conflicts)} (the first rendering stands)")
+        for conflict in result.conflicts[:3]:
+            print(
+                f"    - {conflict.get('term')}: locked {conflict.get('locked')!r}, "
+                f"{conflict.get('chapter_filename')} proposed {conflict.get('proposed')!r}"
+            )
+        if len(result.conflicts) > 3:
+            print(f"    … and {len(result.conflicts) - 3} more (see the manifest)")
+    tokens = result.tokens or {}
+    chapters_with_calls = int(tokens.get("chapters") or 0)
+    print(
+        f"tokens used     : {int(tokens.get('total_tokens') or 0):,} total "
+        f"({int(tokens.get('input_tokens') or 0):,} in, "
+        f"{int(tokens.get('output_tokens') or 0):,} out) "
+        f"over {chapters_with_calls} chapter(s), {int(tokens.get('calls') or 0)} call(s)"
+    )
+    timing = result.timing or {}
+    if timing:
+        print(
+            f"time            : {_human_seconds(float(timing.get('run_seconds', 0.0)))}"
+            f"  (model {_human_seconds(float(timing.get('model_seconds', 0.0)))})"
+            f"  {float(timing.get('seconds_per_chapter', 0.0)):.1f} s/chapter"
+        )
+    if result.resumed:
+        print(
+            f"resumed         : {result.reused_count} chapter(s) reused from the manifest"
+        )
+    print(f"output dir      : {result.output_dir}")
+    if result.glossary_path:
+        print(f"glossary        : {result.glossary_path}")
+    if result.markdown_path:
+        print(f"markdown        : {result.markdown_path}")
+    if result.manifest_path:
+        print(f"manifest        : {result.manifest_path}")
+    if result.trace_path:
+        print(f"trace           : {result.trace_path}")
+    if not result.ok:
+        print("\nFAILED chapters:", file=sys.stderr)
+        for error in result.errors:
+            print(f"  - {error}", file=sys.stderr)
+        return
+    if dry_run:
+        print("\nDRY RUN — every chapter was asked, nothing was written.")
+        return
+    if result.entry_count == 0:
+        print("\nOK — no entity was found; the glossary is empty.")
+        return
+    print(f"\nOK — {result.entry_count} entr{'y' if result.entry_count == 1 else 'ies'} locked in.")
+
+
+def cmd_split(args: argparse.Namespace) -> int:
+    from .agent import run_split, run_split_from_map
+    from .core.errors import ToolError
+    from .core.settings import resolve_settings
+    from .slicing.mapfile import load_split_map
 
     source = _resolve_book(args)
     out_dir = resolve_output_dir(source, args.out)
+
+    if getattr(args, "skip_if_present", False) and not args.dry_run and has_chapter_files(out_dir):
+        # Checked here, before any provider settings are resolved: a run that is
+        # going to be skipped must not need an API key either.
+        from .agent import result_from_existing_chapters
+
+        if not args.quiet:
+            print(f"source={source}")
+            print(f"output={out_dir.expanduser().resolve()}")
+        return _report_split(result_from_existing_chapters(out_dir), args)
+
+    if getattr(args, "map", None):
+        # A supplied map needs no provider, no key and no network.
+        try:
+            mapping, notes = load_split_map(args.map)
+        except ToolError as exc:
+            print(f"map error: {exc}", file=sys.stderr)
+            return 2
+        if not args.quiet:
+            print(f"map={Path(args.map).expanduser()}")
+            print(f"source={source}")
+            print(f"output={out_dir.expanduser().resolve()}")
+            for note in notes:
+                print(f"  · {note}")
+        result = run_split_from_map(
+            str(source),
+            str(out_dir),
+            mapping,
+            min_chapters=args.min_chapters,
+            include_front_matter=not args.no_front_matter,
+            dry_run=args.dry_run,
+        )
+        return _report_split(result, args)
 
     try:
         settings = resolve_settings(
@@ -269,7 +1037,11 @@ def cmd_split(args: argparse.Namespace) -> int:
         dry_run=args.dry_run,
         recursion_limit=args.recursion_limit,
     )
+    return _report_split(result, args)
 
+
+def _report_split(result, args: argparse.Namespace) -> int:
+    """Print one split run (agent or supplied map) and return the exit code."""
     if not args.quiet:
         for line in result.log:
             print(f"  · {line}")
@@ -289,17 +1061,22 @@ def _print_summary(result, dry_run: bool = False) -> None:
     print(f"chapters        : {result.chapter_count}")
     print(f"output dir      : {result.output_dir}")
     if result.verification:
-        print(f"byte-for-byte   : {result.verification.get('reassembles_byte_for_byte')}")
-        print(
-            f"lines           : {result.verification.get('output_lines')}"
-            f"/{result.verification.get('source_lines')}"
-        )
+        if "reassembles_byte_for_byte" in result.verification:
+            print(f"byte-for-byte   : {result.verification.get('reassembles_byte_for_byte')}")
+            print(
+                f"lines           : {result.verification.get('output_lines')}"
+                f"/{result.verification.get('source_lines')}"
+            )
+        elif result.verification.get("reused_existing_chapters"):
+            print("reused          : chapter files were already there; nothing was re-sliced")
     if result.files:
         print("files:")
         for f in result.files:
+            start, end = f.get("start_line"), f.get("end_line")
+            span = f"{start:>5}-{end:<5}" if start is not None and end is not None else " " * 11
             print(
-                f"  {f['filename']:<52} lines {f['start_line']:>5}-{f['end_line']:<5} "
-                f"{f['bytes']:>8} B"
+                f"  {f.get('filename', '?'):<52} lines {span} "
+                f"{int(f.get('bytes') or 0):>8} B"
             )
     if result.trace_path:
         print(f"trace           : {result.trace_path}")
@@ -318,10 +1095,15 @@ def _print_summary(result, dry_run: bool = False) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="book_splitter",
-        description="Two LangGraph agents that turn a Markdown book into clean chapter files: "
-        "`split` cuts it into chapters without reading the body, `preprocess` repairs each "
-        "chapter's headers and conversion damage one chapter at a time. Sources come from "
-        "data/input/, output goes to data/output/<book>/.",
+        description="Two LangGraph agents, a dictionary funnel, a glossary pass, a "
+        "reversible chunker and a per-chunk glossary matcher turn a Markdown book into "
+        "translation-ready material: `split` cuts it into chapters without reading the "
+        "body, `preprocess` repairs each chapter's headers and conversion damage one "
+        "chapter at a time, `dictionary` reduces each chapter to the sentences that carry "
+        "a named entity, `glossary` locks one rendering per term, `chunk` cuts each "
+        "chapter into sentence-safe chunks that concatenate back exactly, and "
+        "`chunk-glossary` tags every chunk and attaches the glossary terms it mentions. "
+        "Sources come from data/input/, output goes to data/output/<book>/.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -379,6 +1161,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="output folder for chapter files "
         f"(default: {default_output_dir()}/<book>/chapters)",
     )
+    p_split.add_argument(
+        "--map",
+        default=None,
+        metavar="FILE",
+        help="replay a chapter map from a JSON file instead of running the agent "
+        "(no API key, no network); see book_splitter/slicing/mapfile.py for the format",
+    )
     p_split.add_argument("--provider", choices=sorted(PROVIDERS), default=None)
     p_split.add_argument("--model", default=None)
     p_split.add_argument("--base-url", default=None)
@@ -407,6 +1196,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-front-matter",
         action="store_true",
         help="do not write 00-front-matter.md (content before chapter 1)",
+    )
+    p_split.add_argument(
+        "--skip-if-present",
+        action="store_true",
+        help="reuse the chapter files already in the output folder instead of "
+        "splitting again (no model, no key, and the existing trace is left alone)",
     )
     p_split.add_argument(
         "--dry-run", action="store_true", help="validate the plan but write no chapter files"
@@ -476,6 +1271,397 @@ def build_parser() -> argparse.ArgumentParser:
         help="validate every chapter's plan but write no files",
     )
     p_pre.set_defaults(func=cmd_preprocess)
+
+    p_dict = sub.add_parser(
+        "dictionary",
+        help="stage 3: reduce each chapter to its entity-bearing sentences "
+        "(sentence split -> uppercase filter -> 4-word floor -> NER gate), then to "
+        "the sentences that introduce a noun (first mentions only)",
+    )
+    add_book(p_dict, required=False)
+    p_dict.add_argument(
+        "--out",
+        "-o",
+        default=None,
+        help="the chapters folder from stage 1 (default: data/output/<book>/chapters); "
+        "point it at data/output/<book>/preprocessed to reduce the cleaned text instead",
+    )
+    p_dict.add_argument(
+        "--reduced-out",
+        default=None,
+        help="where to write the reduced chapters (default: data/output/<book>/reduced)",
+    )
+    p_dict.add_argument(
+        "--unique-out",
+        default=None,
+        help="where to write the first-mention chapters "
+        "(default: a sibling of the reduced folder, data/output/<book>/reduced-unique)",
+    )
+    p_dict.add_argument(
+        "--language",
+        default="auto",
+        help="'auto' samples a few chapters and detects the language; otherwise an "
+        "ISO code: sr, hr, sl, bg (CLASSLA) or en (stanza)",
+    )
+    p_dict.add_argument(
+        "--gpu",
+        type=int,
+        default=None,
+        help=f"physical GPU to pin the tagger to (default: GPU {DEFAULT_GPU_INDEX}, or "
+        "$CUDA_VISIBLE_DEVICES when that is already set)",
+    )
+    p_dict.add_argument("--cpu", action="store_true", help="run the tagger on the CPU")
+    p_dict.add_argument(
+        "--min-words",
+        type=int,
+        default=DEFAULT_MIN_SENTENCE_WORDS,
+        help=f"drop sentences with fewer words than this (default: {DEFAULT_MIN_SENTENCE_WORDS})",
+    )
+    p_dict.add_argument(
+        "--no-uppercase-filter",
+        action="store_true",
+        help="do not drop sentences whose only capital letter is the first word",
+    )
+    p_dict.add_argument(
+        "--keep-types",
+        default=",".join(DEFAULT_KEEP_ENTITY_TYPES),
+        help="entity types that make a sentence survive "
+        f"(default: {','.join(DEFAULT_KEEP_ENTITY_TYPES)})",
+    )
+    p_dict.add_argument(
+        "--drop-temporal-only",
+        action="store_true",
+        help="also drop a sentence when every entity in it is a date or a time",
+    )
+    p_dict.add_argument(
+        "--skip-if-present",
+        action="store_true",
+        help="reuse a chapter whose reduced (and first-mention) file already exists; a "
+        "fully reduced book returns without loading a tagger",
+    )
+    p_dict.add_argument(
+        "--no-save-reduced",
+        action="store_true",
+        help="write no reduced chapters; the manifest and the first-mention chapters "
+        "still land",
+    )
+    p_dict.add_argument(
+        "--no-save-unique",
+        action="store_true",
+        help="write no first-mention chapters, only the reduced ones",
+    )
+    p_dict.add_argument(
+        "--unique-only",
+        action="store_true",
+        help="write only the first-mention chapters (implies --no-save-reduced)",
+    )
+    p_dict.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="reduce only the first N chapters (a quick look while tuning the filters)",
+    )
+    p_dict.add_argument(
+        "--examples",
+        type=int,
+        default=5,
+        help="dropped-sentence examples kept per reason in the trace (default: 5)",
+    )
+    p_dict.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="reduce every chapter but write no reduced file, manifest or trace",
+    )
+    p_dict.add_argument("--json", action="store_true", help="machine-readable result")
+    p_dict.add_argument("--quiet", "-q", action="store_true")
+    p_dict.set_defaults(func=cmd_dictionary)
+
+    p_chunk = sub.add_parser(
+        "chunk",
+        help="stage 5: cut each chapter into translation-sized chunks without "
+        "breaking paragraphs or sentences; every chunk is an exact source slice "
+        "and the manifest records its chapter and global order",
+    )
+    add_book(p_chunk, required=False)
+    p_chunk.add_argument(
+        "--out",
+        "-o",
+        default=None,
+        help="the chapters folder from stage 1 (default: data/output/<book>/chapters); "
+        "point it at data/output/<book>/preprocessed to chunk the cleaned text instead",
+    )
+    p_chunk.add_argument(
+        "--chunks-out",
+        default=None,
+        help="where to write the chunk files "
+        "(default: data/output/<book>/chunks, a sibling of the input folder)",
+    )
+    p_chunk.add_argument(
+        "--chunk-size",
+        type=int,
+        default=DEFAULT_CHUNK_TOKENS,
+        help=f"maximum chunk length in tokens (default: {DEFAULT_CHUNK_TOKENS})",
+    )
+    p_chunk.add_argument(
+        "--chunk-tokenizer",
+        default=DEFAULT_CHUNK_TOKENIZER,
+        help="tokenizer used to measure a chunk: a tiktoken encoding "
+        f"(default: {DEFAULT_CHUNK_TOKENIZER}), 'word', 'character', 'byte', or a "
+        "Hugging Face tokenizer name; falls back to a local approximation offline",
+    )
+    p_chunk.add_argument(
+        "--skip-if-present",
+        action="store_true",
+        help="reuse a chapter whose recorded chunk files still concatenate to its "
+        "current text; a fully chunked book needs no tokenizer at all",
+    )
+    p_chunk.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="chunk only the first N chapters (a quick look before a full run)",
+    )
+    p_chunk.add_argument(
+        "--no-manifest",
+        action="store_true",
+        help="do not write _chunk_manifest.json / _chunk_trace.json",
+    )
+    p_chunk.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="compute and verify every cut but write no chunk file, manifest or trace",
+    )
+    p_chunk.add_argument("--json", action="store_true", help="machine-readable result")
+    p_chunk.add_argument("--quiet", "-q", action="store_true")
+    p_chunk.set_defaults(func=cmd_chunk)
+
+    p_cg = sub.add_parser(
+        "chunk-glossary",
+        help="stage 6: run NER over every chunk first, then fuzzy-match each "
+        "extracted term against glossary.json (rapidfuzz) and write the relevant "
+        "terms per chunk, under the chunk's own name",
+    )
+    add_book(p_cg, required=False)
+    p_cg.add_argument(
+        "--out",
+        "-o",
+        default=None,
+        help="the chapters folder from stage 1 (default: data/output/<book>/chapters); "
+        "the chunks and glossary folders are derived from the book folder",
+    )
+    p_cg.add_argument(
+        "--chunks-in",
+        default=None,
+        help="the chunks folder from stage 5 (default: data/output/<book>/chunks); "
+        "a book folder or the _chunk_manifest.json is also accepted",
+    )
+    p_cg.add_argument(
+        "--glossary-in",
+        default=None,
+        help="the glossary folder or glossary.json from stage 4 "
+        "(default: data/output/<book>/glossary/glossary.json)",
+    )
+    p_cg.add_argument(
+        "--chunk-glossary-out",
+        default=None,
+        help="where the per-chunk JSON files land "
+        "(default: data/output/<book>/chunk-glossary)",
+    )
+    p_cg.add_argument(
+        "--language",
+        default="auto",
+        help="'auto' samples a few chunks and detects the language; otherwise an "
+        "ISO code: sr, hr, sl, bg (CLASSLA) or en (stanza)",
+    )
+    p_cg.add_argument(
+        "--gpu",
+        type=int,
+        default=None,
+        help=f"physical GPU to pin the tagger to (default: GPU {DEFAULT_GPU_INDEX}, or "
+        "$CUDA_VISIBLE_DEVICES when that is already set)",
+    )
+    p_cg.add_argument("--cpu", action="store_true", help="run the tagger on the CPU")
+    p_cg.add_argument(
+        "--keep-types",
+        default=",".join(DEFAULT_KEEP_ENTITY_TYPES),
+        help="entity types that count as a term "
+        f"(default: {','.join(DEFAULT_KEEP_ENTITY_TYPES)})",
+    )
+    p_cg.add_argument(
+        "--min-term-chars",
+        type=int,
+        default=DEFAULT_CHUNK_GLOSSARY_MIN_TERM_CHARS,
+        help="drop extracted terms shorter than this "
+        f"(default: {DEFAULT_CHUNK_GLOSSARY_MIN_TERM_CHARS})",
+    )
+    p_cg.add_argument(
+        "--drop-temporal-only",
+        action="store_true",
+        help="do not extract dates and times (they cannot be in the glossary)",
+    )
+    p_cg.add_argument(
+        "--threshold",
+        "--match-threshold",
+        dest="threshold",
+        type=float,
+        default=DEFAULT_CHUNK_GLOSSARY_THRESHOLD,
+        help="minimum rapidfuzz score, as a percentage "
+        f"(default: {DEFAULT_CHUNK_GLOSSARY_THRESHOLD}); lower is more permissive",
+    )
+    p_cg.add_argument(
+        "--scorer",
+        choices=CHUNK_GLOSSARY_SCORERS,
+        default=DEFAULT_CHUNK_GLOSSARY_SCORER,
+        help="rapidfuzz scorer: ratio is strict; token_sort_ratio ignores word "
+        "order; wratio tolerates partial names "
+        f"(default: {DEFAULT_CHUNK_GLOSSARY_SCORER})",
+    )
+    p_cg.add_argument(
+        "--candidates",
+        type=int,
+        default=DEFAULT_CHUNK_GLOSSARY_CANDIDATES,
+        help="glossary candidates retrieved per term; the best is the match and the "
+        f"rest are recorded as alternatives (default: {DEFAULT_CHUNK_GLOSSARY_CANDIDATES})",
+    )
+    p_cg.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="tag and match only the first N chunks (a quick look before a full run)",
+    )
+    p_cg.add_argument(
+        "--no-manifest",
+        action="store_true",
+        help="do not write _chunk_glossary_manifest.json / _chunk_glossary_trace.json",
+    )
+    p_cg.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="run both phases but write no per-chunk file, manifest or trace",
+    )
+    p_cg.add_argument("--json", action="store_true", help="machine-readable result")
+    p_cg.add_argument("--quiet", "-q", action="store_true")
+    p_cg.set_defaults(func=cmd_chunk_glossary)
+
+    p_gloss = sub.add_parser(
+        "glossary",
+        help="stage 4: walk the reduced chapters first to last and build one "
+        "book-wide dictionary (term, category, locked target-language translation, "
+        "context) with an LLM, feeding each chapter the dictionary so far",
+    )
+    add_book(p_gloss, required=False)
+    p_gloss.add_argument(
+        "--out",
+        "-o",
+        default=None,
+        help="the chapters folder from stage 1 (default: data/output/<book>/chapters)",
+    )
+    p_gloss.add_argument(
+        "--sentences",
+        choices=("unique", "reduced"),
+        default="unique",
+        help="which stage-3 folder to mine: 'unique' first mentions (default) or "
+        "'reduced' every entity-bearing sentence",
+    )
+    p_gloss.add_argument(
+        "--sentences-in",
+        default=None,
+        help="read the sentences from this folder instead of deriving it from --out",
+    )
+    p_gloss.add_argument(
+        "--glossary-out",
+        default=None,
+        help="where to write glossary.json / glossary.md "
+        "(default: data/output/<book>/glossary)",
+    )
+    p_gloss.add_argument(
+        "--source-language",
+        "-s",
+        default=DEFAULT_SOURCE_LANGUAGE,
+        help=f"the language the book is written in (default: {DEFAULT_SOURCE_LANGUAGE})",
+    )
+    p_gloss.add_argument(
+        "--target-language",
+        "-t",
+        default=DEFAULT_TARGET_LANGUAGE,
+        help=f"the language being translated into (default: {DEFAULT_TARGET_LANGUAGE})",
+    )
+    p_gloss.add_argument(
+        "--book-title",
+        default=None,
+        help="the title the prompt uses (default: the source filename from stage 1)",
+    )
+    p_gloss.add_argument(
+        "--include-front-matter",
+        action="store_true",
+        help="also mine the front matter (skipped by default)",
+    )
+    p_gloss.add_argument(
+        "--include-back-matter",
+        action="store_true",
+        help="also mine the back matter (skipped by default)",
+    )
+    p_gloss.add_argument(
+        "--max-attempts",
+        type=int,
+        default=DEFAULT_GLOSSARY_ATTEMPTS,
+        help="model calls allowed per chapter before it is reported as failed "
+        f"(default: {DEFAULT_GLOSSARY_ATTEMPTS})",
+    )
+    p_gloss.add_argument(
+        "--extraction-method",
+        choices=("auto", "structured", "json"),
+        default="auto",
+        help="'auto' asks for native structured output and falls back to JSON mode on "
+        "the last attempt (default)",
+    )
+    p_gloss.add_argument(
+        "--max-tokens",
+        type=int,
+        default=8192,
+        help="response cap per model call (default: 8192); 0 leaves it to the provider",
+    )
+    p_gloss.add_argument(
+        "--max-chapter-chars",
+        type=int,
+        default=DEFAULT_GLOSSARY_CHUNK_CHARS,
+        help="split a chapter larger than this into parts, carrying the dictionary "
+        f"across them (default: {DEFAULT_GLOSSARY_CHUNK_CHARS})",
+    )
+    p_gloss.add_argument(
+        "--max-context-entries",
+        type=int,
+        default=0,
+        help="cap the dictionary sent with each chapter (0 = send all; a cap trades a "
+        "little consistency for input tokens on a long book)",
+    )
+    p_gloss.add_argument(
+        "--resume",
+        "--skip-if-present",
+        dest="resume",
+        action="store_true",
+        help="reuse the glossary and the chapters already in the manifest, and start "
+        "at the first chapter that is missing",
+    )
+    p_gloss.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="process only the first N body chapters (a quick look before a full run)",
+    )
+    p_gloss.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="ask the model for every chapter but write no glossary, manifest or trace",
+    )
+    p_gloss.add_argument("--provider", choices=sorted(PROVIDERS), default=None)
+    p_gloss.add_argument("--model", default=None)
+    p_gloss.add_argument("--base-url", default=None)
+    p_gloss.add_argument("--api-key", default=None)
+    p_gloss.add_argument("--temperature", type=float, default=0.0)
+    p_gloss.add_argument("--json", action="store_true", help="machine-readable result")
+    p_gloss.add_argument("--quiet", "-q", action="store_true")
+    p_gloss.set_defaults(func=cmd_glossary)
     return parser
 
 
@@ -483,7 +1669,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         return int(args.func(args))
-    except FileNotFoundError as exc:
+    except OSError as exc:
+        # Includes FileNotFoundError: any disk-level problem (a read-only cache, a
+        # missing folder on a computed path) is one actionable line, not a traceback.
         print(f"error: {exc}", file=sys.stderr)
         return 2
 

@@ -129,7 +129,7 @@ def test_starts_with_lowercase_is_a_continuation_not_a_title():
         ("... terapija us12 merena na telo", "... terapija usmerena na telo"),
         ("diskusija o disfunkcional38 nost smanjuje", "diskusija o disfunkcionalnost smanjuje"),
         ("Kao adoles90 cent, krao je", "Kao adolescent, krao je"),
-        ("Drža117 vama\", pisao je", "Državama\", pisao je"),
+        ('Drža117 vama", pisao je', 'Državama", pisao je'),
         ("koji pot122 padaju pod kontrolu", "koji potpadaju pod kontrolu"),
         ("pažljivu psi182 ljutnje.", "pažljivu psiljutnje."),
         ("Ako se koncen192 trišemo", "Ako se koncentrišemo"),
@@ -166,7 +166,9 @@ def test_a_leading_page_number_is_removed_with_its_space(source, expected):
 
 
 def test_space_before_punctuation_is_repaired():
-    assert repair_space_before_punctuation("Sve je mišić , kao i svaki") == "Sve je mišić, kao i svaki"
+    assert (
+        repair_space_before_punctuation("Sve je mišić , kao i svaki") == "Sve je mišić, kao i svaki"
+    )
     assert repair_space_before_punctuation("pomoć , i to") == "pomoć, i to"
     assert repair_space_before_punctuation("nema šta da se menja") == "nema šta da se menja"
 
@@ -435,15 +437,17 @@ def test_removing_a_sentence_that_mentions_a_figure_is_rejected(tmp_path):
     assert not validate_cleaning_plan(path, [{"line_number": 3, "decision": "demote"}])["ok"]
 
 
-def test_the_corpus_scan_counts_plain_page_numbers_and_captions():
+def test_the_corpus_scan_counts_plain_page_numbers_and_captions(sample):
     from book_splitter.documents.chapters import discover_chapters
+    from book_splitter.paths import book_chapters_dir
     from book_splitter.preprocess.corpus import scan_corpus_damage
 
-    chapters_path = Path(__file__).resolve().parent.parent / "data" / "output"
-    found = [p for p in chapters_path.glob("*/chapters") if (p / "_manifest.json").is_file()]
-    if not found:
-        pytest.skip("no split book in data/output")
-    report = scan_corpus_damage(discover_chapters(found[0]))
+    # The *sample* book's folder, named explicitly: data/output may hold other
+    # books (each with its own damage profile), and globbing picks one at random.
+    chapters = book_chapters_dir(sample)
+    if not (chapters / "_manifest.json").is_file():
+        pytest.skip("the sample book has not been split into data/output yet")
+    report = scan_corpus_damage(discover_chapters(chapters))
     # the sample book has both kinds of artefact in measurable numbers
     assert report["counts"]["page_number_header"] > 0
     assert report["counts"]["plain_page_number"] > 0

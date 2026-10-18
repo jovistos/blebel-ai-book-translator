@@ -16,8 +16,15 @@ part of the registration, not of a hand-maintained list:
 
 ``split`` (stage 1)
     ``agent/tools/extract.py`` (native TOC, front matter, TOC block),
-    ``toc.py`` (TOC title location, heuristics), ``proposal.py`` (the tools the
-    agent answers through), ``execution.py`` (slicing and verification).
+    ``toc.py`` (TOC title location, heuristics), ``search.py`` (a regex the
+    agent writes, for books whose markers one pattern describes),
+    ``tail.py`` (the end of the book: is there back matter, and where does it
+    start — read through an escalating window),
+    ``websearch.py`` (``web_search`` / ``fetch_web_page``: the published chapter
+    list of a book that lost its own TOC, the only tools here that use the
+    network),
+    ``proposal.py`` (the tools the agent answers through), ``execution.py``
+    (slicing and verification).
 
 ``preprocess`` (stage 2)
     ``agent/tools/preprocess.py``: header collection per chapter and per book,
@@ -30,7 +37,7 @@ Modules
     Name -> tool lookup, stage tags, and the ``WRITE_TOOLS`` sets.
 ``shared``
     The generic tools described above.
-``extract`` / ``toc`` / ``proposal`` / ``execution``
+``extract`` / ``toc`` / ``search`` / ``proposal`` / ``execution``
     Stage 1.
 ``preprocess``
     Stage 2.
@@ -41,7 +48,17 @@ Importing this package registers every tool, which is why the modules below are
 imported for their side effect as well as for their names.
 """
 
-from . import execution, extract, preprocess, proposal, shared, toc  # noqa: F401
+from . import (  # noqa: F401
+    execution,
+    extract,
+    preprocess,
+    proposal,
+    search,
+    shared,
+    tail,
+    toc,
+    websearch,
+)
 from .execution import slice_book_by_line_numbers, verify_sliced_output
 from .extract import (
     detect_native_toc,
@@ -87,13 +104,16 @@ from .registry import (
 from .registry import (
     shared as shared_tool,
 )
+from .search import find_lines_matching
 from .shared import (
     inspect_line_window,
     list_chapter_files,
     sample_corpus_text,
     scan_corpus_damage_tool,
 )
+from .tail import inspect_book_tail
 from .toc import extract_heuristic_candidates, locate_toc_titles_in_file
+from .websearch import fetch_web_page, web_search
 
 #: Toolset exposed to the stage-1 (splitting) agent.
 SPLIT_TOOLS = tools_for_stage(SPLIT)
@@ -138,8 +158,12 @@ __all__ = [
     "extract_headers_from_file",
     "extract_heuristic_candidates",
     "extract_markdown_headers",
+    "find_lines_matching",
     "extract_native_toc",
+    "fetch_web_page",
+    "find_lines_matching",
     "grouped_tools",
+    "inspect_book_tail",
     "inspect_chapter_damage",
     "inspect_line_window",
     "is_blocked",
@@ -165,4 +189,5 @@ __all__ = [
     "validate_split_map_tool",
     "verify_preprocessed_chapters",
     "verify_sliced_output",
+    "web_search",
 ]

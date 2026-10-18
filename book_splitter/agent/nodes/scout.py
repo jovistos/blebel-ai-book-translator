@@ -95,6 +95,12 @@ def build_scout_report(
         notes.append("header set is noisy: you must filter it before building the map")
     if assessment["verdict"] == "absent":
         notes.append("no usable headers: use the TOC / heuristics routes")
+    if assessment["verdict"] in {"noisy", "absent"}:
+        notes.append(
+            "a chapter whose heading the conversion dropped has no marker at all: locate its "
+            'first line with find_lines_matching and submit it as role="prose-chapter" with an '
+            "`evidence` field"
+        )
 
     return SCOUT_REPORT_TEMPLATE.format(
         source_path=source,

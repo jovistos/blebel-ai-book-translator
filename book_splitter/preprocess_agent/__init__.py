@@ -20,6 +20,7 @@ from .llm import make_preprocess_llm
 from .runner import (
     ChapterResult,
     PreprocessResult,
+    ProgressHook,
     chapter_records,
     run_preprocess,
     summarise_chapter,
@@ -30,6 +31,7 @@ __all__ = [
     "ChapterResult",
     "PreprocessResult",
     "PreprocessState",
+    "ProgressHook",
     "build_preprocess_graph",
     "chapter_records",
     "make_preprocess_llm",

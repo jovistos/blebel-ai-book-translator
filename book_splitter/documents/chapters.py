@@ -18,8 +18,13 @@ from pathlib import Path
 
 from ..core.constants import (
     CHAPTERS_DIRNAME,
+    CHUNK_GLOSSARY_DIRNAME,
+    CHUNKS_DIRNAME,
+    GLOSSARY_DIRNAME,
     MANIFEST_FILENAME,
     PREPROCESSED_DIRNAME,
+    REDUCED_DIRNAME,
+    UNIQUE_DIRNAME,
 )
 from ..core.errors import ToolError
 from .io import load_lines
@@ -61,6 +66,126 @@ def preprocessed_dir(output_dir: str | Path) -> Path:
     if out.name == CHAPTERS_DIRNAME:
         out = out.parent
     return out / PREPROCESSED_DIRNAME
+
+
+def reduced_dir(output_dir: str | Path) -> Path:
+    """Default stage-3 output: a sibling of ``chapters/``, never over it.
+
+    Stage 3 writes the reduced chapters (entity-bearing sentences only) the same
+    way stage 1 writes chapters: one file per chapter, same filenames, so the two
+    folders line up one to one and can be diffed while the filters are tuned.
+    """
+    out = Path(output_dir).expanduser()
+    if out.name == CHAPTERS_DIRNAME:
+        out = out.parent
+    return out / REDUCED_DIRNAME
+
+
+def unique_dir(output_dir: str | Path) -> Path:
+    """Default stage-3b output: the further-reduced chapters, a sibling of ``reduced/``.
+
+    The second funnel step keeps the same filenames as ``reduced/`` and
+    ``chapters/``, so the three folders line up one to one and can be diffed while
+    the extra filter is tuned. The folder is derived from wherever the reduced
+    chapters went — an explicit ``--reduced-out`` moves it too, so the two outputs
+    stay next to each other.
+    """
+    out = Path(output_dir).expanduser()
+    if out.name == CHAPTERS_DIRNAME:
+        # Handed the chapters folder instead of the reduced one (``--out`` does
+        # this), so step over to the sibling the stage would actually write.
+        out = out.parent / REDUCED_DIRNAME
+    return out.parent / UNIQUE_DIRNAME
+
+
+def glossary_dir(output_dir: str | Path) -> Path:
+    """Default stage-4 output: a sibling of ``chapters/``, never over it.
+
+    The glossary is one book-level artifact (plus its manifest), not one file per
+    chapter, so the folder is a plain home for it rather than a third parallel
+    folder of chapter files.
+    """
+    out = Path(output_dir).expanduser()
+    if out.name == CHAPTERS_DIRNAME:
+        out = out.parent
+    return out / GLOSSARY_DIRNAME
+
+
+def chunks_dir(output_dir: str | Path) -> Path:
+    """Default stage-5 output: a sibling of ``chapters/``, never over it.
+
+    Chunks are a flat, globally ordered folder (not one sub-folder per chapter):
+    the file names sort into reading order, and ``_chunk_manifest.json`` carries
+    the chapter membership and the character offsets of every slice. Handed a
+    ``preprocessed/`` folder it puts ``chunks/`` beside it, in the same book
+    folder, which is where a translation run expects to find it.
+    """
+    out = Path(output_dir).expanduser()
+    if out.name in {CHAPTERS_DIRNAME, PREPROCESSED_DIRNAME}:
+        out = out.parent
+    return out / CHUNKS_DIRNAME
+
+
+def chunk_glossary_dir(output_dir: str | Path) -> Path:
+    """Default stage-6 output: a sibling of ``chunks/``, never over it.
+
+    One JSON file per chunk, named after the chunk (``<chunk>.json``), so a
+    translation run can go from a chunk it is about to send to the exact terms it
+    has to obey without reading the book-level manifest. Handed the chunks folder
+    it puts ``chunk-glossary/`` beside it, in the same book folder; handed the
+    book folder it does the same.
+    """
+    out = Path(output_dir).expanduser()
+    if out.name == CHUNK_GLOSSARY_DIRNAME:
+        return out
+    if out.name in {
+        CHAPTERS_DIRNAME,
+        PREPROCESSED_DIRNAME,
+        CHUNKS_DIRNAME,
+        REDUCED_DIRNAME,
+        UNIQUE_DIRNAME,
+        GLOSSARY_DIRNAME,
+    }:
+        out = out.parent
+    return out / CHUNK_GLOSSARY_DIRNAME
+
+
+def has_chunk_files(path: str | Path) -> bool:
+    """True when ``path`` holds at least one stage-5 chunk file.
+
+    Bookkeeping files (``_chunk_manifest.json``, ``_chunk_trace.json``) do not
+    count: a folder holding nothing but its own manifest is not a finished chunk
+    run, and stage 6 has nothing to attach a glossary to.
+    """
+    folder = Path(path).expanduser()
+    if not folder.is_dir():
+        return False
+    return any(
+        p.is_file() and p.suffix.lower() == ".md" and not p.name.startswith("_")
+        for p in folder.glob("*.md")
+    )
+
+
+def has_chapter_files(path: str | Path) -> bool:
+    """True when ``path`` already holds at least one chapter file.
+
+    Bookkeeping files (``_manifest.json``, ``_agent_trace.json``) do not count: a
+    folder holding nothing but its own manifest is not a finished split.
+    """
+    folder = Path(path).expanduser()
+    if not folder.is_dir():
+        return False
+    return any(p.is_file() and not p.name.startswith("_") for p in folder.glob("*.md"))
+
+
+def chapter_filenames(path: str | Path) -> set[str]:
+    """The ``*.md`` filenames in a folder, bookkeeping files excluded."""
+    folder = Path(path).expanduser()
+    if not folder.is_dir():
+        return set()
+    return {
+        p.name for p in folder.glob("*.md") if p.is_file() and not p.name.startswith("_")
+    }
 
 
 def load_split_manifest(chapters_path: str | Path) -> dict:

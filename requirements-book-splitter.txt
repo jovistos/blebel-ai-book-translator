@@ -2,7 +2,20 @@
 langgraph>=0.2
 langchain-core>=0.3
 langchain-openai>=0.2
+pydantic>=2.0
 python-dotenv>=1.0
+
+# Stage 5 (`book_splitter chunk`) cuts chapters into reversible, sentence-safe
+# chunks. chonkie is imported lazily, so the other stages keep working without it.
+# tiktoken makes the default `cl100k_base` token count exact; without it the stage
+# falls back to a local approximation (and says so in the manifest).
+chonkie>=1.7
+tiktoken>=0.7
+
+# Stage 6 (`book_splitter chunk-glossary`) retrieves each NER term from the
+# glossary with a fuzzy score (95 % by default). rapidfuzz is imported lazily and
+# is a small pure wheel — no torch, no model download.
+rapidfuzz>=3.0
 
 # Optional: let `resolve_api_key` reuse keys from ~/.dsh/.credentials.yaml.
 # PyYAML>=6.0
@@ -11,6 +24,21 @@ python-dotenv>=1.0
 # PyMuPDF>=1.24
 # ebooklib>=0.18
 # beautifulsoup4>=4.12
+
+# Optional: stage 3 (`book_splitter dictionary`) needs a tagger. It is imported
+# lazily, so the splitter and preprocessor never need it. See
+# requirements-dictionary.txt (classla / stanza / lingua-language-detector).
+#
+# Stage 4 (`book_splitter glossary`) needs no dependency of its own: it uses the
+# same langchain-openai client as stages 1 and 2, and pydantic for its structured
+# output.
+#
+# Stage 5 (`book_splitter chunk`) needs chonkie + tiktoken (above). Both are
+# imported lazily so a split-only install does not need them.
+#
+# Stage 6 (`book_splitter chunk-glossary`) needs rapidfuzz (above) and a tagger:
+# it reuses stage 3's CLASSLA/stanza backend, so install requirements-dictionary.txt
+# as well before tagging real chunks.
 
 # Development only (see requirements-dev.txt).
 # pytest>=8.0
