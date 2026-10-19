@@ -69,6 +69,7 @@ from ..core.constants import (
     GLOSSARY_FILENAME,
     PREPROCESSED_DIRNAME,
     REDUCED_DIRNAME,
+    TRANSLATED_CHAPTERS_DIRNAME,
     UNIQUE_DIRNAME,
 )
 from ..core.errors import MissingDependencyError, ToolError
@@ -84,6 +85,7 @@ from ..dictionary.ner import (
 )
 from ..documents.chapters import Chapter, chunk_glossary_dir
 from .matching import (
+    LexiconEntry,
     MatchCandidate,
     RapidFuzzMatcher,
     TermMatcher,
@@ -106,6 +108,7 @@ _BOOK_FOLDER_NAMES = frozenset(
         GLOSSARY_DIRNAME,
         CHUNKS_DIRNAME,
         CHUNK_GLOSSARY_DIRNAME,
+        TRANSLATED_CHAPTERS_DIRNAME,
     }
 )
 
@@ -405,6 +408,136 @@ def discover_chunk_inputs(chunks_path: str | Path) -> tuple[list[ChunkInput], Pa
     return inputs, folder
 
 
+def _glossary_sha256(path: str | Path) -> str:
+    """SHA-256 of the glossary file, so a resume notices a changed dictionary."""
+    try:
+        payload = Path(path).expanduser().read_bytes()
+    except OSError:
+        return ""
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _candidate_from_payload(item: Any) -> MatchCandidate | None:
+    """Rebuild one candidate from a per-chunk file's ``glossary``/``closest``."""
+    if not isinstance(item, dict):
+        return None
+    term = clean_term(item.get("term"))
+    if not term:
+        return None
+    try:
+        score = float(item.get("score") or 0.0)
+    except (TypeError, ValueError):
+        score = 0.0
+    try:
+        chapter_index = int(item.get("chapter_index") or 0)
+    except (TypeError, ValueError):
+        chapter_index = 0
+    return MatchCandidate(
+        entry=LexiconEntry(
+            term=term,
+            translation=str(item.get("translation") or ""),
+            category=str(item.get("category") or "terminology"),
+            chapter_index=chapter_index,
+            chapter_filename=str(item.get("chapter_filename") or ""),
+        ),
+        score=score,
+    )
+
+
+def _terms_from_payload(items: Any, threshold: float) -> list[TermMatch]:
+    """Rebuild the ``TermMatch`` list a per-chunk file recorded.
+
+    A resumed run must be able to report the same totals as the original one
+    without re-running NER, so the per-chunk JSON is enough: each term carries
+    its match (or nearest miss) and the alternatives, and the file records the
+    counts the result sums.
+    """
+    terms: list[TermMatch] = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        candidates: list[MatchCandidate] = []
+        for key in ("glossary", "closest"):
+            candidate = _candidate_from_payload(item.get(key))
+            if candidate is not None:
+                candidates.append(candidate)
+        for alternative in item.get("alternatives") or []:
+            candidate = _candidate_from_payload(alternative)
+            if candidate is not None:
+                candidates.append(candidate)
+        terms.append(
+            TermMatch(
+                term=clean_term(item.get("term")),
+                types=[str(value) for value in item.get("types") or []],
+                mentions=_int(item.get("mentions")),
+                candidates=candidates,
+                threshold=threshold,
+            )
+        )
+    return terms
+
+
+def _reusable_chunk_glossary(
+    chunk: ChunkInput,
+    out_dir: Path,
+    *,
+    glossary_sha256: str,
+    threshold: float,
+    scorer: str,
+) -> ChunkGlossary | None:
+    """A per-chunk file that is still valid for ``chunk``, ready to be reused."""
+    path = out_dir / chunk_glossary_filename(chunk.filename)
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    recorded = payload.get("chunk") or {}
+    if isinstance(recorded, dict):
+        recorded_sha = str(recorded.get("sha256") or "")
+        if recorded_sha and recorded_sha != chunk.sha256:
+            return None
+
+    try:
+        recorded_threshold = payload.get("threshold")
+        if recorded_threshold is not None and abs(float(recorded_threshold) - threshold) > 1e-9:
+            return None
+    except (TypeError, ValueError):
+        return None
+    recorded_scorer = payload.get("scorer")
+    if recorded_scorer:
+        try:
+            if normalize_scorer(str(recorded_scorer)) != scorer:
+                return None
+        except ToolError:
+            return None
+
+    recorded_glossary = str(payload.get("glossary_sha256") or "")
+    if recorded_glossary and glossary_sha256 and recorded_glossary != glossary_sha256:
+        return None
+
+    terms = _terms_from_payload(payload.get("terms"), threshold)
+    matched = payload.get("matched_terms")
+    if not isinstance(matched, list):
+        matched = []
+    counts = payload.get("counts") or {}
+    entity_count = _int(counts.get("entities")) if isinstance(counts, dict) else 0
+    if not entity_count:
+        entity_count = sum(term.mentions for term in terms)
+    return ChunkGlossary(
+        chunk=chunk,
+        terms=terms,
+        matched_terms=[item for item in matched if isinstance(item, dict)],
+        entity_count=entity_count,
+        output_path=str(path),
+        skipped=True,
+    )
+
+
 def _proxy_chapters(chunks: Sequence[ChunkInput]) -> list[Chapter]:
     """Present chunks to stage 3's language detector as chapter-shaped files.
 
@@ -561,6 +694,8 @@ def run_chunk_glossary(
     candidates: int = DEFAULT_CHUNK_GLOSSARY_CANDIDATES,
     dry_run: bool = False,
     limit: int | None = None,
+    chapter_files: Sequence[str] | None = None,
+    skip_if_present: bool = False,
     write_manifest: bool = True,
     progress: ProgressHook | None = None,
     clock: Clock = time.perf_counter,
@@ -574,8 +709,13 @@ def run_chunk_glossary(
 
     ``dry_run`` still runs both phases — the NER output *is* the artifact, so there
     is nothing to validate without tagging — but writes no per-chunk file,
-    manifest or trace. ``limit`` tags and matches only the first N chunks, which
-    is the cheap way to inspect a book before a full run.
+    manifest or trace. ``chapter_files`` restricts the run to chunks belonging to
+    those chapter filenames (the chapter-aligned window); ``limit`` then caps the
+    filtered list, which is the cheap way to inspect a book before a full run.
+    ``skip_if_present`` reuses a per-chunk file whose recorded chunk hash,
+    threshold, scorer and glossary hash still match, and returns before loading a
+    tagger when every chunk is covered; growing a chapter window therefore only
+    tags the new chunks.
     """
     run_started = clock()
     threshold = normalize_threshold(threshold)
@@ -589,6 +729,16 @@ def run_chunk_glossary(
         wanted_types = tuple(DEFAULT_KEEP_ENTITY_TYPES)
 
     all_inputs, source_dir = discover_chunk_inputs(chunks_path)
+    if chapter_files is not None:
+        allowed = {str(name) for name in chapter_files}
+        all_inputs = [
+            chunk for chunk in all_inputs if chunk.chapter_filename in allowed
+        ]
+        if not all_inputs:
+            raise ToolError(
+                "no chunks belong to the requested chapter window "
+                f"({', '.join(sorted(allowed)[:5])}…)"
+            )
     limited = limit is not None and 0 < _int(limit) < len(all_inputs)
     inputs = all_inputs[: _int(limit)] if limit is not None and _int(limit) > 0 else all_inputs
 
@@ -599,6 +749,95 @@ def run_chunk_glossary(
     )
     resolved_glossary = resolve_glossary_path(glossary_path, source_dir)
     lexicon = load_glossary(resolved_glossary)
+    glossary_sha = _glossary_sha256(resolved_glossary)
+    reuse_enabled = bool(skip_if_present and not dry_run)
+    reused_records: dict[str, ChunkGlossary] = {}
+    if reuse_enabled:
+        for chunk in inputs:
+            reusable = _reusable_chunk_glossary(
+                chunk,
+                out_dir,
+                glossary_sha256=glossary_sha,
+                threshold=threshold,
+                scorer=scorer,
+            )
+            if reusable is not None:
+                reused_records[chunk.filename] = reusable
+    pending = [chunk for chunk in inputs if chunk.filename not in reused_records]
+
+    if not pending:
+        # Nothing left to tag: report the files already on disk instead of loading
+        # a tagger, so a finished (or widened) window needs no model at all.
+        previous = load_chunk_glossary_manifest(out_dir)
+        records = [reused_records[chunk.filename] for chunk in inputs]
+        totals = _totals(records)
+        settings = {
+            "language": previous.get("language") or {},
+            "backend": str(previous.get("backend") or ""),
+            "device": str(previous.get("device") or ""),
+            "threshold": threshold,
+            "scorer": scorer,
+            "candidates": candidate_count,
+            "keep_types": list(wanted_types),
+            "min_term_chars": minimum_chars,
+            "drop_temporal_only": bool(drop_temporal_only),
+            "limit": int(limit) if limit is not None else None,
+            "chapter_files": list(chapter_files) if chapter_files is not None else None,
+            "skip_if_present": bool(skip_if_present),
+        }
+        result = ChunkGlossaryResult(
+            ok=True,
+            chunks_path=str(source_dir),
+            glossary_path=str(resolved_glossary),
+            output_dir=str(out_dir),
+            language=dict(previous.get("language") or {}),
+            backend=str(previous.get("backend") or ""),
+            device=str(previous.get("device") or ""),
+            chunk_count=len(records),
+            ok_count=len(records),
+            processed_count=0,
+            skipped_count=len(records),
+            entry_count=len(lexicon),
+            entity_count=totals.get("entity_mentions", 0),
+            term_count=totals.get("terms", 0),
+            matched_term_count=totals.get("matched_terms", 0),
+            unmatched_term_count=totals.get("unmatched_terms", 0),
+            matched_chunk_count=totals.get("matched_chunks", 0),
+            dry_run=dry_run,
+            limited=limited,
+            settings=settings,
+            totals=totals,
+            phases=[
+                {"name": "ner", "chunks": 0, "entities": 0, "terms": 0, "seconds": 0.0},
+                {
+                    "name": "match",
+                    "chunks": 0,
+                    "matched_terms": 0,
+                    "unmatched_terms": 0,
+                    "seconds": 0.0,
+                },
+            ],
+            timing={
+                "run_seconds": round(clock() - run_started, 4),
+                "backend_load_seconds": 0.0,
+                "ner_phase_seconds": 0.0,
+                "match_phase_seconds": 0.0,
+                "milliseconds_per_chunk": 0.0,
+            },
+            chunks=[record.record() for record in records],
+            errors=[],
+        )
+        if write_manifest and not dry_run:
+            result.manifest_path = str(
+                write_chunk_glossary_manifest(out_dir, result, records)
+            )
+            result.trace_path = str(
+                write_chunk_glossary_trace(out_dir, result, records)
+            )
+        return result
+
+    # Built after the resume check on purpose: a fully reused window must not
+    # require rapidfuzz or a tagger, only the glossary file it already used.
     # Built before the NER phase on purpose: a missing rapidfuzz or an unreadable
     # glossary is a setup problem, and discovering it after tagging the whole
     # book would waste the expensive half of the run. It is *called* only in
@@ -656,15 +895,18 @@ def run_chunk_glossary(
         "min_term_chars": minimum_chars,
         "drop_temporal_only": bool(drop_temporal_only),
         "limit": int(limit) if limit is not None else None,
+        "chapter_files": list(chapter_files) if chapter_files is not None else None,
+        "skip_if_present": bool(skip_if_present),
     }
 
     records: list[ChunkGlossary] = []
+    pending_records: dict[str, ChunkGlossary] = {}
     entity_terms: dict[str, list[EntityTerm]] = {}
     errors: list[str] = []
 
-    # -- phase 1: NER over every chunk ------------------------------------ #
+    # -- phase 1: NER over every chunk that still needs it ----------------- #
     ner_phase_started = clock()
-    for chunk in inputs:
+    for chunk in pending:
         record = ChunkGlossary(chunk=chunk)
         tag_started = clock()
         try:
@@ -691,14 +933,22 @@ def run_chunk_glossary(
             errors.append(f"{chunk.filename}: {record.error}")
             record.log.append(f"ner failed: {record.error}")
         record.ner_seconds = clock() - tag_started
-        records.append(record)
+        pending_records[chunk.filename] = record
     ner_phase_seconds = clock() - ner_phase_started
 
     # -- phase 2: retrieval for every term collected above ----------------- #
     match_phase_started = clock()
     if not dry_run:
         out_dir.mkdir(parents=True, exist_ok=True)
-    for completed, record in enumerate(records, start=1):
+    for completed, chunk in enumerate(inputs, start=1):
+        record = reused_records.get(chunk.filename) or pending_records[chunk.filename]
+        if record.skipped:
+            # A resumed chunk already has its file; do not re-tag or re-match it.
+            records.append(record)
+            if progress is not None:
+                with contextlib.suppress(Exception):
+                    progress(record.to_dict(), completed, len(inputs))
+            continue
         if record.ok:
             match_started = clock()
             try:
@@ -717,6 +967,7 @@ def run_chunk_glossary(
                         threshold=threshold,
                         scorer=scorer,
                         glossary_path=str(resolved_glossary),
+                        glossary_sha256=glossary_sha,
                     )
                     record.output_path = str(path)
                 record.log.append(
@@ -729,6 +980,7 @@ def run_chunk_glossary(
                 errors.append(f"{record.chunk.filename}: {record.error}")
                 record.log.append(f"match failed: {record.error}")
             record.match_seconds = clock() - match_started
+        records.append(record)
         if progress is not None:
             with contextlib.suppress(Exception):  # a reporting hook must never break a run
                 progress(record.to_dict(), completed, len(records))
@@ -745,8 +997,8 @@ def run_chunk_glossary(
         device=device,
         chunk_count=len(records),
         ok_count=sum(1 for record in records if record.ok),
-        processed_count=len(records),
-        skipped_count=0,
+        processed_count=len(pending),
+        skipped_count=len(reused_records),
         entry_count=len(lexicon),
         entity_count=totals.get("entity_mentions", 0),
         term_count=totals.get("terms", 0),
@@ -760,7 +1012,7 @@ def run_chunk_glossary(
         phases=[
             {
                 "name": "ner",
-                "chunks": len(records),
+                "chunks": len(pending),
                 "entities": totals.get("entity_mentions", 0),
                 "terms": totals.get("terms", 0),
                 "seconds": round(ner_phase_seconds, 4),
@@ -834,6 +1086,7 @@ def chunk_glossary_payload(
     threshold: float = DEFAULT_CHUNK_GLOSSARY_THRESHOLD,
     scorer: str = DEFAULT_CHUNK_GLOSSARY_SCORER,
     glossary_path: str = "",
+    glossary_sha256: str = "",
 ) -> dict[str, Any]:
     """The per-chunk file: the chunk's identity, its terms and their matches."""
     return {
@@ -845,6 +1098,7 @@ def chunk_glossary_payload(
         "threshold": threshold,
         "scorer": scorer,
         "glossary_path": glossary_path,
+        "glossary_sha256": glossary_sha256,
         "counts": {
             "entities": record.entity_count,
             "terms": record.term_count,
@@ -865,6 +1119,7 @@ def write_chunk_glossary(
     threshold: float = DEFAULT_CHUNK_GLOSSARY_THRESHOLD,
     scorer: str = DEFAULT_CHUNK_GLOSSARY_SCORER,
     glossary_path: str = "",
+    glossary_sha256: str = "",
 ) -> Path:
     """Write one chunk's glossary next to the others, under the chunk's name."""
     folder = Path(out_dir)
@@ -876,6 +1131,7 @@ def write_chunk_glossary(
         threshold=threshold,
         scorer=scorer,
         glossary_path=glossary_path,
+        glossary_sha256=glossary_sha256,
     )
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
@@ -893,6 +1149,7 @@ def write_chunk_glossary_manifest(
         "ok": result.ok,
         "dry_run": result.dry_run,
         "limited": result.limited,
+        "skip_if_present": bool(result.settings.get("skip_if_present")),
         "chunks_path": result.chunks_path,
         "glossary_path": result.glossary_path,
         "output_dir": result.output_dir,

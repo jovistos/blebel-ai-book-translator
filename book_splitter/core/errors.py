@@ -36,3 +36,15 @@ class ExtractionError(ToolError):
     The message carries the last failure so a run can report which chapter is
     missing from the dictionary instead of a raw traceback.
     """
+
+
+class TranslationError(ToolError):
+    """Raised when one chunk never produced a usable translation.
+
+    Stage 7 asks a model for a JSON object with a single ``translation`` field and
+    validates it with Pydantic. A refusal, a dropped schema, an empty answer or an
+    answer that merely repeats the source is retried; this is what is raised once
+    every attempt has failed. The per-chunk record keeps the failure and the
+    prompt that caused it, so a run can report exactly which chunk is missing
+    from the translated book instead of aborting the whole book.
+    """

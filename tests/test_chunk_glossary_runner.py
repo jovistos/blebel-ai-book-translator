@@ -428,3 +428,49 @@ def test_collect_matched_terms_keeps_one_row_per_glossary_entry():
     assert rows[0]["glossary_term"] == "Džordž"
     assert rows[0]["mentions"] == 3
     assert rows[0]["score"] == 100.0
+
+
+def test_skip_if_present_reuses_finished_chunks_and_only_tags_new_ones(tmp_path: Path):
+    _, chunks, glossary = _project(tmp_path, chunk_size=4)
+    glossary_path = glossary / "glossary.json"
+    total = len(discover_chunk_inputs(chunks)[0])
+
+    first_backend = FakeBackend()
+    first = run_chunk_glossary(
+        str(chunks),
+        glossary_path=str(glossary_path),
+        backend=first_backend,
+        limit=1,
+        skip_if_present=True,
+    )
+    assert first.ok is True
+    assert first.processed_count == 1
+    assert first.skipped_count == 0
+
+    # Growing the window: the first chunk is reused, only the rest is tagged.
+    second_backend = FakeBackend()
+    second = run_chunk_glossary(
+        str(chunks),
+        glossary_path=str(glossary_path),
+        backend=second_backend,
+        skip_if_present=True,
+    )
+    assert second.ok is True
+    assert second.skipped_count == 1
+    assert second.processed_count == total - 1
+    assert len(second_backend.texts) == total - 1
+    assert first_backend.texts[0] not in second_backend.texts
+
+    # A fully reused run needs no tagger at all.
+    third_backend = FakeBackend()
+    third = run_chunk_glossary(
+        str(chunks),
+        glossary_path=str(glossary_path),
+        backend=third_backend,
+        skip_if_present=True,
+    )
+    assert third.ok is True
+    assert third.processed_count == 0
+    assert third.skipped_count == total
+    assert third_backend.texts == []
+    assert third.totals["chunks"] == total

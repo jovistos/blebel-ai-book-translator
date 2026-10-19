@@ -78,6 +78,8 @@ class PreprocessResult:
     output_dir: str
     chapter_count: int = 0
     ok_count: int = 0
+    skipped_count: int = 0
+    skipped: bool = False
     dry_run: bool = False
     parallel: bool = False
     corpus_scan: dict[str, Any] = field(default_factory=dict)
@@ -91,6 +93,56 @@ class PreprocessResult:
         return asdict(self)
 
 
+def _previous_manifest(out_dir: Path) -> dict[str, Any]:
+    path = out_dir / PREPROCESS_MANIFEST_FILENAME
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _previous_files(out_dir: Path) -> dict[str, dict[str, Any]]:
+    manifest = _previous_manifest(out_dir)
+    return {
+        str(entry.get("filename")): entry
+        for entry in manifest.get("files") or []
+        if isinstance(entry, dict) and entry.get("filename")
+    }
+
+
+def _reusable_chapter(
+    chapter: Chapter,
+    out_dir: Path,
+    previous: dict[str, dict[str, Any]],
+) -> ChapterResult | None:
+    """A chapter this run can reuse instead of asking the model again."""
+    entry = previous.get(chapter.filename)
+    if not entry or not entry.get("verification_ok"):
+        return None
+    candidates = [
+        Path(str(entry.get("path") or "")),
+        Path(str(entry.get("output_path") or "")),
+        out_dir / chapter.filename,
+    ]
+    path = next((candidate for candidate in candidates if candidate.is_file()), None)
+    if path is None:
+        return None
+    return ChapterResult(
+        chapter_id=chapter.chapter_id,
+        filename=chapter.filename,
+        source_path=chapter.path,
+        output_path=str(path),
+        ok=True,
+        source_lines=chapter.line_count,
+        output_lines=int(entry.get("lines") or 0),
+        verification={"ok": True, "reused": True},
+        log=["reused from the previous run (--skip-if-present)"],
+    )
+
+
 def run_preprocess(
     chapters_path: str,
     output_dir: str | None = None,
@@ -99,6 +151,8 @@ def run_preprocess(
     dry_run: bool = False,
     recursion_limit: int = DEFAULT_RECURSION_LIMIT,
     workers: int = 1,
+    limit: int | None = None,
+    skip_if_present: bool = False,
     write_manifest: bool = True,
     model: Any | None = None,
     progress: ProgressHook | None = None,
@@ -113,12 +167,21 @@ def run_preprocess(
     narrates a run that can take minutes. It never influences the result.
     """
     chapters = discover_chapters(chapters_path)
+    if limit is not None and int(limit) > 0:
+        chapters = chapters[: int(limit)]
     source_dir = Path(chapters_path).expanduser()
     out_dir = Path(output_dir).expanduser() if output_dir else preprocessed_dir(source_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     corpus_scan = scan_corpus_damage(chapters)
-    app = build_preprocess_graph(settings, model=model)
+    previous = _previous_files(out_dir) if skip_if_present and not dry_run else {}
+    reused: dict[str, ChapterResult] = {}
+    for chapter in chapters:
+        reusable = _reusable_chapter(chapter, out_dir, previous)
+        if reusable is not None:
+            reused[chapter.filename] = reusable
+    pending = [chapter for chapter in chapters if chapter.filename not in reused]
+    app = build_preprocess_graph(settings, model=model) if pending else None
 
     results: list[ChapterResult] = []
     errors: list[str] = []
@@ -137,6 +200,11 @@ def run_preprocess(
         with contextlib.suppress(Exception):  # a reporting hook must not break a run
             progress(result.to_dict(), completed, len(chapters))
 
+    for chapter in chapters:
+        reusable = reused.get(chapter.filename)
+        if reusable is not None:
+            announce(reusable)
+
     def one(chapter: Chapter) -> ChapterResult:
         initial: PreprocessState = {
             "chapter_path": chapter.path,
@@ -150,6 +218,7 @@ def run_preprocess(
             "messages": [],
         }
         try:
+            assert app is not None
             final = app.invoke(initial, config={"recursion_limit": recursion_limit})
         except Exception as exc:  # a broken chapter must not stop the book
             with lock:
@@ -173,11 +242,15 @@ def run_preprocess(
         announce(result)
         return result
 
-    if workers and workers > 1 and len(chapters) > 1:
-        with ThreadPoolExecutor(max_workers=int(workers)) as pool:
-            results = list(pool.map(one, chapters))
-    else:
-        results = [one(chapter) for chapter in chapters]
+    processed: list[ChapterResult] = []
+    if pending:
+        if workers and workers > 1 and len(pending) > 1:
+            with ThreadPoolExecutor(max_workers=int(workers)) as pool:
+                processed = list(pool.map(one, pending))
+        else:
+            processed = [one(chapter) for chapter in pending]
+    by_name = {result.filename: result for result in processed}
+    results = [reused.get(chapter.filename) or by_name[chapter.filename] for chapter in chapters]
 
     result = PreprocessResult(
         ok=bool(results) and all(r.ok for r in results),
@@ -185,6 +258,8 @@ def run_preprocess(
         output_dir=str(out_dir),
         chapter_count=len(results),
         ok_count=sum(1 for r in results if r.ok),
+        skipped_count=len(reused),
+        skipped=not pending,
         dry_run=dry_run,
         parallel=bool(workers and workers > 1),
         corpus_scan=corpus_scan,

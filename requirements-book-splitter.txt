@@ -33,6 +33,9 @@ rapidfuzz>=3.0
 # same langchain-openai client as stages 1 and 2, and pydantic for its structured
 # output.
 #
+# Stage 7 (`book_splitter translate`) reuses that client and Pydantic for its
+# one-field structured translation, and needs no dependency of its own.
+#
 # Stage 5 (`book_splitter chunk`) needs chonkie + tiktoken (above). Both are
 # imported lazily so a split-only install does not need them.
 #

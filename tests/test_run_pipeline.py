@@ -47,7 +47,7 @@ def script():
     return module
 
 
-def install_chunk_glossary(monkeypatch, *, ok: bool = True):
+def install_chunk_glossary(monkeypatch, *, ok: bool = True, files: bool = False):
     """Replace stage 6, so no test loads a tagger or reads a real glossary."""
     from book_splitter.chunk_glossary import ChunkGlossaryResult
 
@@ -60,6 +60,10 @@ def install_chunk_glossary(monkeypatch, *, ok: bool = True):
             out.mkdir(parents=True, exist_ok=True)
             for name in ("_chunk_glossary_manifest.json", "_chunk_glossary_trace.json"):
                 (out / name).write_text("{}", encoding="utf-8")
+            if files:
+                (out / "00000-01-a-0000.md.json").write_text(
+                    '{"matched_terms": []}', encoding="utf-8"
+                )
         return ChunkGlossaryResult(
             ok=ok,
             chunks_path=str(chunks_path),
@@ -93,6 +97,63 @@ def install_chunk_glossary(monkeypatch, *, ok: bool = True):
         )
 
     monkeypatch.setattr("book_splitter.chunk_glossary.run_chunk_glossary", fake_run_chunk_glossary)
+    return calls
+
+
+def install_translate(monkeypatch, *, ok: bool = True):
+    """Replace stage 7, so no test ever calls a paid model."""
+    from book_splitter.translation import TranslationResult
+
+    calls: list[dict] = []
+
+    def fake_run_translation(chunks_path, output_dir=None, **kwargs):
+        calls.append({"chunks_path": str(chunks_path), "output_dir": output_dir, **kwargs})
+        out = Path(output_dir or chunks_path)
+        out.mkdir(parents=True, exist_ok=True)
+        prompts = Path(kwargs.get("prompts_dir") or out.parent / "translation-prompts")
+        prompts.mkdir(parents=True, exist_ok=True)
+        (out / "00000-01-a-0000.md").write_text("PREVEDENO\n", encoding="utf-8")
+        (prompts / "00000-01-a-0000.md.json").write_text("{}", encoding="utf-8")
+        manifest = out / "_translation_manifest.json"
+        manifest.write_text("{}", encoding="utf-8")
+        trace = out / "_translation_trace.json"
+        trace.write_text("{}", encoding="utf-8")
+        return TranslationResult(
+            ok=ok,
+            chunks_path=str(chunks_path),
+            chunk_glossary_path=str(kwargs.get("chunk_glossary_path") or ""),
+            output_dir=str(out),
+            prompts_dir=str(prompts),
+            source_language=str(kwargs.get("source_language") or "en"),
+            target_language=str(kwargs.get("target_language") or "sr"),
+            translator="fake/translator",
+            provider="fake",
+            model="fake-1",
+            glossary_scope=str(kwargs.get("glossary_scope") or "chunk"),
+            chunk_count=1,
+            ok_count=1 if ok else 0,
+            processed_count=1,
+            tokens={
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "total_tokens": 150,
+                "calls": 1,
+                "chunks": 1,
+            },
+            totals={
+                "translated_chunks": 1 if ok else 0,
+                "source_chars": 100,
+                "translation_chars": 90,
+                "failed_chunks": 0 if ok else 1,
+            },
+            timing={"run_seconds": 0.1, "model_seconds": 0.1, "seconds_per_chunk": 0.1},
+            chunks=[],
+            errors=[] if ok else ["00000-01-a-0000.md: boom"],
+            manifest_path=str(manifest),
+            trace_path=str(trace),
+        )
+
+    monkeypatch.setattr("book_splitter.translation.run_translation", fake_run_translation)
     return calls
 
 
@@ -803,3 +864,339 @@ def test_a_raising_progress_hook_never_breaks_the_run(tmp_path, monkeypatch):
     )
 
     assert result.ok and result.chapter_count == 2
+
+
+# --------------------------------------------------------------------------- #
+# stage 7: opt-in translation, with its own limit and debug folder
+# --------------------------------------------------------------------------- #
+@requires_sample
+def test_translate_is_opt_in_and_runs_only_with_the_flag(
+    script, tmp_path, monkeypatch, capsys, run
+):
+    install_split(monkeypatch, writes=DAMAGED)
+    install_dictionary(monkeypatch)
+    install_chunk_glossary(monkeypatch, files=True)
+    calls = install_translate(monkeypatch)
+
+    out = tmp_path / "out"
+    code = run(str(SAMPLE), "--output-root", str(out))
+    captured = capsys.readouterr()
+
+    assert code == 0
+    assert calls == []
+    assert "stage 7 (translation) is switched off" in captured.out
+    assert "TRANSLATE" not in captured.out
+    assert not (out / SAMPLE.stem / "translations").exists()
+
+    calls = install_translate(monkeypatch)
+    code = run(str(SAMPLE), "--output-root", str(out), "--with-translate")
+    captured = capsys.readouterr()
+
+    assert code == 0
+    assert "[7/8] TRANSLATE" in captured.out
+    assert len(calls) == 1
+    assert calls[0]["chunks_path"] == str(out / SAMPLE.stem / "chunks")
+    assert calls[0]["glossary_scope"] == "chunk"
+    assert calls[0]["source_language"] == "en"
+    assert calls[0]["target_language"] == "sr"
+    assert calls[0]["limit"] is None
+    assert (out / SAMPLE.stem / "translations" / "_translation_manifest.json").is_file()
+    assert (out / SAMPLE.stem / "translation-prompts").is_dir()
+
+
+@requires_sample
+def test_the_translate_limit_is_forwarded(script, tmp_path, monkeypatch, capsys, run):
+    install_split(monkeypatch, writes=DAMAGED)
+    install_dictionary(monkeypatch)
+    install_chunk_glossary(monkeypatch, files=True)
+    calls = install_translate(monkeypatch)
+
+    code = run(
+        str(SAMPLE),
+        "--output-root",
+        str(tmp_path / "out"),
+        "--with-translate",
+        "--translate-limit",
+        "3",
+    )
+    captured = capsys.readouterr()
+
+    assert code == 0
+    assert len(calls) == 1
+    assert calls[0]["limit"] == 3
+    assert "limit" in captured.out
+
+
+@requires_sample
+def test_translate_skips_when_the_chunk_glossary_is_missing(
+    script, tmp_path, monkeypatch, capsys, run
+):
+    install_split(monkeypatch, writes=DAMAGED)
+    install_dictionary(monkeypatch)
+    install_chunk_glossary(monkeypatch)  # manifests only, no per-chunk files
+    calls = install_translate(monkeypatch)
+
+    code = run(str(SAMPLE), "--output-root", str(tmp_path / "out"), "--with-translate")
+    captured = capsys.readouterr()
+
+    assert code == 0
+    assert calls == []
+    assert "no per-chunk glossary" in captured.out
+
+
+@requires_sample
+def test_translate_is_dropped_by_no_translate(script, tmp_path, monkeypatch, capsys, run):
+    install_split(monkeypatch, writes=DAMAGED)
+    install_dictionary(monkeypatch)
+    install_chunk_glossary(monkeypatch, files=True)
+    calls = install_translate(monkeypatch)
+
+    code = run(
+        str(SAMPLE),
+        "--output-root",
+        str(tmp_path / "out"),
+        "--with-translate",
+        "--no-translate",
+    )
+
+    assert code == 0
+    assert calls == []
+    assert "TRANSLATE" not in capsys.readouterr().out
+
+
+@requires_sample
+def test_translate_does_not_spend_on_a_dry_run(
+    script, tmp_path, monkeypatch, capsys, run
+):
+    install_split(monkeypatch, writes=DAMAGED)
+    install_dictionary(monkeypatch)
+    install_chunk_glossary(monkeypatch, files=True)
+    calls = install_translate(monkeypatch)
+
+    code = run(
+        str(SAMPLE),
+        "--output-root",
+        str(tmp_path / "out"),
+        "--with-translate",
+        "--dry-run",
+    )
+    captured = capsys.readouterr()
+
+    assert code == 0
+    assert calls == []
+    assert "does not spend tokens" in captured.out
+
+
+# --------------------------------------------------------------------------- #
+# the chapter window: first N chapters, split still the whole book
+# --------------------------------------------------------------------------- #
+def _wrap_calls(monkeypatch, module, name: str, seen: list[dict]) -> None:
+    """Record every keyword argument the pipeline hands to a stage function."""
+    current = getattr(module, name)
+
+    def wrapper(*args, **kwargs):
+        seen.append(dict(kwargs))
+        return current(*args, **kwargs)
+
+    monkeypatch.setattr(module, name, wrapper)
+
+
+def install_translate_for_chunks(monkeypatch):
+    """A stage-7 double that writes a real translation file for every chunk."""
+    from book_splitter.chunking import chunk_files
+    from book_splitter.translation import TranslationResult
+
+    calls: list[dict] = []
+
+    def fake_run_translation(chunks_path, output_dir=None, **kwargs):
+        calls.append({"chunks_path": str(chunks_path), **kwargs})
+        entries = chunk_files(chunks_path)
+        limit = kwargs.get("limit")
+        selected = entries[: int(limit)] if limit else entries
+        out = Path(output_dir or chunks_path)
+        out.mkdir(parents=True, exist_ok=True)
+        for entry in selected:
+            name = str(entry["filename"])
+            (out / name).write_text(f"PREVEDENO:{name}\n", encoding="utf-8")
+        prompts = Path(kwargs.get("prompts_dir") or out.parent / "translation-prompts")
+        prompts.mkdir(parents=True, exist_ok=True)
+        (prompts / "one.json").write_text("{}", encoding="utf-8")
+        manifest = out / "_translation_manifest.json"
+        manifest.write_text("{}", encoding="utf-8")
+        trace = out / "_translation_trace.json"
+        trace.write_text("{}", encoding="utf-8")
+        return TranslationResult(
+            ok=True,
+            chunks_path=str(chunks_path),
+            chunk_glossary_path=str(kwargs.get("chunk_glossary_path") or ""),
+            output_dir=str(out),
+            prompts_dir=str(prompts),
+            glossary_scope=str(kwargs.get("glossary_scope") or "chunk"),
+            chunk_count=len(selected),
+            ok_count=len(selected),
+            processed_count=len(selected),
+            tokens={"total_tokens": 10 * len(selected), "calls": len(selected)},
+            totals={
+                "translated_chunks": len(selected),
+                "source_chars": 100 * len(selected),
+                "translation_chars": 90 * len(selected),
+            },
+            timing={"run_seconds": 0.1, "seconds_per_chunk": 0.1},
+            chunks=[],
+            errors=[],
+            manifest_path=str(manifest),
+            trace_path=str(trace),
+        )
+
+    monkeypatch.setattr("book_splitter.translation.run_translation", fake_run_translation)
+    return calls
+
+
+@requires_sample
+def test_first_chapters_limits_every_stage_after_split(
+    script, tmp_path, monkeypatch, capsys, run
+):
+    import book_splitter.assembly
+    import book_splitter.chunk_glossary
+    import book_splitter.chunking
+    import book_splitter.dictionary
+    import book_splitter.glossary
+
+    install_split(monkeypatch, writes=DAMAGED)
+    install_dictionary(monkeypatch)
+    install_glossary(monkeypatch)
+    install_chunk_glossary(monkeypatch, files=True)
+    install_translate_for_chunks(monkeypatch)
+
+    seen: dict[str, list[dict]] = {
+        "split": [],
+        "dictionary": [],
+        "glossary": [],
+        "chunk": [],
+        "chunk_glossary": [],
+        "translate": [],
+        "assembly": [],
+    }
+    _wrap_calls(monkeypatch, book_splitter.agent, "run_split", seen["split"])
+    _wrap_calls(monkeypatch, book_splitter.dictionary, "run_dictionary", seen["dictionary"])
+    _wrap_calls(monkeypatch, book_splitter.glossary, "run_glossary", seen["glossary"])
+    _wrap_calls(monkeypatch, book_splitter.chunking, "run_chunking", seen["chunk"])
+    _wrap_calls(
+        monkeypatch,
+        book_splitter.chunk_glossary,
+        "run_chunk_glossary",
+        seen["chunk_glossary"],
+    )
+    _wrap_calls(monkeypatch, book_splitter.translation, "run_translation", seen["translate"])
+    _wrap_calls(monkeypatch, book_splitter.assembly, "run_assembly", seen["assembly"])
+
+    out = tmp_path / "out"
+    code = run(
+        str(SAMPLE),
+        "--output-root",
+        str(out),
+        "--first-chapters",
+        "1",
+        "--with-translate",
+    )
+    captured = capsys.readouterr()
+
+    assert code == 0
+    assert "chapter window" in captured.out
+    # Splitting ignores the window: it is the coordinate system of every later stage.
+    assert "limit" not in seen["split"][0]
+    assert seen["dictionary"][0]["limit"] == 1
+    assert seen["glossary"][0]["limit"] == 1
+    assert seen["chunk"][0]["limit"] == 1
+    assert seen["chunk_glossary"][0]["chapter_files"] == ["01-predgovor.md"]
+    assert seen["translate"][0]["chapter_files"] == ["01-predgovor.md"]
+    assert seen["translate"][0]["limit"] is None
+    assert seen["assembly"][0]["first_chapters"] == 1
+
+    translated = out / SAMPLE.stem / "translated-chapters"
+    assert (translated / "01-predgovor.md").is_file()
+    assert not (translated / "02-uvod.md").exists()
+
+
+@requires_sample
+def test_increasing_the_chapter_window_resumes_with_skip_if_present(
+    script, tmp_path, monkeypatch, capsys, run
+):
+    import book_splitter.assembly
+    import book_splitter.chunk_glossary
+    import book_splitter.chunking
+    import book_splitter.dictionary
+    import book_splitter.glossary
+
+    install_split(monkeypatch, writes=DAMAGED)
+    install_dictionary(monkeypatch)
+    install_glossary(monkeypatch)
+    install_chunk_glossary(monkeypatch, files=True)
+    install_translate_for_chunks(monkeypatch)
+
+    seen: dict[str, list[dict]] = {
+        "dictionary": [],
+        "chunk": [],
+        "chunk_glossary": [],
+        "translate": [],
+        "assembly": [],
+    }
+    _wrap_calls(monkeypatch, book_splitter.dictionary, "run_dictionary", seen["dictionary"])
+    _wrap_calls(monkeypatch, book_splitter.glossary, "run_glossary", [])
+    _wrap_calls(monkeypatch, book_splitter.chunking, "run_chunking", seen["chunk"])
+    _wrap_calls(
+        monkeypatch,
+        book_splitter.chunk_glossary,
+        "run_chunk_glossary",
+        seen["chunk_glossary"],
+    )
+    _wrap_calls(monkeypatch, book_splitter.translation, "run_translation", seen["translate"])
+    _wrap_calls(monkeypatch, book_splitter.assembly, "run_assembly", seen["assembly"])
+
+    out = tmp_path / "out"
+    first = run(
+        str(SAMPLE),
+        "--output-root",
+        str(out),
+        "--first-chapters",
+        "1",
+        "--with-translate",
+        "--skip-if-present",
+    )
+    assert first == 0
+    assert seen["dictionary"][-1]["limit"] == 1
+    assert seen["chunk_glossary"][-1]["chapter_files"] == ["01-predgovor.md"]
+    assert seen["translate"][-1]["chapter_files"] == ["01-predgovor.md"]
+    assert seen["translate"][-1]["limit"] is None
+    assert seen["assembly"][-1]["first_chapters"] == 1
+
+    second = run(
+        str(SAMPLE),
+        "--output-root",
+        str(out),
+        "--first-chapters",
+        "2",
+        "--with-translate",
+        "--skip-if-present",
+    )
+    assert second == 0
+    # The window widens; every stage is asked for two body chapters and is told
+    # to resume, so the work done in the first run is reused.
+    assert seen["dictionary"][-1]["limit"] == 2
+    assert seen["dictionary"][-1]["skip_if_present"] is True
+    assert seen["chunk"][-1]["limit"] == 2
+    assert seen["chunk"][-1]["skip_if_present"] is True
+    assert seen["chunk_glossary"][-1]["chapter_files"] == [
+        "01-predgovor.md",
+        "02-uvod.md",
+    ]
+    assert seen["chunk_glossary"][-1]["skip_if_present"] is True
+    assert seen["translate"][-1]["chapter_files"] == [
+        "01-predgovor.md",
+        "02-uvod.md",
+    ]
+    assert seen["translate"][-1]["limit"] is None
+    assert seen["translate"][-1]["resume"] is True
+    assert seen["assembly"][-1]["first_chapters"] == 2
+    assert seen["assembly"][-1]["skip_if_present"] is True
+    assert (out / SAMPLE.stem / "translated-chapters" / "02-uvod.md").is_file()

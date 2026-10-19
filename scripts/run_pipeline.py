@@ -1,22 +1,17 @@
 #!/usr/bin/env python
 """The whole book pipeline in one command: recon → split → scan → dictionary
-(→ preprocess) → chunk → chunk-glossary.
+(→ preprocess) → chunk → chunk-glossary (→ translate → concatenate).
 
-`split`, `preprocess`, `dictionary`, `chunk` and `chunk-glossary` are separate
-stages behind their own CLIs (the dictionary stage is also the book's glossary
-builder). This script runs them in the only order that works, from one place, and
-narrates each phase with the numbers that matter: how big the book is, which
-strategy won, whether the chapters reassemble byte for byte, what damage was found,
-how many sentences survived the dictionary funnel, how many entities were locked
-into the glossary, what the LLM pass cost in tokens, and how many glossary terms
-each chunk mentions.
-
-The ``dictionary`` phase has two halves. The first is deterministic — the sentence
-funnel and the NER gate, no model. The second is the glossary: one paid model call
-per chapter, each handed the dictionary the earlier chapters produced. The second
-half is skipped by ``--no-glossary`` (the phase stays deterministic and keyless)
-and by ``--dry-run`` (nothing to validate without asking the model, and a dry run
-must not spend).
+`split`, `preprocess`, `dictionary`, `chunk`, `chunk-glossary`, `translate` and
+`concatenate` are separate stages behind their own CLIs (the dictionary stage is
+also the book's glossary builder). This script runs them in the only order that
+works, from one place, and narrates each phase with the numbers that matter: how
+big the book is, which strategy won, whether the chapters reassemble byte for
+byte, what damage was found, how many sentences survived the dictionary funnel,
+how many entities were locked into the glossary, what the LLM pass cost in
+tokens, how many glossary terms each chunk mentions, and — when translation is
+switched on — how many chunks were translated, what they cost, and how many
+chapters were assembled from them.
 
     python scripts/run_pipeline.py                        # the only book in data/input/
     python scripts/run_pipeline.py BOOK.md --debug        # + headers, files, damage examples
@@ -26,6 +21,20 @@ must not spend).
     python scripts/run_pipeline.py --start-at chunk        # stage 5 only, over existing chapters
     python scripts/run_pipeline.py --start-at chunk_glossary
                                                           # stage 6 only, over existing chunks
+    python scripts/run_pipeline.py --start-at translate --with-translate
+                                                          # stage 7 only, over existing chunks
+    python scripts/run_pipeline.py --start-at concatenate
+                                                          # stage 8 only, over existing translations
+    python scripts/run_pipeline.py --with-translate --translate-limit 3
+                                                          # translate three chunks, then stop
+    python scripts/run_pipeline.py --first-chapters 5 --with-translate
+                                                          # split in full; every later stage
+                                                          # only the first 5 chapters
+    python scripts/run_pipeline.py --first-chapters 10 --skip-if-present --with-translate
+                                                          # widen the window: reuse 1–5,
+                                                          # process only 6–10
+    python scripts/run_pipeline.py --with-translate --translate-first-chapters 3
+                                                          # translate/assemble only 3 chapters
     python scripts/run_pipeline.py --chunk-size 700        # smaller translation chunks
     python scripts/run_pipeline.py --match-threshold 90    # more permissive glossary retrieval
     python scripts/run_pipeline.py BOOK.md --map map.json --stop-after split
@@ -41,6 +50,13 @@ Stage 3 (``dictionary``) is on by default but needs an optional tagger
 the phase reports itself as skipped with the install command instead of failing
 the run, so a split-only workflow keeps working.
 
+The ``dictionary`` phase has two halves. The first is deterministic — the sentence
+funnel and the NER gate, no model. The second is the glossary: one paid model call
+per chapter, each handed the dictionary the earlier chapters produced. The second
+half is skipped by ``--no-glossary`` (the phase stays deterministic and keyless)
+and by ``--dry-run`` (nothing to validate without asking the model, and a dry run
+must not spend).
+
 The chunk phase (stage 5, ``chunk``) cuts every chapter into translation-sized
 chunks with chonkie, preferring paragraph over sentence over line over word
 boundaries. Every chunk is an exact slice of the chapter it came from, so the
@@ -50,22 +66,53 @@ and the boundary kind of every cut. ``--chunk-size`` is in tokens, default 1000.
 A missing ``chonkie`` installation is reported as a skipped phase, not a failure,
 so a split-only run keeps working.
 
-The last phase (stage 6, ``chunk_glossary``) is the bridge to translation. It runs
+The chunk-glossary phase (stage 6, ``chunk_glossary``) is the bridge to translation. It runs
 NER over **every** chunk first, then fuzzy-matches each extracted term against the
 glossary with rapidfuzz (95 % by default) and writes the terms a chunk mentions to
 ``chunk-glossary/<chunk>.json``. It needs both stage 4's ``glossary.json`` and
 stage 5's chunks; without them it reports a skip/actionable error. ``--no-chunk-glossary``
 drops it, and ``--no-chunk`` drops it too.
 
+Stage 7 (``translate``) is the end product and is **opt-in**: ``--with-translate``
+sends every chunk, in reading order, to the model with the glossary terms stage 6
+attached, validates a Pydantic ``{"translation": ...}`` answer (retrying a failed
+call), and writes ``translations/<chunk>.md``. The whole input of every call —
+system prompt, user prompt, messages, glossary and source chunk — is kept in
+``translation-prompts/`` for debugging. English into Serbian by default;
+``--translate-limit N`` translates a prefix, and ``--skip-if-present`` resumes a
+run that was interrupted. It is off by default because it is one paid call per
+chunk; ``--no-translate`` is accepted for an explicit command line.
+
 Everything printed is also written to ``data/output/<book>/pipeline.log``
 (``--log-file`` to move it, ``--no-log`` to skip it). The log always keeps the
 debug level, even when the console does not.
 
 Phases are independent of each other only in one direction: ``scan``,
-``dictionary``, ``preprocess``, ``chunk`` and ``chunk_glossary`` read folders an
-earlier phase writes, so ``--start-at dictionary`` needs a previous run. A
-``--dry-run`` split writes no chapters, and the later phases are then reported as
-skipped instead of failing.
+``dictionary``, ``preprocess``, ``chunk``, ``chunk_glossary``, ``translate`` and
+``concatenate`` read folders an earlier phase writes, so ``--start-at dictionary``
+needs a previous run. A ``--dry-run`` split writes no chapters, and the later
+phases are then reported as skipped instead of failing.
+
+Stage 8 (``concatenate``) is the inverse of stage 5's cut, applied to the
+translated chunks: it groups ``translations/<chunk>.md`` by the chapter stage 5's
+manifest says each chunk belongs to, joins each group in chunk order, and writes
+one file per chapter to ``translated-chapters/``. The source ``chapters/`` folder
+is never touched. The phase is selected whenever translation is selected, and it
+can be run on its own over an earlier translation with ``--start-at concatenate``.
+A chapter whose chunks are only partly translated is reported as incomplete and
+skipped, not written as a truncated chapter.
+
+``--first-chapters N`` is the one window that applies to every stage after
+splitting: the dictionary reduction, the glossary, the chunker, the per-chunk
+glossary, translation and assembly all see only the first N **body** chapters
+(front/back matter does not count as one of the N). Splitting itself always runs
+over the whole book, because its boundaries are the coordinate system every later
+stage reads. For the chunk-based stages the window is turned into the exact set of
+chunk files belonging to those chapters through stage 5's manifest, so it never
+stops in the middle of a chapter and never starts in the front matter.
+``--translate-first-chapters N`` overrides the window for translation and
+assembly alone. Combined with ``--skip-if-present`` (``--resume``), widening N
+reuses the finished chapters and chunks and processes only the new ones.
 """
 
 from __future__ import annotations
@@ -106,8 +153,13 @@ from book_splitter.core.constants import (  # noqa: E402
     DEFAULT_RECURSION_LIMIT,
     DEFAULT_SOURCE_LANGUAGE,
     DEFAULT_TARGET_LANGUAGE,
+    DEFAULT_TRANSLATION_ATTEMPTS,
+    DEFAULT_TRANSLATION_CONTEXT_CHARS,
+    DEFAULT_TRANSLATION_MAX_TOKENS,
     MAX_FEEDBACK_LOOPS,
     TOC_SCAN_LINES,
+    TRANSLATION_GLOSSARY_SCOPES,
+    TRANSLATION_METHODS,
 )
 from book_splitter.core.errors import ConfigError, MissingDependencyError, ToolError  # noqa: E402
 from book_splitter.core.settings import (  # noqa: E402
@@ -123,12 +175,21 @@ from book_splitter.documents.chapters import (  # noqa: E402
     glossary_dir,
     has_chapter_files,
     has_chunk_files,
+    has_translation_files,
     load_split_manifest,
     preprocessed_dir,
     reduced_dir,
+    translated_chapters_dir,
+    translation_prompts_dir,
+    translations_dir,
     unique_dir,
 )
 from book_splitter.documents.io import load_lines, source_size_bytes  # noqa: E402
+from book_splitter.documents.window import (  # noqa: E402
+    chapter_files_for_window,
+    chapter_window_limit_for_path,
+    normalize_limit,
+)
 from book_splitter.paths import (  # noqa: E402
     book_output_dir,
     default_input_dir,
@@ -143,11 +204,31 @@ from book_splitter.preprocess.corpus import scan_corpus_damage  # noqa: E402
 #: them into the book's dictionary). ``chunk`` is the translation-sized cut that
 #: runs last: it does not depend on the dictionary, but it reads the chapter folder
 #: those phases start from. ``chunk_glossary`` joins the two: it tags every chunk
-#: first, then attaches the glossary entries the chunk mentions.
-PHASES = ("recon", "split", "scan", "dictionary", "preprocess", "chunk", "chunk_glossary")
+#: first, then attaches the glossary entries the chunk mentions. ``translate`` is
+#: the end product: it sends every chunk with those entries to the model and
+#: writes the translated chunk plus the whole prompt that produced it.
+PHASES = (
+    "recon",
+    "split",
+    "scan",
+    "dictionary",
+    "preprocess",
+    "chunk",
+    "chunk_glossary",
+    "translate",
+    "concatenate",
+)
 
 #: Phases that need the folder stage 1 writes.
-NEEDS_CHAPTERS = ("scan", "dictionary", "preprocess", "chunk", "chunk_glossary")
+NEEDS_CHAPTERS = (
+    "scan",
+    "dictionary",
+    "preprocess",
+    "chunk",
+    "chunk_glossary",
+    "translate",
+    "concatenate",
+)
 
 # TEMPORARY: stage 2 (preprocess) is switched off, so a plain run stops after
 # ``dictionary``. Nothing was removed — ``phase_preprocess``, the stage-2 tools and
@@ -177,6 +258,14 @@ CHUNK_ENABLED = True
 # drops it; ``--no-chunk`` drops it too, because there are no chunks to annotate.
 CHUNK_GLOSSARY_ENABLED = True
 
+# Stage 7 (translation) is the end product and the most expensive phase: one paid
+# model call per chunk (183 calls for the sample English novel). It is therefore
+# **opt-in**: a plain run stops after the chunk glossary, and ``--with-translate``
+# runs the book's translation. ``--no-translate`` is accepted so an explicit
+# command line keeps working, and ``--translate-limit N`` translates a prefix for
+# a cheap test of the whole path.
+TRANSLATE_ENABLED = False
+
 TITLES = {
     "recon": "what the book actually contains (no LLM, no writes)",
     "split": "stage 1 — the agent routes, the lines are copied verbatim",
@@ -185,6 +274,8 @@ TITLES = {
     "preprocess": "stage 2 — clean each chapter, then prove the edit",
     "chunk": "stage 5 — cut each chapter into reversible, sentence-safe chunks (no LLM)",
     "chunk_glossary": "stage 6 — tag every chunk, then attach the glossary terms it mentions",
+    "translate": "stage 7 — translate every chunk, one call at a time, and keep its prompt",
+    "concatenate": "stage 8 — glue the translated chunks back into chapters (no LLM)",
 }
 
 RULE = "─" * 72
@@ -387,6 +478,34 @@ class Pipeline:
             and not getattr(args, "no_chunk_glossary", False)
             and self.chunk_enabled
         )
+        # Stage 7 is opt-in and needs the chunks (and their glossary) to exist.
+        self.translate_enabled = bool(
+            (TRANSLATE_ENABLED or getattr(args, "with_translate", False))
+            and not getattr(args, "no_translate", False)
+            and self.chunk_enabled
+        )
+        self.translate_limit = (
+            getattr(args, "translate_limit", None)
+            if getattr(args, "translate_limit", None) is not None
+            else getattr(args, "limit", None)
+        )
+        # The chapter window. Splitting always runs over the whole book; every
+        # stage after it can be narrowed to the first N chapters. Stage 7 has its
+        # own override (``--translate-first-chapters``) because translation is the
+        # paid step and may be priced over a smaller prefix than the dictionary.
+        self.first_chapters = normalize_limit(getattr(args, "first_chapters", None))
+        self.translate_first_chapters = (
+            normalize_limit(getattr(args, "translate_first_chapters", None))
+            or self.first_chapters
+        )
+        self.chapter_limit = None
+        # Stage 8 is the tail of the translation output. It is selected when
+        # translation is selected, or when the user explicitly starts at it (so a
+        # previously translated book can be assembled without re-translating).
+        self.concat_enabled = bool(
+            not getattr(args, "no_concat", False)
+            and (self.translate_enabled or self.args.start_at == "concatenate")
+        )
         self.records: list[PhaseRecord] = []
         self.exit_code = 0
         self.started = time.monotonic()
@@ -403,6 +522,7 @@ class Pipeline:
         self.source = resolve_book_path(args.book, input_dir=args.in_dir)
         self.book_dir = book_output_dir(self.source, output_root=args.output_root)
         self.chapters_dir = resolve_output_dir(self.source, args.out, output_root=args.output_root)
+        self._refresh_chapter_limit()
         self.preprocessed_out = (
             Path(args.preprocessed_out).expanduser()
             if args.preprocessed_out
@@ -440,6 +560,21 @@ class Pipeline:
             if getattr(args, "chunk_glossary_out", None)
             else chunk_glossary_dir(self.chunks_out)
         )
+        self.translations_out = (
+            Path(args.translations_out).expanduser()
+            if getattr(args, "translations_out", None)
+            else translations_dir(self.chunks_out)
+        )
+        self.translation_prompts_out = (
+            Path(args.translation_prompts_out).expanduser()
+            if getattr(args, "translation_prompts_out", None)
+            else translation_prompts_dir(self.chunks_out)
+        )
+        self.translated_chapters_out = (
+            Path(args.translated_chapters_out).expanduser()
+            if getattr(args, "translated_chapters_out", None)
+            else translated_chapters_dir(self.chunks_out)
+        )
 
         log_path = None
         if not args.no_log:
@@ -464,6 +599,29 @@ class Pipeline:
             )
         return self._settings
 
+    def _refresh_chapter_limit(self) -> None:
+        """Turn the body-chapter window into the file count each stage takes.
+
+        Called once at construction (for existing chapters) and again after the
+        split phase, because a fresh run does not know whether the split will
+        write ``00-front-matter.md`` until the phase has run. The effective limit
+        deliberately includes any front matter *before* chapter 1 while not
+        counting it as one of the N body chapters.
+        """
+        self.chapter_limit = chapter_window_limit_for_path(
+            self.chapters_dir,
+            self.first_chapters,
+            getattr(self.args, "limit", None),
+        )
+
+    def _window_text(self) -> str | None:
+        """Human label for the active window; the file count stays internal."""
+        if self.first_chapters is not None:
+            return f"first {self.first_chapters} body chapter(s)"
+        if self.chapter_limit is not None:
+            return f"first {self.chapter_limit} chapter(s)"
+        return None
+
     def _selected_phases(self) -> list[str]:
         start = PHASES.index(self.args.start_at)
         stop = PHASES.index(self.args.stop_after)
@@ -478,6 +636,10 @@ class Pipeline:
             phases = [name for name in phases if name != "chunk"]
         if not self.chunk_glossary_enabled:
             phases = [name for name in phases if name != "chunk_glossary"]
+        if not self.translate_enabled:
+            phases = [name for name in phases if name != "translate"]
+        if not self.concat_enabled:
+            phases = [name for name in phases if name != "concatenate"]
         return phases
 
     def _switched_off_phases(self) -> list[str]:
@@ -494,11 +656,19 @@ class Pipeline:
         phases = self._selected_phases()
         self._banner(phases)
         for name in self._switched_off_phases():
+            if name == "concatenate" and not self.translate_enabled:
+                self.console.info(
+                    "  · concatenate: switched off — add --with-translate to assemble "
+                    "the translation, or --start-at concatenate"
+                )
+                continue
             flag = {
                 "preprocess": "--with-preprocess",
                 "dictionary": "--with-dictionary",
                 "chunk": "--no-chunk",
                 "chunk_glossary": "--no-chunk-glossary",
+                "translate": "--with-translate",
+                "concatenate": "--no-concat",
             }.get(name, "--with-" + name)
             self.console.info(f"  · {name}: switched off for now — skipped (see {flag})")
         for index, name in enumerate(phases, start=1):
@@ -523,6 +693,33 @@ class Pipeline:
                 record.summary = "skipped — no chunks on disk to annotate"
                 self.console.info(
                     "  · skipped: no chunk files — run the chunk phase (or a real run) first"
+                )
+                continue
+
+            if name == "translate":
+                from book_splitter.translation.runner import has_chunk_glossary_files
+
+                if not has_chunk_files(self.chunks_out):
+                    record.ok = True
+                    record.summary = "skipped — no chunks on disk to translate"
+                    self.console.info(
+                        "  · skipped: no chunk files — run the chunk phase first"
+                    )
+                    continue
+                if not has_chunk_glossary_files(self.chunk_glossary_out):
+                    record.ok = True
+                    record.summary = "skipped — no per-chunk glossary to send"
+                    self.console.info(
+                        "  · skipped: no per-chunk glossary — run the chunk_glossary phase first"
+                    )
+                    continue
+
+            if name == "concatenate" and not has_translation_files(self.translations_out):
+                record.ok = True
+                record.summary = "skipped — no translated chunks to assemble"
+                self.console.info(
+                    "  · skipped: no translated chunks — run the translate phase first "
+                    "(or --start-at concatenate after a translated run)"
                 )
                 continue
 
@@ -551,6 +748,10 @@ class Pipeline:
                 self.console.error(f"  ✗ {name}: {record.error}")
                 break
             record.ok, record.summary, record.payload = True, summary, payload
+            if name == "split":
+                # The split may have just written the front matter; recompute the
+                # chapter window now that the real file list exists.
+                self._refresh_chapter_limit()
             self.console.info(f"  ✓ {name} finished in {human_seconds(record.seconds)}")
 
         return self._finish()
@@ -576,6 +777,9 @@ class Pipeline:
         console.kv("preprocessed", rel(self.preprocessed_out))
         console.kv("chunks", rel(self.chunks_out))
         console.kv("chunk gloss", rel(self.chunk_glossary_out))
+        console.kv("translations", rel(self.translations_out))
+        console.kv("prompts", rel(self.translation_prompts_out))
+        console.kv("translated chapters", rel(self.translated_chapters_out))
         if not self.chunk_enabled:
             console.kv("stage 5", "chunking switched off — remove --no-chunk to run it")
         else:
@@ -593,6 +797,39 @@ class Pipeline:
                 "match",
                 f"{self.args.match_threshold}% · scorer {self.args.match_scorer}",
             )
+        if not self.translate_enabled:
+            console.kv(
+                "stage 7",
+                "translation switched off — add --with-translate to translate the chunks",
+            )
+        else:
+            console.kv(
+                "translate",
+                f"{self.args.source_language} → {self.args.target_language} · "
+                f"glossary {self.args.translate_glossary_scope} · "
+                f"limit {self.translate_limit if self.translate_limit else 'all chunks'}",
+            )
+        if self.first_chapters is not None:
+            console.kv(
+                "chapter window",
+                f"first {self.first_chapters} chapter(s) for every stage after split "
+                "(split itself is always the whole book)",
+            )
+        if (
+            self.translate_first_chapters is not None
+            and self.translate_first_chapters != self.first_chapters
+        ):
+            console.kv(
+                "translation window",
+                f"first {self.translate_first_chapters} chapter(s)",
+            )
+        if not self.concat_enabled:
+            console.kv(
+                "stage 8",
+                "assembly switched off — add --with-translate or --start-at concatenate",
+            )
+        else:
+            console.kv("stage 8", rel(self.translated_chapters_out))
         console.kv("phases", " → ".join(phases) or "(none — every selected phase is switched off)")
         if not self.preprocess_enabled:
             console.kv("stage 2", "preprocess switched off — --with-preprocess to run it")
@@ -810,6 +1047,8 @@ class Pipeline:
     def phase_scan(self) -> tuple[str, dict[str, Any]]:
         """Deterministic damage profile of the chapters stage 1 just wrote."""
         chapters = discover_chapters(self.chapters_dir)
+        if self.chapter_limit is not None:
+            chapters = chapters[: self.chapter_limit]
         scan = scan_corpus_damage(chapters, max_examples_per_pattern=self.args.examples)
         manifest = load_split_manifest(self.chapters_dir)
         counts = {name: value for name, value in (scan.get("counts") or {}).items() if value}
@@ -821,6 +1060,9 @@ class Pipeline:
             f"{human_bytes(sum(c.bytes for c in chapters))}",
         )
         console.kv("strategy", self._recorded_strategy(manifest))
+        window = self._window_text()
+        if window is not None:
+            console.kv("window", window)
         console.kv(
             "damage",
             f"{int(scan.get('total_findings', 0)):,} findings in {len(counts)} shape(s)",
@@ -868,6 +1110,9 @@ class Pipeline:
         if save_unique:
             console.kv("unique", rel(self.unique_out))
         console.kv("provider", "none — deterministic, no LLM")
+        window = self._window_text()
+        if window is not None:
+            console.kv("window", window)
         console.kv(
             "filters",
             f"uppercase={'off' if args.no_uppercase_filter else 'on'} · "
@@ -902,7 +1147,7 @@ class Pipeline:
                 save_reduced=save_reduced,
                 save_unique=save_unique,
                 dry_run=args.dry_run,
-                limit=args.limit,
+                limit=self.chapter_limit,
                 write_manifest=not args.no_manifest and not args.dry_run,
             )
         except MissingDependencyError as exc:
@@ -1087,7 +1332,7 @@ class Pipeline:
                 include_front_matter=getattr(args, "include_front_matter", False),
                 include_back_matter=getattr(args, "include_back_matter", False),
                 skip_if_present=args.skip_if_present,
-                limit=args.limit,
+                limit=self.chapter_limit,
                 progress=self._on_glossary_chapter,
                 chapter_start=self._on_glossary_start,
             )
@@ -1276,7 +1521,15 @@ class Pipeline:
         console.kv("input", rel(self.chapters_dir))
         console.kv("output", rel(self.preprocessed_out))
         console.kv("provider", f"{self.settings.provider} · {self.settings.model}")
-        console.kv("chapters", f"{len(chapters)} · one agent run each · workers={args.workers}")
+        shown = (
+            len(chapters)
+            if self.chapter_limit is None
+            else min(len(chapters), self.chapter_limit)
+        )
+        console.kv("chapters", f"{shown} · one agent run each · workers={args.workers}")
+        window = self._window_text()
+        if window is not None:
+            console.kv("window", window)
         console.kv(
             "policy",
             "validate the plan, apply it, then prove only the declared lines changed",
@@ -1297,6 +1550,8 @@ class Pipeline:
             dry_run=args.dry_run,
             recursion_limit=args.recursion_limit,
             workers=args.workers,
+            limit=self.chapter_limit,
+            skip_if_present=args.skip_if_present,
             write_manifest=not args.no_manifest and not args.dry_run,
             progress=self._on_chapter,
         )
@@ -1311,6 +1566,8 @@ class Pipeline:
         tokens = int((result.usage or {}).get("total_tokens", 0) or 0)
 
         console.kv("chapters", f"{result.ok_count}/{result.chapter_count} clean")
+        if getattr(result, "skipped_count", 0):
+            console.kv("reused", f"{result.skipped_count} chapter(s)")
         console.kv("edits", f"{operations} operations · {dropped} lines dropped · {fixes} fixes")
         if not args.dry_run:
             console.kv("lines", f"{lines_in:,} → {lines_out:,}")
@@ -1398,7 +1655,7 @@ class Pipeline:
                 tokenizer=args.chunk_tokenizer,
                 skip_if_present=args.skip_if_present,
                 dry_run=args.dry_run,
-                limit=args.limit,
+                limit=self.chapter_limit,
                 write_manifest=not args.no_manifest and not args.dry_run,
             )
         except MissingDependencyError as exc:
@@ -1500,6 +1757,18 @@ class Pipeline:
             "ner over every chunk first, then fuzzy retrieval for every collected term",
         )
         console.kv("provider", "none — deterministic, no LLM")
+        chapter_files = chapter_files_for_window(self.chunks_out, self.first_chapters)
+        if chapter_files is not None:
+            console.kv(
+                "window",
+                f"chunks of the first {self.first_chapters} body chapter(s)",
+            )
+        if args.limit is not None:
+            console.kv("limit", f"first {args.limit:,} chunk(s) in the window")
+        console.kv(
+            "resume",
+            "reuse finished chunks" if args.skip_if_present else "off",
+        )
 
         try:
             result = run_chunk_glossary(
@@ -1517,6 +1786,8 @@ class Pipeline:
                 candidates=args.match_candidates,
                 dry_run=args.dry_run,
                 limit=args.limit,
+                chapter_files=chapter_files,
+                skip_if_present=args.skip_if_present,
                 write_manifest=not args.no_manifest and not args.dry_run,
             )
         except MissingDependencyError as exc:
@@ -1566,6 +1837,280 @@ class Pipeline:
         if args.dry_run:
             summary += " · dry run"
         return summary, result.to_dict()
+
+    # -- phase 8: translate ------------------------------------------------ #
+    def phase_translate(self) -> tuple[str, dict[str, Any]]:
+        """Stage 7: translate every chunk, glossary first, debug prompt kept.
+
+        Opt-in (``--with-translate``) because it is the paid end product: one
+        model call per chunk. The phase reads the chunks and their per-chunk
+        glossary, and writes ``translations/`` plus ``translation-prompts/`` —
+        the latter holds the whole input of every call, for debugging.
+        """
+        from book_splitter.core.constants import GLOSSARY_FILENAME
+        from book_splitter.translation import run_translation
+        from book_splitter.translation.runner import has_chunk_glossary_files
+
+        args, console = self.args, self.console
+        if args.dry_run:
+            console.info("  · translation skipped: a --dry-run does not spend tokens")
+            return "skipped (dry run)", {"dry_run": True}
+        if not has_chunk_files(self.chunks_out):
+            raise PhaseFailed(
+                f"no chunk files in {rel(self.chunks_out)} — run chunk first",
+                summary="no chunks to translate",
+            )
+        if not has_chunk_glossary_files(self.chunk_glossary_out):
+            console.info(
+                f"  · skipped: no per-chunk glossary in {rel(self.chunk_glossary_out)} — "
+                "run the chunk_glossary phase first"
+            )
+            return (
+                "skipped — no per-chunk glossary to send",
+                {"missing_chunk_glossary": str(self.chunk_glossary_out)},
+            )
+        glossary_path = self.glossary_out / GLOSSARY_FILENAME
+        if args.translate_glossary_scope == "book" and not glossary_path.is_file():
+            console.info(
+                f"  · skipped: no book glossary at {rel(glossary_path)} — run the "
+                "dictionary/glossary phase first, or use --translate-glossary-scope chunk"
+            )
+            return (
+                "skipped — no book glossary to send",
+                {"missing_glossary": str(glossary_path)},
+            )
+
+        console.kv("input", rel(self.chunks_out))
+        console.kv("glossary", rel(self.chunk_glossary_out) + f"  ({args.translate_glossary_scope})")
+        console.kv("output", rel(self.translations_out))
+        console.kv("prompts", rel(self.translation_prompts_out))
+        console.kv("languages", f"{args.source_language} → {args.target_language}")
+        console.kv("model", self._model_label())
+        chapter_files = chapter_files_for_window(
+            self.chunks_out, self.translate_first_chapters
+        )
+        if chapter_files is not None:
+            console.kv(
+                "window",
+                f"chunks of the first {self.translate_first_chapters} body chapter(s)",
+            )
+        console.kv(
+            "limit",
+            f"{self.translate_limit} chunk(s) in the window"
+            if self.translate_limit
+            else "the whole book",
+        )
+        console.kv(
+            "resume",
+            "reuse finished chunks" if args.skip_if_present else "off",
+        )
+
+        try:
+            result = run_translation(
+                str(self.chunks_out),
+                str(self.translations_out),
+                prompts_dir=str(self.translation_prompts_out),
+                chunk_glossary_path=str(self.chunk_glossary_out),
+                glossary_path=str(glossary_path),
+                glossary_scope=args.translate_glossary_scope,
+                source_language=args.source_language,
+                target_language=args.target_language,
+                settings_factory=lambda: self.settings,
+                max_attempts=args.translate_attempts,
+                method=args.translate_method,
+                max_tokens=args.translate_max_tokens or None,
+                context_chars=args.translate_context_chars,
+                resume=args.skip_if_present,
+                limit=self.translate_limit,
+                chapter_files=chapter_files,
+                dry_run=args.dry_run,
+                write_manifest=not args.no_manifest,
+                progress=None
+                if getattr(args, "quiet", False)
+                else self._on_translation_chunk,
+            )
+        except MissingDependencyError as exc:
+            console.info(f"  · skipped: {exc}")
+            return (
+                "skipped — a translation dependency is not installed",
+                {"missing_dependency": str(exc)},
+            )
+
+        totals = result.totals or {}
+        tokens = result.tokens or {}
+        console.kv(
+            "chunks",
+            f"{result.ok_count}/{result.chunk_count} ok"
+            + (f" · {result.reused_count:,} reused" if result.reused_count else ""),
+        )
+        console.kv(
+            "text",
+            f"{int(totals.get('source_chars') or 0):,} → "
+            f"{int(totals.get('translation_chars') or 0):,} characters",
+        )
+        console.kv(
+            "tokens",
+            f"{int(tokens.get('total_tokens') or 0):,} total "
+            f"({int(tokens.get('input_tokens') or 0):,} in, "
+            f"{int(tokens.get('output_tokens') or 0):,} out) over "
+            f"{int(tokens.get('calls') or 0):,} call(s)",
+        )
+        timing = result.timing or {}
+        if timing:
+            console.kv(
+                "time",
+                f"{human_seconds(float(timing.get('run_seconds', 0.0)))} "
+                f"({float(timing.get('seconds_per_chunk', 0.0)):.1f} s/chunk)",
+            )
+        self._log_paths("manifest", result.manifest_path)
+        self._log_paths("trace", result.trace_path)
+
+        if not result.ok:
+            detail = "\n".join(f"     - {error}" for error in result.errors)
+            raise PhaseFailed(
+                f"{len(result.errors)} chunk(s) failed\n{detail}"
+                if detail
+                else "the translation run was not verified",
+                summary=f"{result.ok_count}/{result.chunk_count} ok",
+            )
+
+        summary = (
+            f"{int(totals.get('translated_chunks') or 0):,} chunk(s) translated · "
+            f"{int(tokens.get('total_tokens') or 0):,} tokens · "
+            f"{args.source_language} → {args.target_language}"
+        )
+        if result.reused_count:
+            summary += f" · {result.reused_count:,} reused"
+        if args.dry_run:
+            summary += " · dry run"
+        return summary, result.to_dict()
+
+    # -- phase 9: concatenate ---------------------------------------------- #
+    def phase_concatenate(self) -> tuple[str, dict[str, Any]]:
+        """Stage 8: glue the translated chunks back into one file per chapter.
+
+        Deterministic and cheap, but it runs after the paid translation phase so
+        a translated run ends with a readable book. It is also reachable on its
+        own with ``--start-at concatenate`` over an earlier translation.
+        """
+        from book_splitter.assembly import run_assembly
+
+        args, console = self.args, self.console
+        if not has_translation_files(self.translations_out):
+            console.info(
+                f"  · skipped: no translated chunks in {rel(self.translations_out)} — "
+                "run the translate phase first"
+            )
+            return (
+                "skipped — no translated chunks to assemble",
+                {"missing_translations": str(self.translations_out)},
+            )
+
+        console.kv("input", rel(self.translations_out))
+        console.kv("chunks", rel(self.chunks_out))
+        console.kv("output", rel(self.translated_chapters_out))
+        if self.translate_first_chapters is not None:
+            console.kv("window", f"first {self.translate_first_chapters} chapter(s)")
+        console.kv(
+            "resume",
+            "reuse finished chapters" if args.skip_if_present else "off",
+        )
+
+        result = run_assembly(
+            str(self.chunks_out),
+            str(self.translations_out),
+            str(self.translated_chapters_out),
+            first_chapters=self.translate_first_chapters,
+            skip_if_present=args.skip_if_present,
+            dry_run=args.dry_run,
+            write_manifest=not args.no_manifest and not args.dry_run,
+            progress=None
+            if getattr(args, "quiet", False)
+            else self._on_assembly_chapter,
+        )
+
+        totals = result.totals or {}
+        console.kv(
+            "chapters",
+            f"{result.ok_count}/{result.chapter_count} written"
+            + (f" · {result.reused_count} reused" if result.reused_count else "")
+            + (
+                f" · {result.incomplete_count} incomplete"
+                if result.incomplete_count
+                else ""
+            ),
+        )
+        console.kv(
+            "chunks",
+            f"{int(totals.get('translated_chunks') or 0):,} translated of "
+            f"{int(totals.get('chunks') or 0):,} in the window",
+        )
+        if result.incomplete_count:
+            console.kv(
+                "incomplete",
+                "a chapter is written only when every chunk was translated",
+            )
+        self._log_paths("manifest", result.manifest_path)
+        self._log_paths("trace", result.trace_path)
+
+        if not result.ok:
+            detail = "\n".join(f"     - {error}" for error in result.errors)
+            raise PhaseFailed(
+                f"{len(result.errors)} chapter(s) failed\n{detail}"
+                if detail
+                else "the assembly run failed",
+                summary=f"{result.ok_count}/{result.chapter_count} written",
+            )
+
+        summary = (
+            f"{result.ok_count}/{result.chapter_count} chapters · "
+            f"{int(totals.get('translated_chunks') or 0):,} translated chunk(s)"
+        )
+        if result.reused_count:
+            summary += f" · {result.reused_count} reused"
+        if result.incomplete_count:
+            summary += f" · {result.incomplete_count} incomplete"
+        if args.dry_run:
+            summary += " · dry run"
+        return summary, result.to_dict()
+
+    def _on_assembly_chapter(
+        self, chapter: dict[str, Any], done: int, total: int
+    ) -> None:
+        """One durable line per assembled (or skipped) chapter."""
+        if chapter.get("skipped"):
+            flag = "skip"
+            tail = f" · {chapter.get('note') or 'not translated'}"
+        elif chapter.get("reused"):
+            flag = "reuse"
+            tail = ""
+        else:
+            flag = "ok   "
+            tail = ""
+        self.console.info(
+            f"  [{done:>3}/{total}] {flag} {str(chapter.get('filename') or '?'):<46} "
+            f"{int(chapter.get('chunk_count') or 0):>3} chunk(s) · "
+            f"{int(chapter.get('translation_chars') or 0):>7,} chars{tail}"
+        )
+
+    def _on_translation_chunk(
+        self, chunk: dict[str, Any], done: int, total: int
+    ) -> None:
+        """One durable line per translated chunk, with its tokens."""
+        if chunk.get("reused"):
+            flag = "reuse"
+        elif chunk.get("ok"):
+            flag = "ok   "
+        else:
+            flag = "FAIL "
+        tokens = chunk.get("tokens") or {}
+        self.console.info(
+            f"  [{done:>3}/{total}] {flag} {str(chunk.get('filename') or '?'):<46} "
+            f"{int(chunk.get('source_chars') or 0):>6,} → "
+            f"{int(chunk.get('translation_chars') or 0):>6,} chars · "
+            f"{int(tokens.get('total_tokens') or 0):>7,} tok · "
+            f"{int(chunk.get('attempts') or 0)} attempt(s)"
+        )
 
     def _recorded_strategy(self, manifest: dict[str, Any]) -> str:
         """Which strategy won.
@@ -1621,6 +2166,9 @@ class Pipeline:
         console.info(f"    preprocessed  {rel(self.preprocessed_out)}/")
         console.info(f"    chunks        {rel(self.chunks_out)}/")
         console.info(f"    chunk gloss   {rel(self.chunk_glossary_out)}/")
+        console.info(f"    translations  {rel(self.translations_out)}/")
+        console.info(f"    prompts       {rel(self.translation_prompts_out)}/")
+        console.info(f"    translated ch {rel(self.translated_chapters_out)}/")
         if console.log_path is not None:
             console.info(f"    log           {rel(console.log_path)}")
         for label, path in self._artifact_files():
@@ -1643,6 +2191,21 @@ class Pipeline:
             and record.ok
             and not (record.payload or {}).get("missing_dependency")
             and int((record.payload or {}).get("chunk_count") or 0) > 0
+            for record in self.records
+        )
+        translated = any(
+            record.name == "translate"
+            and record.ok
+            and int((record.payload or {}).get("chunk_count") or 0) > 0
+            for record in self.records
+        )
+        concatenated = any(
+            record.name == "concatenate"
+            and record.ok
+            and (
+                int((record.payload or {}).get("ok_count") or 0) > 0
+                or int((record.payload or {}).get("reused_count") or 0) > 0
+            )
             for record in self.records
         )
         glossaried = any(
@@ -1668,11 +2231,35 @@ class Pipeline:
         elif self.args.dry_run:
             console.info("  dry run — every plan was validated, no chapter file was written")
         else:
-            if chunk_glossaried:
+            if concatenated:
+                console.info(
+                    f"  next: {rel(self.translated_chapters_out)}/ holds the translated "
+                    "book, one file per chapter — the source chapters were not touched"
+                )
+                if self.translation_prompts_out.is_dir():
+                    console.info(
+                        f"  debug: {rel(self.translation_prompts_out)}/ holds the whole "
+                        "prompt of every chunk (system, user, glossary and source text)"
+                    )
+            elif translated:
+                console.info(
+                    f"  next: {rel(self.translations_out)}/ holds the translated chunks — "
+                    f"run --start-at concatenate to rebuild the translated chapters"
+                )
+                console.info(
+                    f"  debug: {rel(self.translation_prompts_out)}/ holds the whole prompt "
+                    "of every chunk (system, user, glossary and source text)"
+                )
+            elif chunk_glossaried:
                 console.info(
                     f"  next: {rel(self.chunk_glossary_out)}/ holds one glossary file per chunk — "
                     "send a chunk with its matched terms to keep the translation consistent"
                 )
+                if not self.translate_enabled:
+                    console.info(
+                        "  next: translate the book with --with-translate "
+                        "(one paid model call per chunk; --translate-limit N for a test)"
+                    )
             elif chunked:
                 console.info(
                     f"  next: {rel(self.chunks_out)}/ holds the translation-sized chunks — "
@@ -1724,6 +2311,11 @@ class Pipeline:
                 console.info(
                     "  stage 2 (preprocess) is switched off — --with-preprocess to run it"
                 )
+            if not self.translate_enabled:
+                console.info(
+                    "  stage 7 (translation) is switched off — --with-translate to translate "
+                    "the chunks (one paid model call per chunk)"
+                )
 
         if self.args.json:
             console.info("")
@@ -1735,6 +2327,8 @@ class Pipeline:
     def _artifact_files(self) -> list[tuple[str, str]]:
         """Manifest/trace files written by whichever phases ran, for the report."""
         from book_splitter.core.constants import (
+            ASSEMBLY_MANIFEST_FILENAME,
+            ASSEMBLY_TRACE_FILENAME,
             CHUNK_GLOSSARY_MANIFEST_FILENAME,
             CHUNK_GLOSSARY_TRACE_FILENAME,
             CHUNK_MANIFEST_FILENAME,
@@ -1749,6 +2343,8 @@ class Pipeline:
             REDUCED_MANIFEST_FILENAME,
             REDUCED_TRACE_FILENAME,
             TRACE_FILENAME,
+            TRANSLATION_MANIFEST_FILENAME,
+            TRANSLATION_TRACE_FILENAME,
         )
 
         candidates = [
@@ -1766,6 +2362,10 @@ class Pipeline:
             ("stage-5 trace", self.chunks_out / CHUNK_TRACE_FILENAME),
             ("stage-6 manifest", self.chunk_glossary_out / CHUNK_GLOSSARY_MANIFEST_FILENAME),
             ("stage-6 trace", self.chunk_glossary_out / CHUNK_GLOSSARY_TRACE_FILENAME),
+            ("stage-7 manifest", self.translations_out / TRANSLATION_MANIFEST_FILENAME),
+            ("stage-7 trace", self.translations_out / TRANSLATION_TRACE_FILENAME),
+            ("stage-8 manifest", self.translated_chapters_out / ASSEMBLY_MANIFEST_FILENAME),
+            ("stage-8 trace", self.translated_chapters_out / ASSEMBLY_TRACE_FILENAME),
         ]
         return [(label, path) for label, path in candidates if path.is_file()]
 
@@ -1780,6 +2380,12 @@ class Pipeline:
             "preprocessed_dir": str(self.preprocessed_out),
             "chunks_dir": str(self.chunks_out),
             "chunk_glossary_dir": str(self.chunk_glossary_out),
+            "translations_dir": str(self.translations_out),
+            "translation_prompts_dir": str(self.translation_prompts_out),
+            "translated_chapters_dir": str(self.translated_chapters_out),
+            "first_chapters": self.first_chapters,
+            "translate_first_chapters": self.translate_first_chapters,
+            "chapter_limit": self.chapter_limit,
             "dry_run": bool(self.args.dry_run),
             "start_at": self.args.start_at,
             "stop_after": self.args.stop_after,
@@ -1910,6 +2516,99 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="drop stage 6 (per-chunk NER + glossary retrieval) from this run",
     )
+    parser.add_argument(
+        "--translations-out",
+        default=None,
+        help="stage 7: where the translated chunks go (default: <book>/translations)",
+    )
+    parser.add_argument(
+        "--translation-prompts-out",
+        default=None,
+        help="stage 7: where the per-chunk prompt/input records go "
+        "(default: <book>/translation-prompts)",
+    )
+    parser.add_argument(
+        "--translated-chapters-out",
+        default=None,
+        help="stage 8: where the translated chapter files go "
+        "(default: <book>/translated-chapters)",
+    )
+    parser.add_argument(
+        "--first-chapters",
+        "--chapters",
+        dest="first_chapters",
+        type=int,
+        default=None,
+        help="run every stage after splitting over only the first N body chapters; "
+        "front/back matter does not count as a chapter, and splitting itself "
+        "always runs over the whole book",
+    )
+    parser.add_argument(
+        "--translate-first-chapters",
+        type=int,
+        default=None,
+        help="stage 7/8: translate and assemble only the first N body chapters "
+        "(default: --first-chapters)",
+    )
+    parser.add_argument(
+        "--no-concat",
+        action="store_true",
+        help="drop stage 8 (concatenating the translated chunks into chapters) "
+        "from this run",
+    )
+    parser.add_argument(
+        "--with-translate",
+        action="store_true",
+        help="run stage 7 (translate every chunk) — off by default because it is one "
+        "paid model call per chunk",
+    )
+    parser.add_argument(
+        "--no-translate",
+        action="store_true",
+        help="drop stage 7 from this run (it is off unless --with-translate is given)",
+    )
+    parser.add_argument(
+        "--translate-limit",
+        type=int,
+        default=None,
+        help="stage 7: translate only the first N chunks (defaults to --limit); the "
+        "cheap way to test the whole translation path",
+    )
+    parser.add_argument(
+        "--translate-glossary-scope",
+        choices=TRANSLATION_GLOSSARY_SCOPES,
+        default="chunk",
+        help="stage 7: send the matched terms stage 6 attached to each chunk (default) "
+        "or the whole glossary.json with every chunk",
+    )
+    parser.add_argument(
+        "--translate-attempts",
+        type=int,
+        default=DEFAULT_TRANSLATION_ATTEMPTS,
+        help="stage 7: model calls allowed per chunk before it is reported as failed "
+        f"(default: {DEFAULT_TRANSLATION_ATTEMPTS})",
+    )
+    parser.add_argument(
+        "--translate-method",
+        choices=TRANSLATION_METHODS,
+        default="auto",
+        help="stage 7: 'auto' asks for native structured output and falls back to JSON "
+        "mode when the provider rejects the schema (default)",
+    )
+    parser.add_argument(
+        "--translate-max-tokens",
+        type=int,
+        default=DEFAULT_TRANSLATION_MAX_TOKENS,
+        help="stage 7: response cap per model call "
+        f"(default: {DEFAULT_TRANSLATION_MAX_TOKENS})",
+    )
+    parser.add_argument(
+        "--translate-context-chars",
+        type=int,
+        default=DEFAULT_TRANSLATION_CONTEXT_CHARS,
+        help="stage 7: send the last N characters of the previous translation as "
+        f"continuity context (default: {DEFAULT_TRANSLATION_CONTEXT_CHARS} = off)",
+    )
 
     parser.add_argument(
         "--dry-run",
@@ -1979,10 +2678,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--skip-if-present",
+        "--resume",
+        dest="skip_if_present",
         action="store_true",
         help="reuse work already on disk: existing chapters for stage 1, existing "
-        "reduced chapters for stage 3 (no model is loaded for the latter), and "
-        "existing chunks for stage 5 (no tokenizer is loaded when all chapters match)",
+        "reduced chapters for stage 3 (no model is loaded for the latter), "
+        "existing chunk glossaries for stage 6, existing translations for stage 7, "
+        "and existing translated chapters for stage 8",
     )
     parser.add_argument(
         "--no-save-reduced",
@@ -2055,8 +2757,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit",
         type=int,
         default=None,
-        help="stages 3/4/5/6: only the first N units (chapters, or chunks for stage 6) — a "
-        "quick look, and how to price the glossary or a chunk run before the whole book",
+        help="stages 2/3/4/5/6/7: only the first N units (chapters, or chunks for "
+        "stages 6/7) — a quick look, and how to price the glossary or a "
+        "chunk/translation run before the whole book; --first-chapters is the "
+        "chapter-aligned alternative",
     )
     parser.add_argument(
         "--toc-scan-lines",
@@ -2117,6 +2821,11 @@ def main(argv: list[str] | None = None) -> int:
     if int(args.chunk_size) <= 0:
         print("error: --chunk-size must be greater than 0 tokens", file=sys.stderr)
         return 2
+    for flag in ("first_chapters", "translate_first_chapters"):
+        value = getattr(args, flag, None)
+        if value is not None and int(value) < 0:
+            print(f"error: --{flag.replace('_', '-')} cannot be negative", file=sys.stderr)
+            return 2
     try:
         pipeline = Pipeline(args)
     except (FileNotFoundError, ToolError, ConfigError) as exc:

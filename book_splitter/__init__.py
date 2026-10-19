@@ -1,4 +1,4 @@
-"""Two LangGraph agents, a dictionary funnel, a glossary, a chunker and a per-chunk glossary.
+"""Two LangGraph agents, a dictionary funnel, a glossary, a chunker, a per-chunk glossary, a translator and an assembler.
 
 The pipeline turns one long Markdown book into translation-ready material.
 
@@ -51,12 +51,31 @@ collecting the entity terms each chunk mentions; only then does it fuzzy-match
 each term against stage 4's glossary (``rapidfuzz``, 95 % by default) and write
 the relevant terms per chunk, under the chunk's own name in ``chunk-glossary/``.
 
+Stage 7 — :mod:`book_splitter.translation` — is the end product. It walks the
+chunks in reading order and translates each one into the target language
+(English into Serbian by default), sending the glossary rows stage 6 attached
+and asking for a Pydantic-validated ``{"translation": ...}`` answer, with retries
+and token accounting. The translated chunks land in ``translations/`` under the
+chunk's own name; the whole prompt of every call — system prompt, user prompt,
+messages, glossary and source chunk — is kept in ``translation-prompts/`` for
+debugging. ``--limit`` translates only the first N chunks, and ``--resume``
+skips the chunks an earlier run already finished.
+
+Stage 8 — :mod:`book_splitter.assembly` — puts the translated chunks back
+together. Stage 5's manifest says which chapter each chunk belongs to and its
+order inside that chapter; this stage concatenates each chapter's translated
+chunks and writes ``translated-chapters/<chapter>.md`` in a folder separate from
+the source ``chapters/``. A chapter is written only when every one of its chunks
+was translated, so a partial translation is reported rather than silently
+truncated. ``--first-chapters N`` assembles a prefix, and ``--skip-if-present``
+reuses a chapter whose bytes already match the current translations.
+
 Package layout::
 
     book_splitter/
         paths.py        where documents live (input/output folders)
         cli.py          `inspect` / `split` / `preprocess` / `dictionary` /
-                        `glossary` / `chunk` / `chunk-glossary` / `tools`
+                        `glossary` / `chunk` / `chunk-glossary` / `translate` / `tools`
         core/           constants, errors, LLM settings
         documents/      reading, markdown/bodyline shapes, chapter discovery
         analysis/       TOC detection, header assessment, title location
@@ -66,11 +85,14 @@ Package layout::
         glossary/       stage 4: ordered LLM pass that builds the glossary
         chunking/       stage 5: reversible, sentence-safe chapter chunks
         chunk_glossary/ stage 6: per-chunk NER + fuzzy glossary retrieval
+        translation/    stage 7: per-chunk structured translation + prompt record
+        assembly/       stage 8: translated chunks concatenated into chapters
         agent/          stage 1 agent: prompts, model, tools, graph
         preprocess_agent/  stage 2 agent: prompts, model, tools binding, graph
 """
 
 from .agent import SplitterResult, SplitterState, build_graph, run_split
+from .assembly import AssemblyResult, run_assembly
 from .chunk_glossary import ChunkGlossaryResult, run_chunk_glossary
 from .chunking import ChunkingResult, run_chunking
 from .dictionary import DictionaryResult, run_dictionary
@@ -87,8 +109,10 @@ from .preprocess_agent import (
     build_preprocess_graph,
     run_preprocess,
 )
+from .translation import TranslationResult, run_translation
 
 __all__ = [
+    "AssemblyResult",
     "ChunkGlossaryResult",
     "ChunkingResult",
     "DictionaryResult",
@@ -97,8 +121,10 @@ __all__ = [
     "PreprocessState",
     "SplitterResult",
     "SplitterState",
+    "TranslationResult",
     "build_graph",
     "build_preprocess_graph",
+    "run_assembly",
     "run_chunk_glossary",
     "run_chunking",
     "default_input_dir",
@@ -109,5 +135,6 @@ __all__ = [
     "run_glossary",
     "run_preprocess",
     "run_split",
+    "run_translation",
 ]
-__version__ = "2.4.0"
+__version__ = "2.5.0"

@@ -1,7 +1,31 @@
 cd /home/jovis/Documents/WORK/BleBelTranslateBook
 source .venv_splitter/bin/activate
 
+# the whole pipeline over the first N chapters (split itself is always the full book);
+# --skip-if-present makes a later, larger N reuse the finished chapters and chunks
 .venv_splitter/bin/python scripts/run_pipeline.py \
   "Dont You Forget About Me - Alexandra Potter.md" \
   --skip-if-present \
+  --first-chapters 5 \
   --cpu
+
+# same run, and translate + assemble the first five chapters
+.venv_splitter/bin/python scripts/run_pipeline.py \
+  "Dont You Forget About Me - Alexandra Potter.md" \
+  --skip-if-present \
+  --first-chapters 5 \
+  --with-translate \
+  --cpu
+
+# stage 8 only, over an existing translation
+.venv_splitter/bin/python scripts/run_pipeline.py \
+  "Dont You Forget About Me - Alexandra Potter.md" \
+  --start-at concatenate \
+  --first-chapters 5 \
+  --skip-if-present \
+  --cpu
+
+
+
+
+  python scripts/run_pipeline.py "Dont You Forget About Me - Alexandra Potter.md" --first-chapters 2 --skip-if-present --with-translate

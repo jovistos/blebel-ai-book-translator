@@ -24,6 +24,9 @@ from ..core.constants import (
     MANIFEST_FILENAME,
     PREPROCESSED_DIRNAME,
     REDUCED_DIRNAME,
+    TRANSLATED_CHAPTERS_DIRNAME,
+    TRANSLATION_PROMPTS_DIRNAME,
+    TRANSLATIONS_DIRNAME,
     UNIQUE_DIRNAME,
 )
 from ..core.errors import ToolError
@@ -121,7 +124,17 @@ def chunks_dir(output_dir: str | Path) -> Path:
     folder, which is where a translation run expects to find it.
     """
     out = Path(output_dir).expanduser()
-    if out.name in {CHAPTERS_DIRNAME, PREPROCESSED_DIRNAME}:
+    if out.name in {
+        CHAPTERS_DIRNAME,
+        PREPROCESSED_DIRNAME,
+        REDUCED_DIRNAME,
+        UNIQUE_DIRNAME,
+        GLOSSARY_DIRNAME,
+        CHUNK_GLOSSARY_DIRNAME,
+        TRANSLATIONS_DIRNAME,
+        TRANSLATION_PROMPTS_DIRNAME,
+        TRANSLATED_CHAPTERS_DIRNAME,
+    }:
         out = out.parent
     return out / CHUNKS_DIRNAME
 
@@ -141,13 +154,123 @@ def chunk_glossary_dir(output_dir: str | Path) -> Path:
     if out.name in {
         CHAPTERS_DIRNAME,
         PREPROCESSED_DIRNAME,
-        CHUNKS_DIRNAME,
         REDUCED_DIRNAME,
         UNIQUE_DIRNAME,
         GLOSSARY_DIRNAME,
+        CHUNKS_DIRNAME,
+        CHUNK_GLOSSARY_DIRNAME,
+        TRANSLATIONS_DIRNAME,
+        TRANSLATION_PROMPTS_DIRNAME,
+        TRANSLATED_CHAPTERS_DIRNAME,
     }:
         out = out.parent
     return out / CHUNK_GLOSSARY_DIRNAME
+
+
+def translations_dir(output_dir: str | Path) -> Path:
+    """Default stage-7 output: a sibling of ``chunks/``, never over it.
+
+    The translated chunks keep the chunk filenames, so ``chunks/`` and
+    ``translations/`` line up one to one and concatenating the translations in
+    filename order rebuilds the translated book. Handed the book folder it writes
+    ``translations/`` in it; handed ``chunks/`` (or any other sibling artifact
+    folder) it steps over to the book folder first.
+    """
+    out = Path(output_dir).expanduser()
+    if out.name == TRANSLATIONS_DIRNAME:
+        return out
+    if out.name in {
+        CHAPTERS_DIRNAME,
+        PREPROCESSED_DIRNAME,
+        REDUCED_DIRNAME,
+        UNIQUE_DIRNAME,
+        GLOSSARY_DIRNAME,
+        CHUNKS_DIRNAME,
+        CHUNK_GLOSSARY_DIRNAME,
+        TRANSLATION_PROMPTS_DIRNAME,
+        TRANSLATED_CHAPTERS_DIRNAME,
+    }:
+        out = out.parent
+    return out / TRANSLATIONS_DIRNAME
+
+
+def translation_prompts_dir(output_dir: str | Path) -> Path:
+    """Default stage-7 debug output: the prompt/input record of every chunk.
+
+    A sibling of ``translations/``, never inside it: the translation folder is the
+    book's text and should stay clean enough to concatenate, while this folder is
+    for a human debugging one call. Handed the translations folder it puts the
+    debug folder beside it.
+    """
+    out = Path(output_dir).expanduser()
+    if out.name == TRANSLATION_PROMPTS_DIRNAME:
+        return out
+    if out.name in {
+        CHAPTERS_DIRNAME,
+        PREPROCESSED_DIRNAME,
+        REDUCED_DIRNAME,
+        UNIQUE_DIRNAME,
+        GLOSSARY_DIRNAME,
+        CHUNKS_DIRNAME,
+        CHUNK_GLOSSARY_DIRNAME,
+        TRANSLATIONS_DIRNAME,
+        TRANSLATED_CHAPTERS_DIRNAME,
+    }:
+        out = out.parent
+    return out / TRANSLATION_PROMPTS_DIRNAME
+
+
+def translated_chapters_dir(output_dir: str | Path) -> Path:
+    """Default stage-8 output: the translated chapters, a sibling of ``chapters/``.
+
+    Handed the book folder it writes ``translated-chapters/`` in it; handed any
+    of the stage's sibling artifact folders (``chapters/``, ``chunks/``,
+    ``translations/``…) it steps over to the book folder first. The output is a
+    separate folder on purpose: ``chapters/`` is the source text and must never be
+    overwritten by the translation.
+    """
+    out = Path(output_dir).expanduser()
+    if out.name == TRANSLATED_CHAPTERS_DIRNAME:
+        return out
+    if out.name in {
+        CHAPTERS_DIRNAME,
+        PREPROCESSED_DIRNAME,
+        REDUCED_DIRNAME,
+        UNIQUE_DIRNAME,
+        GLOSSARY_DIRNAME,
+        CHUNKS_DIRNAME,
+        CHUNK_GLOSSARY_DIRNAME,
+        TRANSLATIONS_DIRNAME,
+        TRANSLATION_PROMPTS_DIRNAME,
+    }:
+        out = out.parent
+    return out / TRANSLATED_CHAPTERS_DIRNAME
+
+
+def has_translation_files(path: str | Path) -> bool:
+    """True when ``path`` holds at least one translated chunk file."""
+    folder = Path(path).expanduser()
+    if not folder.is_dir():
+        return False
+    return any(
+        p.is_file() and p.suffix.lower() == ".md" and not p.name.startswith("_")
+        for p in folder.glob("*.md")
+    )
+
+
+def has_translated_chapter_files(path: str | Path) -> bool:
+    """True when ``path`` holds at least one stage-8 translated chapter file.
+
+    Bookkeeping files (``_translated_chapters_manifest.json`` and its trace) do
+    not count.
+    """
+    folder = Path(path).expanduser()
+    if not folder.is_dir():
+        return False
+    return any(
+        p.is_file() and p.suffix.lower() == ".md" and not p.name.startswith("_")
+        for p in folder.glob("*.md")
+    )
 
 
 def has_chunk_files(path: str | Path) -> bool:

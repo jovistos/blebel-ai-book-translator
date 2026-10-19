@@ -1,7 +1,7 @@
-# Book pipeline — two LangGraph agents, a dictionary funnel, a glossary, reversible chunks and a per-chunk glossary over a Markdown book
+# Book pipeline — two LangGraph agents, a dictionary funnel, a glossary, reversible chunks, a per-chunk glossary, the translation and its assembly over a Markdown book
 
-The repository holds a six-stage pipeline that turns one long Markdown book into
-the raw material of a consistent translation. Stages 1 and 2 each have their **own
+The repository holds an eight-stage pipeline that turns one long Markdown book into
+a consistent translation. Stages 1 and 2 each have their **own
 specialised agent** with its **own toolset**, and the tools are grouped by the
 stage that uses them (plus a generic `shared` group used by both). Stage 3 has no
 agent at all: it is a deterministic funnel with an optional NER tagger. Stage 4
@@ -10,7 +10,12 @@ LLM calls with a Pydantic-validated answer. Stage 5 has no model at all: it cuts
 each chapter into translation-sized chunks with chonkie and proves they
 concatenate back byte for byte. Stage 6 uses no LLM either: it tags every chunk
 with the same NER backends, then fuzzy-matches each extracted term against the
-glossary and writes the terms a chunk mentions next to that chunk.
+glossary and writes the terms a chunk mentions next to that chunk. Stage 7 is the
+translation itself: it translates the chunks one at a time, sends each one its
+glossary terms, validates a Pydantic translation answer with retries, and keeps
+the whole prompt of every call for debugging. Stage 8 is the inverse of stage 5
+applied to those translated chunks: it concatenates them back into one file per
+chapter, in a folder separate from the source.
 
 | Stage | Module | Question it answers | Writes |
 | --- | --- | --- | --- |
@@ -20,6 +25,8 @@ glossary and writes the terms a chunk mentions next to that chunk.
 | 4. **Glossary** | `book_splitter.glossary` | *How must each of those nouns be written in the target language, once and for all?* | `data/output/<book>/glossary/` |
 | 5. **Chunk** | `book_splitter.chunking` | *Where can the chapter be cut without breaking a paragraph or a sentence — and how do we put it back?* | `data/output/<book>/chunks/` |
 | 6. **Chunk glossary** | `book_splitter.chunk_glossary` | *Which locked renderings does this chunk actually mention?* | `data/output/<book>/chunk-glossary/` |
+| 7. **Translate** | `book_splitter.translation` | *What does this chunk say in the target language, using those renderings?* | `data/output/<book>/translations/` + `translation-prompts/` |
+| 8. **Assemble** | `book_splitter.assembly` | *What does each whole chapter say, now that every chunk is translated?* | `data/output/<book>/translated-chapters/` |
 
 Stage 1 turns one long Markdown book into a folder of chapter files
 **without ever reading the book's body**. The LLM only ever *routes*: it looks at
@@ -88,6 +95,20 @@ The file carries the chunk's identity (global order, chapter, character and line
 spans) and a `matched_terms` list of `term` / `translation` / `category` rows, so a
 translation call can be sent with exactly the renderings that chunk must obey.
 
+Stage 7 is the call that file exists for. It walks the chunks **in reading order**,
+one model call at a time, and sends each chunk with its `matched_terms` as a
+binding glossary block. The answer is a Pydantic-validated JSON object with one
+field (`translation`); a refusal, an empty answer, an answer that merely repeats
+the source or a summary instead of a translation is retried with the failure named,
+and every attempt is priced. Translated chunks land in `translations/` under the
+chunk's own name, so concatenating them in filename order rebuilds the translated
+book. The **whole input** of every call — system prompt, user prompt, the
+serialised messages, the glossary rows that were sent and the source chunk — is
+written to `translation-prompts/`, once as JSON and once as a readable Markdown
+prompt, so a bad paragraph can be debugged without reconstructing the request.
+English into Serbian is the default pair, `--limit N` translates a prefix, and
+`--resume` skips chunks an earlier run already finished.
+
 This is the implementation of the toolset described in
 [gemini-splitting-markdown-books-without-llms.md](gemini-splitting-markdown-books-without-llms.md),
 built for the sample book
@@ -139,12 +160,28 @@ data/
         │   ├── …
         │   ├── _chunk_manifest.json          # per chunk: chapter, order, spans, tokens, boundary
         │   └── _chunk_trace.json             # + per-chapter logs and the verification report
-        └── chunk-glossary/                   # stage 6 output — one file per chunk
-            ├── 00000-00-front-matter-0000.md.json  # named after the chunk it describes
-            ├── 00001-01-predgovor-0000.md.json
+        ├── chunk-glossary/                   # stage 6 output — one file per chunk
+        │   ├── 00000-00-front-matter-0000.md.json  # named after the chunk it describes
+        │   ├── 00001-01-predgovor-0000.md.json
+        │   ├── …
+        │   ├── _chunk_glossary_manifest.json # per chunk: NER counts, matched terms
+        │   └── _chunk_glossary_trace.json    # + every term, candidate and log
+        ├── translations/                     # stage 7 output — the translated chunks
+        │   ├── 00000-00-front-matter-0000.md # same names as chunks/; concatenate to rebuild
+        │   ├── 00001-01-predgovor-0000.md
+        │   ├── …
+        │   ├── _translation_manifest.json    # per chunk: chars, tokens, attempts, hash
+        │   └── _translation_trace.json       # + terms, logs and the run's totals
+        ├── translation-prompts/              # stage 7 debug — the whole input per call
+        │   ├── 00001-01-predgovor-0000.md.json        # system+user prompt, messages,
+        │   │                                          # glossary, source chunk, answer
+        │   └── 00001-01-predgovor-0000.md.prompt.md   # the same prompt, human-readable
+        └── translated-chapters/              # stage 8 output — the translated book
+            ├── 00-front-matter.md            # same names as chapters/, never over them
+            ├── 01-predgovor.md
             ├── …
-            ├── _chunk_glossary_manifest.json # per chunk: NER counts, matched terms
-            └── _chunk_glossary_trace.json    # + every term, candidate and log
+            ├── _translated_chapters_manifest.json  # per chapter: chunks, chars, hash, state
+            └── _translated_chapters_trace.json     # + every chapter's record and log
 ```
 
 Stage 2 never overwrites stage 1's files, and stage 3 never overwrites either:
@@ -164,6 +201,24 @@ Its file names repeat the chunk's full name plus `.json`, so the mapping is
 unambiguous and a consumer strips `.json` to find the text it describes. The
 book-level index is `_chunk_glossary_manifest.json`; the per-chunk files are the
 thing a translation prompt reads.
+
+Stage 7 writes two more siblings and edits nothing. `translations/` mirrors
+`chunks/` file for file, so the translated book is a `cat` in filename order or a
+per-chapter concatenation exactly like the source. `translation-prompts/` is the
+debug twin: for each chunk, `<chunk>.md.json` holds the system prompt, the user
+prompt, the serialised messages, the glossary rows that were sent, the source chunk
+and the answer (or the failure), and `<chunk>.md.prompt.md` holds the same two
+prompts in a form a human can read in an editor.
+
+Stage 8 writes the last sibling, `translated-chapters/`, and edits nothing. It
+groups `translations/<chunk>.md` by the chapter stage 5's manifest assigns each
+chunk to, concatenates each group in `chunk_index` order, and writes one file per
+chapter under the source chapter's own name. The source `chapters/` folder is
+never touched, and a chapter is written only when *every* one of its chunks was
+translated: a partial translation is reported as an incomplete chapter instead of
+being written as a plausible-looking truncation. `_translated_chapters_manifest.json`
+records each chapter's chunk count, character counts, SHA-256, output path and
+whether it was written or reused.
 
 `data/input/` and `data/output/` are kept in the repository with a `.gitkeep`; their contents
 are ignored, so a book and its output never end up in a commit. The layout is resolved in one
@@ -938,6 +993,193 @@ unmatched with `Catherine` as its closest candidate (55.56), which is exactly th
 noise `--min-term-chars` and `--drop-temporal-only` exist to trim if a book needs
 it.
 
+### Stage 7 — translation (`book_splitter.translation`), one chunk at a time
+
+Stage 5 cut the book into pieces a model can translate; stage 4 locked one
+rendering per entity; stage 6 attached exactly the renderings each piece mentions.
+Stage 7 is the pass those three artifacts exist for:
+
+```
+chunks/00042-08-glav…-0013.md ───┐
+chunk-glossary/00042-….md.json ──┤  one prompt:  system (constant)
+                                 ├─              + glossary rows (binding)
+                                 │              + previous translation tail (optional)
+                                 │              + the chunk itself
+                                 ▼
+                       structured-output call  →  {"translation": "..."}
+                                 │        Pydantic-validated, retried on failure
+                                 ▼
+translations/00042-08-glav…-0013.md           the translated chunk
+translation-prompts/00042-….md.json           the whole input of the call
+translation-prompts/00042-….md.prompt.md      the same prompt, readable
+translations/_translation_manifest.json       per chunk: chars, tokens, attempts, sha
+translations/_translation_trace.json          + terms, logs and the run's totals
+```
+
+**The order is the book's order.** Chunks are translated first to last, one call at
+a time. A chunk's translation does not depend on the next chunk, but the run's
+output is a *prefix* of the book at every moment: kill it after chunk 90 and
+`translations/` holds chapters 1–90 translated, and `--resume` continues at 91.
+When `--context-chars N` is set, the last N characters of the previous translation
+are sent as continuity context (clearly marked "do not translate it again"); the
+default is 0, because the chunker already cuts on paragraph/sentence boundaries and
+the glossary is the consistency mechanism.
+
+**The glossary is per chunk and binding.** The prompt opens with stage 6's
+`matched_terms` — `Džordž → Džordž`, `London → London`, `Facebook → Fejsbuk` — and
+the system prompt says the renderings are final: a name may be declined for
+grammar, its stem may not change. `--glossary-scope book` sends the whole
+`glossary.json` with every chunk instead (more consistent, much more input tokens).
+
+**Every call is structured and validated.** The model is asked for a JSON object
+with one field:
+
+```json
+{"translation": "the complete translated chunk"}
+```
+
+`ChunkTranslationAnswer` is Pydantic-validated before anything is written, and a
+call is retried (default `--max-attempts 3`) when the answer is wrapped in prose, an
+empty string, the source unchanged, or a fraction of the source's length (a summary
+instead of a translation). Each attempt after the first carries a repair note naming
+the failure. `--method auto` uses native structured output and moves to JSON mode
+when a provider rejects the schema; `--translation-method json` starts in JSON mode.
+Every attempt's tokens are counted, so a chunk that needed three tries is *priced*
+as three tries, and a chunk that still fails is reported — the run continues and
+`translations/` simply has one hole, visible in the manifest.
+
+**The whole input is kept.** For every chunk, the debug folder holds:
+
+| File / field | What it is |
+| --- | --- |
+| `translation-prompts/<chunk>.md.json` | one structured record per call |
+| `.prompt.system` | the constant system prompt (translator role, rules, JSON shape) |
+| `.prompt.user` | the per-chunk prompt: book, chunk identity, glossary, context, source, task |
+| `.prompt.messages` | the same two prompts as the `[{role, content}]` list sent to the model |
+| `.prompt.chars` / `.prompt.sha256` | prompt size and a hash, so a prompt can be diffed between runs |
+| `.glossary.entries` | every binding row that was actually in the prompt |
+| `.source_chunk.text` | the exact chunk the call was made about |
+| `.answer.text` / `.answer.usage` | the accepted translation and what it cost (or `null` + `.error`) |
+| `translation-prompts/<chunk>.md.prompt.md` | `# System prompt` and `# User prompt`, readable |
+
+The prompt markdown is written *before* the call, so even a chunk whose request
+hangs or dies has its exact input on disk.
+
+**Running it.** The command derives every input and output from the book folder:
+
+```bash
+python -m book_splitter translate mybook                 # en -> sr, every chunk
+python -m book_splitter translate mybook -s sr -t en     # the other direction
+python -m book_splitter translate mybook --limit 3       # translate three chunks first
+python -m book_splitter translate mybook --first-chapters 3  # first three chapters' chunks
+python -m book_splitter translate mybook --resume        # skip finished chunks, continue
+python -m book_splitter translate mybook --glossary-scope book
+python -m book_splitter translate mybook --context-chars 400
+python -m book_splitter translate --chunks-in /tmp/chunks/ \
+    --chunk-glossary-in /tmp/chunk-glossary/ --translations-out /tmp/translations/ \
+    --prompts-out /tmp/translation-prompts/
+```
+
+`--chunks-in` accepts the chunks folder, the book folder or
+`_chunk_manifest.json`; `--chunk-glossary-in` accepts stage 6's folder (or the book
+folder, whose `chunk-glossary/` is then used). A run with no per-chunk glossary
+fails with the command that produces it, unless `--glossary-scope book` is chosen.
+The command prints a live progress bar with the completed-chunk count, elapsed time,
+an ETA, the tokens spent so far and the chunk now in flight, then one durable line
+per chunk and a summary with the **total tokens used** (input, output, calls) and
+the characters translated. `--dry-run` asks the model for every chunk and writes
+nothing; `--quiet` drops the header, the bar and the per-chunk lines.
+
+`--resume` (`--skip-if-present`) is safe: a chunk is reused only when the manifest
+records it as successful, its translation file is non-empty, the source chunk's
+SHA-256 still matches, and the source/target language pair is unchanged. The
+manifest is rewritten after **every** finished chunk, so an interrupted run resumes
+without paying for the prefix again. `--limit N` applies first, so `--limit 3
+--resume` is the natural "finish the first three, then stop" command.
+
+`--first-chapters N` is the chapter-aligned variant: it reads stage 5's manifest,
+takes the first N **body** chapters in reading order (front matter and a marked
+back-matter block do not consume one of the N), and translates exactly the chunks
+that belong to them. Unlike `--limit`, it never stops in the middle of a chapter,
+so the result is always a clean chapter prefix. Translated that way, stage 8 can
+assemble those chapters without any holes. Combining it with `--resume` is how a
+run grows: `--first-chapters 5 --resume`, then `--first-chapters 10 --resume`,
+reuses the first five chapters and pays only for the new five.
+
+An illustrative two-chunk run (`--limit 2`) prints:
+
+```
+$ python -m book_splitter translate --out …/chapters --limit 2
+language=en -> sr  model=deepseek/deepseek-flash  method=auto  attempts<=3  scope=chunk
+  [  1/2] ok    00000-00-front-matter-0000.md   1,825 -> 1,914 chars ·   1,204 tok · 1 attempt(s) ·   6.2s
+  [  2/2] ok    00001-01-chapter-1-0000.md      4,135 -> 4,290 chars ·   2,804 tok · 1 attempt(s) ·   9.8s
+
+chunks          : 2/2 ok
+glossary        : per-chunk matched terms · 20 row(s) sent
+text            : 5,960 -> 6,204 characters
+tokens used     : 4,008 total (3,102 in, 906 out) over 2 call(s), 2 chunk(s) asked
+time            : 16.0s  (model 16.0s)  8.0 s/chunk
+output dir      : …/translations
+prompts         : …/translation-prompts
+OK — 2 chunk(s) translated; concatenate translations/ in filename order to rebuild the translated book.
+```
+
+Because the translation keeps the source chunk's trailing newlines, a
+`cat translations/*.md` in filename order preserves the book's paragraph breaks.
+The stage adds no dependency: it reuses `langchain-openai` and Pydantic, exactly
+like stage 4.
+
+### Stage 8 — assembly (`book_splitter.assembly`), the translated chunks become chapters
+
+Stage 5 proved that a chapter is its chunks concatenated; stage 8 applies the same
+concatenation to the *translated* chunks, using stage 5's own index instead of
+guessing from filenames:
+
+```
+chunks/_chunk_manifest.json        "chunk 00042 belongs to 08-glav…, index 13"
+        │
+        ├── translations/00042-08-glav…-0013.md   ┐
+        ├── translations/00043-08-glav…-0014.md   ├─ concatenate in chunk_index order
+        └── …                                     ┘
+        ▼
+translated-chapters/08-glav…md     one file per chapter, source names kept
+```
+
+**All or nothing per chapter.** A chapter file is written only when every chunk
+that belongs to it has a translation. A partial translation (for example
+`translate --limit` stopping in the middle of a chapter) is reported as
+`incomplete` and skipped, never written as a truncated chapter that looks
+complete. `--first-chapters N` avoids the problem entirely by translating a
+chapter-aligned prefix; `translated-chapters/` then contains exactly those
+chapters.
+
+**A separate folder, by design.** `chapters/` is the source text and is never
+overwritten; `translated-chapters/` is the product and can be deleted and rebuilt
+at any time. It is a sibling of `translations/`, so `--start-at concatenate` on an
+earlier translation needs no other argument.
+
+**Resumable.** `--skip-if-present` (`--resume`) compares each assembled chapter with
+the bytes already on disk and reuses an identical file. Growing the window from N
+to M therefore writes only the new chapters. The manifest records, per chapter,
+its chunk count, translated/all chunk counts, character counts, SHA-256, output
+path and whether it was written or reused.
+
+Running it:
+
+```bash
+python -m book_splitter concatenate mybook                  # every fully translated chapter
+python -m book_splitter concatenate mybook --first-chapters 5
+python -m book_splitter concatenate mybook --first-chapters 10 --resume
+python -m book_splitter concatenate --chunks-in /tmp/book/chunks \
+    --translations-in /tmp/book/translations --chapters-out /tmp/translated-chapters
+```
+
+`--chunks-in` accepts the chunks folder, the book folder or
+`_chunk_manifest.json`; `--translations-in` defaults to the chunks folder's
+sibling `translations/`; `--chapters-out` defaults to `translated-chapters/`.
+`--dry-run` assembles every chapter in memory and writes nothing. `--json` returns
+the same records machine-readably.
+
 ## Tools, grouped by stage
 
 `python -m book_splitter tools` prints exactly this grouping, and each stage
@@ -1032,7 +1274,7 @@ up. Its whole vocabulary is command-line flags:
 | `--dry-run` | ask about every chapter, write nothing |
 | `--provider` / `--model` / `--base-url` / `--api-key` / `--temperature` | the same model flags as stages 1 and 2; the default provider is DeepSeek |
 
-### Stages 5 and 6 — no tools either
+### Stages 5, 6, 7 and 8 — no tools either
 
 `chunk` binds no tools because it calls no model at all: its input is the chapter
 text and its vocabulary is `--chunk-size`, `--chunk-tokenizer`, `--limit`,
@@ -1041,7 +1283,12 @@ a fixed two-phase pipeline (NER over every chunk, then rapidfuzz retrieval) whos
 whole vocabulary is command-line flags — `--chunks-in`, `--glossary-in`,
 `--chunk-glossary-out`, `--match-threshold`, `--scorer`, `--candidates`,
 `--min-term-chars`, `--drop-temporal-only`, `--language`, `--gpu`/`--cpu`,
-`--limit`, `--no-manifest` and `--dry-run`.
+`--limit`, `--no-manifest` and `--dry-run`. `translate` calls a model, but it too
+binds no tools: the model receives a directory-free task (one prompt, one JSON
+answer) and its vocabulary is `--chunks-in`, `--chunk-glossary-in`,
+`--glossary-scope`, `--translations-out`, `--prompts-out`, `--source-language`,
+`--target-language`, `--limit`, `--resume`, `--method`, `--max-attempts`,
+`--max-tokens`, `--context-chars`, `--no-prompts`, `--no-manifest` and `--dry-run`.
 
 ## Guardrails
 
@@ -1222,7 +1469,28 @@ python -m book_splitter chunk-glossary                # default 95% rapidfuzz ma
 python -m book_splitter chunk-glossary --match-threshold 90   # more permissive
 python -m book_splitter chunk-glossary --scorer token_sort_ratio
 python -m book_splitter chunk-glossary --limit 3      # a quick look at three chunks
+python -m book_splitter chunk-glossary --first-chapters 3   # the first three chapters' chunks
+python -m book_splitter chunk-glossary --resume       # reuse finished per-chunk files
 python -m book_splitter chunk-glossary --dry-run      # both phases, no writes
+
+# 9. Stage 7 — translate the chunks, one call at a time, with their glossary
+#    (writes to data/output/<book>/translations/, and the whole prompt of every
+#     call to data/output/<book>/translation-prompts/; calls the model, so it costs)
+python -m book_splitter translate                     # English -> Serbian, every chunk
+python -m book_splitter translate -s sr -t en         # a Serbian book into English
+python -m book_splitter translate --limit 3           # translate three chunks first
+python -m book_splitter translate --first-chapters 3  # translate the first three chapters
+python -m book_splitter translate --resume            # skip finished chunks, continue
+python -m book_splitter translate --glossary-scope book   # send the whole glossary
+python -m book_splitter translate --context-chars 400 # carry the previous translation's tail
+python -m book_splitter translate --no-prompts        # skip the debug prompt records
+
+# 10. Stage 8 — glue the translated chunks back into chapters
+#     (writes to data/output/<book>/translated-chapters/; no LLM, no API key)
+python -m book_splitter concatenate                   # every fully translated chapter
+python -m book_splitter concatenate --first-chapters 3
+python -m book_splitter concatenate --first-chapters 10 --resume
+python -m book_splitter concatenate --dry-run         # assemble in memory, write nothing
 
 # Optional: list the toolset per stage / verify a folder layout
 python -m book_splitter tools --stage preprocess
@@ -1235,6 +1503,11 @@ python -m book_splitter glossary --out /tmp/chapters/ --glossary-out /tmp/glossa
 python -m book_splitter chunk --out /tmp/chapters/ --chunks-out /tmp/chunks/
 python -m book_splitter chunk-glossary --chunks-in /tmp/chunks/ \
     --glossary-in /tmp/glossary/ --chunk-glossary-out /tmp/chunk-glossary/
+python -m book_splitter translate --chunks-in /tmp/chunks/ \
+    --chunk-glossary-in /tmp/chunk-glossary/ \
+    --translations-out /tmp/translations/ --prompts-out /tmp/translation-prompts/
+python -m book_splitter concatenate --chunks-in /tmp/chunks/ \
+    --translations-in /tmp/translations/ --chapters-out /tmp/translated-chapters/
 python -m book_splitter preprocess \
     --provider lmstudio --model qwen/qwen3.8-27b --base-url http://127.0.0.1:1234/v1
 ```
@@ -1243,6 +1516,9 @@ Useful flags: `--in-dir`, `--out`, `--map`, `--preprocessed-out`, `--reduced-out
 `--chunks-out`, `--chunk-size`, `--chunk-tokenizer`,
 `--chunks-in`, `--glossary-in`, `--chunk-glossary-out`, `--match-threshold`, `--scorer`,
 `--candidates`, `--min-term-chars`, `--drop-temporal-only`,
+`--chunk-glossary-in`, `--glossary-scope`, `--translations-out`, `--prompts-out`,
+`--translations-in`, `--chapters-out`, `--first-chapters`, `--translated-chapters-out`,
+`--context-chars`, `--method`, `--no-prompts`,
 `--glossary-out`, `--sentences`, `--sentences-in`, `--source-language`, `--target-language`,
 `--include-front-matter`, `--include-back-matter`, `--extraction-method`, `--max-tokens`,
 `--max-chapter-chars`, `--max-context-entries`, `--resume`,
@@ -1257,12 +1533,14 @@ installed dependencies.
 ### One command for the whole pipeline
 
 [scripts/run_pipeline.py](scripts/run_pipeline.py) runs the phases in the only order that works —
-recon → split → scan → dictionary (→ preprocess, opt-in) → chunk → chunk-glossary — and narrates
-each one: book size and header verdict, the strategy the agent chose, the byte-for-byte proof, the
-damage profile, how many sentences survived the dictionary funnel and how many of those are first
-mentions, how many entities were locked into the glossary — with a live progress bar while that
-runs — what the LLM pass cost in tokens, how many reversible chunks the chapter text was cut into,
-and finally how many glossary terms each chunk mentions.
+recon → split → scan → dictionary (→ preprocess, opt-in) → chunk → chunk-glossary (→ translate and
+concatenate, opt-in) — and narrates each one: book size and header verdict, the strategy the agent
+chose, the byte-for-byte proof, the damage profile, how many sentences survived the dictionary funnel
+and how many of those are first mentions, how many entities were locked into the glossary — with a
+live progress bar while that runs — what the LLM pass cost in tokens, how many reversible chunks the
+chapter text was cut into, how many glossary terms each chunk mentions, and, when translation is
+switched on, how many chunks were translated, what they cost in tokens, and how many chapters stage 8
+assembled from them.
 `--debug` adds headers, planned files and damage examples; the same transcript always
 lands in `data/output/<book>/pipeline.log`, debug included.
 
@@ -1281,6 +1559,20 @@ python scripts/run_pipeline.py --chunk-size 700     # smaller translation chunks
 python scripts/run_pipeline.py --match-threshold 90 # more permissive chunk glossary retrieval
 python scripts/run_pipeline.py --no-chunk-glossary  # stop after the chunks
 python scripts/run_pipeline.py --no-chunk           # stop before the chunking phase
+python scripts/run_pipeline.py --with-translate --translate-limit 3
+                                                    # translate three chunks first
+python scripts/run_pipeline.py --with-translate --skip-if-present
+                                                    # resume a translation run
+python scripts/run_pipeline.py --start-at translate --with-translate
+                                                    # stage 7 only, over existing chunks
+python scripts/run_pipeline.py --start-at concatenate
+                                                    # stage 8 only, over existing translations
+python scripts/run_pipeline.py --first-chapters 5 --with-translate
+                                                    # split in full; the first five chapters elsewhere
+python scripts/run_pipeline.py --first-chapters 10 --skip-if-present --with-translate
+                                                    # widen 5 -> 10: reuse 1-5, process 6-10 only
+python scripts/run_pipeline.py --with-translate --translate-first-chapters 3
+                                                    # translate + assemble only three chapters
 python scripts/run_pipeline.py BOOK.md --map map.json --stop-after split   # no LLM at all
 
 # the dictionary phase builds the glossary too; --no-glossary keeps it deterministic
@@ -1295,13 +1587,47 @@ override that for one run. Stage 5 does the same for a missing `chonkie`, and `-
 drops it from the run. `--chunk-in` points the chunker at the cleaned
 `preprocessed/` folder instead of `chapters/`; by default it cuts the splitter's output.
 
-Stage 6 is the last phase and the bridge to translation: it tags every chunk first, then
+Stage 6 is the last free phase and the bridge to translation: it tags every chunk first, then
 fuzzy-matches the extracted terms against the glossary. It needs both stage 5's chunks and stage
 4's `glossary.json`; when either is missing it reports a skip with the reason (a missing tagger or
 `rapidfuzz` is reported the same way), so the earlier phases keep their artifacts. `--no-chunk-glossary`
 drops it, `--start-at chunk_glossary` runs only it, `--match-threshold` and `--match-scorer` tune the
 retrieval, and `--no-manifest` keeps only the per-chunk files. The closing report lists the stage-6
 manifest and the `chunk-glossary/` folder.
+
+Stage 7 (`translate`) is **opt-in**, because it is one paid model call per chunk: add
+`--with-translate`. It reads stage 5's chunks and stage 6's per-chunk glossary, sends each chunk with
+its binding terms, and writes `translations/` plus the debug folder `translation-prompts/`. It needs
+the per-chunk glossary; when stage 6 did not run (or produced no per-chunk files) the phase reports a
+skip instead of failing the run. `--translate-limit N` translates a prefix — the cheap way to test
+the whole path — and `--skip-if-present` resumes: chunks already translated and unchanged are reused,
+and the manifest is rewritten after every chunk, so an interrupted run loses only the chunk in flight.
+`--translate-glossary-scope book` sends the whole glossary instead of the per-chunk terms;
+`--translate-attempts`, `--translate-method`, `--translate-max-tokens` and
+`--translate-context-chars` tune the calls; `--no-translate` drops the phase for an explicit command
+line. A `--dry-run` reports stage 7 as skipped instead of spending, exactly like the glossary half of
+`dictionary`. The closing report lists `translations/`, `translation-prompts/` and the stage-7
+manifest and trace.
+
+Stage 8 (`concatenate`) runs automatically with stage 7 and can be run on its own with
+`--start-at concatenate`. It groups the translated chunks by stage 5's recorded chapter, joins each
+group in chunk order, and writes `translated-chapters/` without touching the source `chapters/`. A
+chapter with an untranslated chunk is reported as incomplete and skipped, never written truncated.
+`--no-concat` drops it from a run, and `--translated-chapters-out` moves the folder. The closing
+report lists `translated-chapters/` and the stage-8 manifest and trace.
+
+`--first-chapters N` is the whole-pipeline window: splitting still runs over the **whole** book (its
+boundaries are the coordinate system every later stage reads), while dictionary, the glossary,
+preprocessing, chunking, the chunk glossary, translation and assembly all see only the first N
+**body** chapters. `00-front-matter.md` (and a marked back-matter block) does not consume one of the
+N: the stages that take a file-count limit still walk past it, but `--first-chapters 5` means
+chapters 1–5. For the chunk-based stages the window is mapped through stage 5's manifest, so it never
+stops mid-chapter. `--translate-first-chapters N` narrows translation and assembly alone. Because
+every stage's manifest is written as it goes and every stage honours `--skip-if-present`, widening
+the window (`5`, then `10`) reuses the finished chapters, reductions, glossary entries, chunks,
+per-chunk glossaries, translations and assembled chapters, and pays only for the new prefix. Without
+`--skip-if-present` the run starts that stage fresh, as the flag's name implies. `--limit` is still
+there as the raw unit limit for a quick look; when both are given, the smaller one wins.
 
 The glossary is not a phase of its own: it is the second half of `dictionary`, because it reads
 exactly what the reduction just wrote. It refuses to run under `--dry-run` (there is nothing to
@@ -1321,9 +1647,10 @@ object — as one JSON document.
 Copy [.env.example](.env.example) to `.env`, or pass flags. Credential lookup order:
 `--api-key` → `SPLITTER_API_KEY` / the provider's own variable → `.env` → `refs:` in
 `~/.dsh/.credentials.yaml`. Local endpoints (`localhost`, `127.0.0.1`) may run keyless.
-Stages 1, 2 and 4 use the same provider settings (DeepSeek by default); stages 3, 5 and 6 call no
-model at all, so they need no key. Stage 4 needs one only when there is a chapter left to mine: a
-`--resume` run over a finished book exits without resolving a model.
+Stages 1, 2, 4 and 7 use the same provider settings (DeepSeek by default); stages 3, 5 and 6 call no
+model at all, so they need no key. Stage 4 needs one only when there is a chapter left to mine, and
+stage 7 only when there is a chunk left to translate: a `--resume` run over a finished book exits
+without resolving a model (and without a key).
 
 ### Output
 
@@ -1372,6 +1699,25 @@ data/output/<book-stem>/chunk-glossary/   # stage 6 — one file per chunk
 ├── _chunk_glossary_manifest.json          # per chunk: NER counts + matched terms,
 │                                          #   the two phases and their timings
 └── _chunk_glossary_trace.json             # + every term, closest candidate and log
+
+data/output/<book-stem>/translations/     # stage 7 — the translated chunks
+├── 00000-00-front-matter-0000.md         # same names as chunks/; concatenate to rebuild
+├── 00001-01-predgovor-0000.md
+├── …
+├── _translation_manifest.json             # per chunk: chars, sha, tokens, attempts, paths
+└── _translation_trace.json                # + terms, logs, raw answers and the run's totals
+
+data/output/<book-stem>/translation-prompts/   # stage 7 — the whole input of every call
+├── 00000-00-front-matter-0000.md.json     # system+user prompt, messages, glossary,
+│                                          #   source chunk text, answer (or error)
+└── 00000-00-front-matter-0000.md.prompt.md   # the same prompt, readable
+
+data/output/<book-stem>/translated-chapters/   # stage 8 — the translated book
+├── 00-front-matter.md                    # same names as chapters/, never over them
+├── 01-predgovor.md
+├── …
+├── _translated_chapters_manifest.json    # per chapter: chunks, chars, sha, written/reused
+└── _translated_chapters_trace.json       # + every chapter's record and error
 ```
 
 The two stage-3 folders are two views of one pass: `reduced/` holds every sentence the NER gate
@@ -1409,11 +1755,31 @@ from the text or the text from the file. `_chunk_glossary_trace.json` adds every
 candidate and score even when it stayed below the threshold, which is how a missed name is
 diagnosed without re-running the tagger.
 
-To rebuild without any code, a `cat` of the `*.md` files in filename order is the whole book,
-because the global index is the first field of every name. Per chapter, the manifest's
-`chapter_filename` groups the files and `chunk_index` orders them. In Python,
-`book_splitter.chunking.reconstruct_chapter()` and `reconstruct_book()` do the same
-without reading a filename.
+`translations/` is stage 7's text — the translated chunks, one per source chunk, same filename — and
+`_translation_manifest.json` is its index: for every chunk the source and translation character
+counts, the source chunk's SHA-256, the translation's SHA-256, attempts, method, tokens, and the paths
+of the translation and its prompt record. `--resume` reads exactly that record to decide whether a
+file can stand in for a chunk. `_translation_trace.json` adds the per-chunk terms, logs and the raw
+answer clipped to the trace budget. `translation-prompts/` is not an index but the evidence: the full
+system prompt, user prompt, serialised messages, glossary rows and source chunk that produced one
+translated file, with the answer or the exact failure. That folder is why a bad paragraph can be
+debugged line by line — the prompt is not reconstructed after the fact, it is the one that was sent.
+
+`translated-chapters/` is stage 8's text — one file per chapter, same filename as the source chapter
+— and `_translated_chapters_manifest.json` is its index: per chapter the chunk count, how many were
+translated, the character counts, the assembled SHA-256, the output path, and whether the run wrote
+or reused the file. `--skip-if-present` compares the assembled bytes with the file already there, so
+widening `--first-chapters` does not rewrite the earlier chapters. `_translated_chapters_trace.json`
+is the same record with each chapter's missing chunks and error, if any.
+
+To rebuild without any code, a `cat` of the `chunks/*.md` files in filename order is the whole book,
+and a `cat` of `translations/*.md` in the same order is the whole translated book; the global index
+is the first field of every name. Per chapter, the manifest's `chapter_filename` groups the files and
+`chunk_index` orders them; the translated chunks keep those names, so the same grouping works for the
+translation — and that grouping is exactly what stage 8 writes out as
+`translated-chapters/<chapter>.md`. In Python, `book_splitter.chunking.reconstruct_chapter()` and
+`reconstruct_book()` do the same without reading a filename, and
+`book_splitter.assembly.run_assembly()` does it for the translated side.
 
 ## Tests
 
@@ -1481,6 +1847,29 @@ and returns the expected exit codes. The matcher's own tests pin the normalisati
 trimmed, hyphens and diacritics kept), the glossary loader (dedupe, bare list, missing file), the
 threshold/scorer validation and the candidate ordering.
 
+Stage 7's tests inject the translator, so no provider is called. They pin the stage's contract:
+chunks are translated once and in reading order, every translated file keeps the chunk's name, the
+prompt carries exactly that chunk's glossary rows (and the whole dictionary under
+`--glossary-scope book`), the debug folder holds the whole input (system prompt, user prompt,
+messages, glossary, source text, answer) plus a readable prompt file, `--limit` translates a prefix,
+a failing chunk is reported without stopping the book and still leaves its prompt, a dry run writes
+nothing, and `--resume` reuses finished and unchanged chunks (and refuses a different language pair
+or a changed chunk hash). The translator's own tests script the structured-output endpoint: a valid
+answer is accepted, a schema failure is retried with the failure named and both attempts are priced,
+an empty/unchanged/summary answer is rejected, JSON mode and the provider-unsupported fallback work,
+and every attempt failing raises with the usage attached. The CLI tests patch the same two seams and
+pin the English → Serbian default, the folder defaults, the progress lines, the token total, the JSON
+result and the exit codes.
+
+Stage 8's tests run the real chunker and a real assembly over hand-written translations: each chapter
+file is exactly its translated chunks concatenated in `chunk_index` order, `--first-chapters` writes
+only that prefix, `--skip-if-present` reuses the old chapters and writes only the new ones, an
+untranslated chunk marks its chapter incomplete (and no truncated file is written), a dry run writes
+nothing, and the source `chapters/` folder is untouched. The pipeline tests also pin the whole-pipeline
+window: splitting still runs over the full book, every later stage receives the first-N limit, the
+chunk-based stages receive the chapter-aligned chunk count, and widening N with `--skip-if-present`
+forwards the resume flags to every stage.
+
 ### Replaying a map without the model
 
 A chapter map is data, and it can be supplied instead of discovered. `--map FILE` skips the agent
@@ -1543,14 +1932,15 @@ The package is split by responsibility; each folder can be read on its own.
 | Path | Role |
 | --- | --- |
 | [book_splitter/paths.py](book_splitter/paths.py) | where documents live: `data/input/` in, `data/output/` out |
-| [book_splitter/cli.py](book_splitter/cli.py) | `inspect` / `split` / `scan` / `preprocess` / `dictionary` / `glossary` / `chunk` / `chunk-glossary` / `tools` commands |
+| [book_splitter/cli.py](book_splitter/cli.py) | `inspect` / `split` / `scan` / `preprocess` / `dictionary` / `glossary` / `chunk` / `chunk-glossary` / `translate` / `tools` commands |
 | [book_splitter/core/constants.py](book_splitter/core/constants.py) | every guardrail and default in one place |
 | [book_splitter/core/settings.py](book_splitter/core/settings.py) | provider and credential resolution |
 | [book_splitter/core/errors.py](book_splitter/core/errors.py) | `ToolError`, `ConfigError` |
 | [book_splitter/documents/io.py](book_splitter/documents/io.py) | cached source reading |
 | [book_splitter/documents/markdown.py](book_splitter/documents/markdown.py) | header/standalone/prose line shapes (both stages) |
 | [book_splitter/documents/bodyline.py](book_splitter/documents/bodyline.py) | body-line *damage* shapes: split words, mid-word page numbers |
-| [book_splitter/documents/chapters.py](book_splitter/documents/chapters.py) | reads stage 1's `chapters/` folder back as chapter records; resolves the `preprocessed/`, `reduced/`, `reduced-unique/`, `glossary/`, `chunks/` and `chunk-glossary/` siblings |
+| [book_splitter/documents/chapters.py](book_splitter/documents/chapters.py) | reads stage 1's `chapters/` folder back as chapter records; resolves the `preprocessed/`, `reduced/`, `reduced-unique/`, `glossary/`, `chunks/`, `chunk-glossary/`, `translations/`, `translation-prompts/` and `translated-chapters/` siblings |
+| [book_splitter/documents/window.py](book_splitter/documents/window.py) | the `--first-chapters N` window: body-chapter selection, file-count arithmetic for chapter-based stages, and chunk-membership filtering for chunk-based stages |
 | [book_splitter/documents/text.py](book_splitter/documents/text.py) | folding, similarity, slugs, tool-result caps |
 | [book_splitter/analysis/toc.py](book_splitter/analysis/toc.py) | printed-TOC block detection |
 | [book_splitter/analysis/headers.py](book_splitter/analysis/headers.py) | `strong` / `noisy` / `absent` verdict |
@@ -1580,6 +1970,13 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_splitter/chunk_glossary/matching.py](book_splitter/chunk_glossary/matching.py) | stage 6: glossary loading, term normalisation and the rapidfuzz matcher (threshold and scorer are options) |
 | [book_splitter/chunk_glossary/runner.py](book_splitter/chunk_glossary/runner.py) | stage 6: `run_chunk_glossary`, the two phases (NER over every chunk, then retrieval), the per-chunk files and the manifest/trace |
 | [book_splitter/chunk_glossary/__init__.py](book_splitter/chunk_glossary/__init__.py) | stage 6: public surface (`run_chunk_glossary`, the matcher and the per-chunk records) |
+| [book_splitter/translation/models.py](book_splitter/translation/models.py) | stage 7: the Pydantic answer — one `translation` field, non-blank |
+| [book_splitter/translation/prompts.py](book_splitter/translation/prompts.py) | stage 7: the constant translator system prompt and the per-chunk prompt (glossary, optional context, source, task) |
+| [book_splitter/translation/translator.py](book_splitter/translation/translator.py) | stage 7: one model call, native structured output with a JSON-mode fallback, the retry/validation loop and token accounting |
+| [book_splitter/translation/runner.py](book_splitter/translation/runner.py) | stage 7: `run_translation`, the ordered chunk walk, `--limit`/resume rules, the translation files and the whole-input debug records |
+| [book_splitter/translation/__init__.py](book_splitter/translation/__init__.py) | stage 7: public surface (`run_translation`, the prompt builders, the translator and the records) |
+| [book_splitter/assembly/runner.py](book_splitter/assembly/runner.py) | stage 8: `run_assembly`, the chapter grouping, all-or-nothing assembly, the resume comparison and the manifest/trace |
+| [book_splitter/assembly/__init__.py](book_splitter/assembly/__init__.py) | stage 8: public surface (`run_assembly`, the result record and the folder resolvers) |
 | [book_splitter/agent/prompts.py](book_splitter/agent/prompts.py) | stage 1 system prompt and the fallback protocol |
 | [book_splitter/agent/llm.py](book_splitter/agent/llm.py) | the chat model with the toolset bound |
 | [book_splitter/agent/tools/registry.py](book_splitter/agent/tools/registry.py) | tool registry with the `shared` / `split` / `preprocess` stage tags |
@@ -1717,3 +2114,48 @@ side-by-side use. The whole folder is gitignored (only its README is tracked), a
   remove the heading/fragment noise above: a heading is a new noun the first time it appears. What
   it does guarantee is the shape of the output — every surviving sentence introduces at least one
   noun, and the union of the kept sentences' nouns is the book's whole noun set.
+- **Stage 7 translates chunks, not chapters.** A chunk is an exact slice, so a
+  chunk can begin or end mid-sentence; the prompt says so, but the model still sees
+  only that slice. `--context-chars N` sends the tail of the previous translation
+  to bridge the seam, and it is off by default because the chunker already prefers
+  paragraph and sentence boundaries. If a book's chunks break mid-sentence often,
+  raise it and compare a few joins.
+- **The per-chunk glossary is only as complete as stage 6's NER.** A name the
+  tagger missed (or one below the fuzzy threshold) is not in the prompt, so the
+  model renders it on its own. `--glossary-scope book` sends the whole
+  `glossary.json` instead and cannot miss an entry, at the price of a much larger
+  prompt for every chunk. The debug record says exactly which rows were sent
+  (`.glossary.entries`), so a name rendered inconsistently can be traced back to
+  whether it was in the prompt at all.
+- **The stage validates the answer's shape, not its fidelity.** It catches an empty
+  answer, an unchanged source, a summary that is a fraction of the source's length,
+  and a provider refusal — but a fluent translation that changes a fact is beyond
+  what a schema can see. Read `translations/` (or diff a chapter against its source)
+  before publishing; the per-chunk prompts and answers in `translation-prompts/`
+  are the evidence for that review.
+- **Structured output depends on the provider.** `--method auto` uses native
+  structured output and moves to JSON mode when a provider rejects the schema; the
+  run records `json_only` in its settings when that happened. A model that cannot
+  produce the `{"translation": ...}` object at all will fail its chunks after
+  `--max-attempts` calls, and those chunks are reported (the rest of the book is
+  still translated).
+- **Stage 7's `--resume` is safer than stage 4's but still trusts the manifest.** A
+  chunk is reused only when the recorded source SHA-256 matches the file now, the
+  translation file is non-empty, and the language pair is unchanged — but a
+  translation edited by hand after the run is kept, because the manifest records
+  the run's output hash and not a reason to distrust the file. Delete the
+  translation (or run without `--resume`) to re-translate a chunk.
+- **Stage 8 is all-or-nothing per chapter.** If one chunk of a chapter is missing
+  (a failed translation, or `translate --limit` stopping mid-chapter), that chapter
+  is reported `incomplete` and not written, because a truncated chapter would look
+  complete to a reader. The manifest and the command's summary name the missing
+  chunks; run `translate` for them (or use a chapter-aligned `--first-chapters`)
+  and re-run `concatenate`. `--skip-if-present` trusts the bytes on disk: a chapter
+  file whose bytes already equal the current concatenation is reused, while a
+  hand-edited file differs and is therefore rewritten; run without the flag (or
+  edit the translations) if the assembly is not authoritative for that chapter.
+- **Trailing newlines are preserved, leading and internal whitespace are the
+  model's.** A translated chunk ends with the same number of newlines as its source
+  chunk, so concatenation keeps the paragraph breaks, but the model may re-indent a
+  list or losslessly re-wrap a line. `translations/*.md` is translated text with the
+  source's Markdown structure, not a byte-level diff of the source.

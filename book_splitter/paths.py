@@ -15,6 +15,11 @@ The project keeps generated documents away from the source code:
             ...
             chapters/_manifest.json
             chapters/_agent_trace.json
+            chunks/00001-chapter-1-0000.md
+            chunk-glossary/00001-chapter-1-0000.md.json
+            translations/00001-chapter-1-0000.md
+            translation-prompts/00001-chapter-1-0000.md.json
+            translated-chapters/01-chapter-1.md
 
 No module may hard-code those paths: everything goes through this module so the
 layout stays in one place.

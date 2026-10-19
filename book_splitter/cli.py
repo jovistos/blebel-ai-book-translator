@@ -14,7 +14,21 @@ translation-sized chunks without breaking paragraphs or sentences, with the
 chapter and order of every chunk recorded so the text can be concatenated back;
 stage 6 runs NER over every chunk first, then fuzzy-matches each extracted term
 against the glossary and writes the relevant terms per chunk under the chunk's
-own name.
+own name; stage 7 translates the chunks in reading order, sends each one the
+glossary terms it mentions, validates a Pydantic translation answer (retrying a
+failed call), writes the translated chunk under the chunk's own name and keeps the
+whole prompt of every call in a separate debug folder; stage 8 concatenates the
+translated chunks back into one file per chapter under ``translated-chapters/``,
+using stage 5's chapter membership and chunk order.
+
+Every stage after splitting accepts ``--first-chapters N``: it runs over the
+first N body chapters only. Splitting itself always runs over the whole book, because
+its chapter boundaries are the coordinate system every later stage reads. When a
+stage's unit is a chunk (``chunk-glossary``, ``translate``), N is translated into
+the matching chunk prefix through stage 5's manifest, so a chapter window never
+stops mid-chapter. ``--skip-if-present`` (``--resume``) makes the same command
+reuse the work already on disk; increasing N therefore processes only the new
+chapters.
 
 Examples::
 
@@ -30,18 +44,25 @@ Examples::
     python -m book_splitter scan mybook                    # damage profile, no LLM, no writes
     python -m book_splitter dictionary mybook              # -> reduced/ and reduced-unique/
     python -m book_splitter dictionary mybook --language sr --gpu 1
-    python -m book_splitter dictionary mybook --skip-if-present --limit 3
+    python -m book_splitter dictionary mybook --skip-if-present --first-chapters 3
     python -m book_splitter dictionary mybook --unique-only     # only the first mentions
     python -m book_splitter glossary mybook                # -> glossary/ (en -> sr)
     python -m book_splitter glossary mybook -s sr -t en    # the other direction
-    python -m book_splitter glossary mybook --limit 2 --dry-run  # price it first
+    python -m book_splitter glossary mybook --first-chapters 2 --dry-run  # price it first
     python -m book_splitter glossary mybook --resume       # continue where it stopped
     python -m book_splitter chunk mybook                   # -> chunks/ (1000-token default)
     python -m book_splitter chunk mybook --chunk-size 700  # smaller translation units
     python -m book_splitter chunk mybook --dry-run         # verify the cuts, write nothing
     python -m book_splitter chunk-glossary mybook          # -> chunk-glossary/ (per chunk)
     python -m book_splitter chunk-glossary mybook --match-threshold 90
-    python -m book_splitter chunk-glossary mybook --scorer wratio --limit 3
+    python -m book_splitter chunk-glossary mybook --first-chapters 3 --resume
+    python -m book_splitter translate mybook              # -> translations/ (en -> sr)
+    python -m book_splitter translate mybook -s sr -t en  # the other direction
+    python -m book_splitter translate mybook --first-chapters 3  # first three chapters
+    python -m book_splitter translate mybook --limit 3    # translate three chunks first
+    python -m book_splitter translate mybook --resume     # continue where it stopped
+    python -m book_splitter concatenate mybook            # -> translated-chapters/
+    python -m book_splitter concatenate mybook --first-chapters 3 --resume
     python -m book_splitter tools --stage preprocess       # list the toolset per stage
 """
 
@@ -50,12 +71,16 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import threading
+import time
 from pathlib import Path
 
 from .analysis.candidates import extract_candidates
 from .analysis.headers import assess_headers
 from .analysis.toc import detect_toc_block
+from .assembly import run_assembly
 from .core.constants import (
+    CHAPTERS_DIRNAME,
     CHUNK_GLOSSARY_SCORERS,
     DEFAULT_CHUNK_GLOSSARY_CANDIDATES,
     DEFAULT_CHUNK_GLOSSARY_MIN_TERM_CHARS,
@@ -75,8 +100,13 @@ from .core.constants import (
     DEFAULT_RECURSION_LIMIT,
     DEFAULT_SOURCE_LANGUAGE,
     DEFAULT_TARGET_LANGUAGE,
+    DEFAULT_TRANSLATION_ATTEMPTS,
+    DEFAULT_TRANSLATION_CONTEXT_CHARS,
+    DEFAULT_TRANSLATION_MAX_TOKENS,
     MAX_FEEDBACK_LOOPS,
     TOC_SCAN_LINES,
+    TRANSLATION_GLOSSARY_SCOPES,
+    TRANSLATION_METHODS,
 )
 from .core.errors import ConfigError, MissingDependencyError, ToolError
 from .core.settings import PROVIDERS
@@ -88,11 +118,19 @@ from .documents.chapters import (
     glossary_dir,
     has_chapter_files,
     has_chunk_files,
+    has_translation_files,
     load_split_manifest,
     reduced_dir,
+    translated_chapters_dir,
+    translation_prompts_dir,
+    translations_dir,
     unique_dir,
 )
 from .documents.io import load_lines, source_size_bytes
+from .documents.window import (
+    chapter_files_for_window,
+    chapter_window_limit_for_path,
+)
 from .paths import default_input_dir, default_output_dir, resolve_book_path, resolve_output_dir
 
 
@@ -182,6 +220,13 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
     chapters_dir = _resolve_chapters_dir(args.book, args.in_dir, args.out)
     chapters = discover_chapters(chapters_dir)
+    window = chapter_window_limit_for_path(
+        chapters_dir,
+        getattr(args, "first_chapters", None),
+        getattr(args, "limit", None),
+    )
+    if window is not None:
+        chapters = chapters[:window]
     if args.headers:
         for chapter in chapters:
             _print_json(inspect_chapter(chapter.path, include_all=args.all_headers))
@@ -225,6 +270,15 @@ def cmd_preprocess(args: argparse.Namespace) -> int:
     if not args.quiet:
         print(f"chapters={chapters_dir.expanduser().resolve()}")
         print(f"output={out_dir or 'data/output/<book>/preprocessed/'}")
+    window = chapter_window_limit_for_path(
+        chapters_dir, getattr(args, "first_chapters", None), args.limit
+    )
+    if not args.quiet:
+        label = _window_label(args, window)
+        if label is not None:
+            print(f"window      : {label}")
+    if not args.quiet and args.skip_if_present:
+        print("resume      : chapters already cleaned and verified will be reused")
 
     result = run_preprocess(
         str(chapters_dir),
@@ -234,6 +288,8 @@ def cmd_preprocess(args: argparse.Namespace) -> int:
         dry_run=args.dry_run,
         recursion_limit=args.recursion_limit,
         workers=args.workers,
+        limit=window,
+        skip_if_present=args.skip_if_present,
         write_manifest=not args.no_manifest,
     )
 
@@ -252,7 +308,10 @@ def cmd_preprocess(args: argparse.Namespace) -> int:
 
 def _print_preprocess_summary(result, dry_run: bool = False) -> None:
     print()
-    print(f"chapters        : {result.ok_count}/{result.chapter_count} clean")
+    print(
+        f"chapters        : {result.ok_count}/{result.chapter_count} clean"
+        + (f"  reused: {result.skipped_count}" if result.skipped_count else "")
+    )
     print(f"llm calls       : {sum(c.get('attempts', 0) for c in result.chapters)}"
           f"  tokens: {result.usage.get('total_tokens', 0)}")
     if result.corpus_scan:
@@ -282,6 +341,16 @@ def _print_preprocess_summary(result, dry_run: bool = False) -> None:
         if dry_run
         else "\nOK — every chapter cleaned and verified."
     )
+
+
+def _window_label(args: argparse.Namespace, limit: int | None) -> str | None:
+    """Human description of the chapter window, without exposing the file count."""
+    first = getattr(args, "first_chapters", None)
+    if first is not None:
+        return f"first {first} body chapter(s)"
+    if limit is not None:
+        return f"first {limit} chapter(s)"
+    return None
 
 
 def _parse_entity_types(value: str | None) -> tuple[str, ...]:
@@ -318,6 +387,9 @@ def cmd_dictionary(args: argparse.Namespace) -> int:
         Path(args.unique_out).expanduser() if args.unique_out else unique_dir(out_dir)
     )
     keep_types = _parse_entity_types(args.keep_types)
+    limit = chapter_window_limit_for_path(
+        chapters_path, getattr(args, "first_chapters", None), args.limit
+    )
 
     if not args.quiet:
         device = "cpu" if args.cpu else f"gpu {args.gpu if args.gpu is not None else DEFAULT_GPU_INDEX}"
@@ -327,6 +399,9 @@ def cmd_dictionary(args: argparse.Namespace) -> int:
         if save_unique:
             print(f"unique={unique_out_dir.expanduser().resolve()}")
         print(f"language={args.language} device={device} keep_types={','.join(keep_types)}")
+        label = _window_label(args, limit)
+        if label is not None:
+            print(f"window       : {label}")
         if not save_reduced and not save_unique:
             print("save         : nothing is written except the manifest")
         elif not save_reduced:
@@ -350,7 +425,7 @@ def cmd_dictionary(args: argparse.Namespace) -> int:
             save_reduced=save_reduced,
             save_unique=save_unique,
             dry_run=args.dry_run,
-            limit=args.limit,
+            limit=limit,
             example_limit=args.examples,
             unique_example_limit=args.examples,
             progress=None if args.quiet else _dictionary_progress,
@@ -512,6 +587,9 @@ def cmd_chunk(args: argparse.Namespace) -> int:
     out_dir = (
         Path(args.chunks_out).expanduser() if args.chunks_out else chunks_dir(chapters_path)
     )
+    limit = chapter_window_limit_for_path(
+        chapters_path, getattr(args, "first_chapters", None), args.limit
+    )
 
     if not args.quiet:
         print(f"chapters={chapters_path.expanduser().resolve()}")
@@ -520,6 +598,9 @@ def cmd_chunk(args: argparse.Namespace) -> int:
             f"chunk size={args.chunk_size} tokens  "
             f"tokenizer={args.chunk_tokenizer}  overlap=0  method=recursive"
         )
+        label = _window_label(args, limit)
+        if label is not None:
+            print(f"window      : {label}")
 
     try:
         result = run_chunking(
@@ -529,7 +610,7 @@ def cmd_chunk(args: argparse.Namespace) -> int:
             tokenizer=args.chunk_tokenizer,
             skip_if_present=args.skip_if_present,
             dry_run=args.dry_run,
-            limit=args.limit,
+            limit=limit,
             write_manifest=not args.no_manifest and not args.dry_run,
             progress=None if args.quiet else _chunk_progress,
         )
@@ -660,6 +741,15 @@ def cmd_chunk_glossary(args: argparse.Namespace) -> int:
         print("error: --min-term-chars cannot be negative", file=sys.stderr)
         return 2
 
+    try:
+        chapter_files = chapter_files_for_window(
+            chunks_path, getattr(args, "first_chapters", None)
+        )
+    except ToolError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    limit = args.limit
+
     if not args.quiet:
         print(f"chapters={chapters_path.expanduser().resolve()}")
         print(f"chunks={chunks_path.expanduser().resolve()}")
@@ -671,6 +761,12 @@ def cmd_chunk_glossary(args: argparse.Namespace) -> int:
             f"keep_types={','.join(keep_types)}  min_term_chars={args.min_term_chars}"
         )
         print("phases      : ner over every chunk, then fuzzy retrieval for every term")
+        if chapter_files is not None:
+            print(
+                f"window      : chunks of the first {args.first_chapters} body chapter(s)"
+            )
+        if limit is not None:
+            print(f"limit       : first {limit} chunk(s) in the window")
         if not args.drop_temporal_only:
             print("              dates/times are kept; pass --drop-temporal-only to skip them")
 
@@ -689,7 +785,9 @@ def cmd_chunk_glossary(args: argparse.Namespace) -> int:
             scorer=args.scorer,
             candidates=args.candidates,
             dry_run=args.dry_run,
-            limit=args.limit,
+            limit=limit,
+            chapter_files=chapter_files,
+            skip_if_present=args.skip_if_present,
             write_manifest=not args.no_manifest and not args.dry_run,
             progress=None if args.quiet else _chunk_glossary_progress,
         )
@@ -781,6 +879,510 @@ def _print_chunk_glossary_summary(result, dry_run: bool = False) -> None:
     )
 
 
+class _TranslationBar:
+    """A one-line progress bar for the translate command, with live token totals.
+
+    On a terminal it redraws in place about once a second while a chunk's model
+    call is in flight, so a long book shows that something is happening rather
+    than a silent cursor. When stdout is piped (or captured by a test) it prints
+    one durable line per finished chunk instead: a ``\\r`` bar is noise in a log,
+    and the durable line carries the same counts.
+
+    The numbers are the ones that matter for a paid run: chunks done, elapsed
+    time, an ETA from the completed calls' average, the tokens spent so far, and
+    the chunk currently in flight.
+    """
+
+    WIDTH = 22
+    HEARTBEAT_SECONDS = 10.0
+
+    def __init__(self, total: int) -> None:
+        self.total = max(0, int(total))
+        self.tty = sys.stdout.isatty()
+        self._lock = threading.Lock()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._width = 0
+        self._started = time.monotonic()
+        self._done = 0
+        self._tokens = 0
+        self._current = ""
+        self._current_started = self._started
+        self._durations: list[float] = []
+
+    # -- the hooks the runner calls ---------------------------------------- #
+    def start(self, info: dict) -> None:
+        """A chunk's model call is about to start."""
+        with self._lock:
+            self._current = str(info.get("filename") or "")
+            self._current_started = time.monotonic()
+            self._done = int(info.get("done") or 0)
+            self.total = int(info.get("total") or self.total)
+            # The runner hands over the cumulative total, which includes a
+            # resumed run's earlier spend; a finished chunk then adds its own.
+            prior = int((info.get("tokens") or {}).get("total_tokens") or 0)
+            self._tokens = max(self._tokens, prior)
+        if self.tty and (self._thread is None or not self._thread.is_alive()):
+            self._stop.clear()
+            self._thread = threading.Thread(
+                target=self._loop, name="translate-bar", daemon=True
+            )
+            self._thread.start()
+
+    def finish(self, record: dict, done: int, total: int) -> None:
+        """One chunk is finished (translated, reused or failed)."""
+        now = time.monotonic()
+        with self._lock:
+            if self._current and self._current_started:
+                self._durations.append(max(0.0, now - self._current_started))
+            self._done = int(done)
+            self.total = int(total or self.total)
+            tokens = record.get("tokens") or {}
+            self._tokens += int(tokens.get("total_tokens") or 0)
+            self._current = ""
+            self._current_started = 0.0
+        if self.tty:
+            self._clear()
+        print(self._durable_line(record, done, total), flush=True)
+        if self.tty:
+            self._draw()
+
+    def close(self) -> None:
+        self._stop.set()
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=2.0)
+        self._thread = None
+        if self.tty:
+            self._clear()
+
+    # -- rendering ---------------------------------------------------------- #
+    def _durable_line(self, record: dict, done: int, total: int) -> str:
+        if record.get("reused"):
+            flag = "reuse"
+        elif record.get("ok"):
+            flag = "ok   "
+        else:
+            flag = "FAIL "
+        usage = record.get("tokens") or {}
+        elapsed = float(record.get("elapsed_seconds") or 0.0)
+        return (
+            f"  [{done:>3}/{total}] {flag} {str(record.get('filename') or '?'):<46} "
+            f"{int(record.get('source_chars') or 0):>6,} -> "
+            f"{int(record.get('translation_chars') or 0):>6,} chars · "
+            f"{int(usage.get('total_tokens') or 0):>7,} tok · "
+            f"{int(record.get('attempts') or 0)} attempt(s) · {elapsed:5.1f}s"
+            + (
+                f"\n           {record.get('error')}"
+                if record.get("error") and not record.get("ok")
+                else ""
+            )
+        )
+
+    def _line(self) -> str:
+        with self._lock:
+            done, total = self._done, self.total
+            tokens = self._tokens
+            current = self._current
+            current_elapsed = time.monotonic() - self._current_started
+            durations = list(self._durations)
+        fill = min(self.WIDTH, int(self.WIDTH * done / total)) if total else 0
+        bar = "█" * fill + "░" * (self.WIDTH - fill)
+        elapsed = time.monotonic() - self._started
+        average = (
+            sum(durations) / len(durations)
+            if durations
+            else (elapsed / done if done else None)
+        )
+        eta = average * max(total - done, 0) if average is not None else None
+        parts = [
+            f"  {bar} {done:>3}/{total}",
+            f"{elapsed:.0f}s elapsed",
+            f"ETA ~{eta:.0f}s" if eta is not None else "ETA …",
+            f"{tokens:,} tok",
+        ]
+        if current:
+            parts.append(f"now {current} ({current_elapsed:.0f}s)")
+        return " · ".join(parts)
+
+    def _draw(self) -> None:
+        line = self._line()
+        with self._lock:
+            pad = max(0, self._width - len(line))
+            print("\r" + line + " " * pad, end="", file=sys.stdout, flush=True)
+            self._width = max(self._width, len(line))
+
+    def _clear(self) -> None:
+        with self._lock:
+            if self._width:
+                print("\r" + " " * self._width + "\r", end="", file=sys.stdout, flush=True)
+                self._width = 0
+
+    def _loop(self) -> None:
+        last_heartbeat = 0.0
+        while not self._stop.wait(1.0):
+            if self.tty:
+                self._draw()
+                continue
+            now = time.monotonic()
+            if now - last_heartbeat >= self.HEARTBEAT_SECONDS:
+                last_heartbeat = now
+                print(self._line(), flush=True)
+
+
+def cmd_translate(args: argparse.Namespace) -> int:
+    """Stage 7: translate each chunk in reading order, with its glossary rows."""
+    from .chunk_glossary.runner import resolve_chunks_dir
+    from .core.settings import resolve_settings
+    from .translation import run_translation
+    from .translation.runner import resolve_chunk_glossary_dir
+
+    chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
+    chunks_path = (
+        resolve_chunks_dir(Path(args.chunks_in).expanduser())
+        if args.chunks_in
+        else chunks_dir(chapters_path)
+    )
+    if not has_chunk_files(chunks_path):
+        print(
+            f"no chunk files in {chunks_path.expanduser().resolve()} — run `chunk` first",
+            file=sys.stderr,
+        )
+        return 2
+    chunk_glossary_path = resolve_chunk_glossary_dir(
+        args.chunk_glossary_in or "", chunks_path
+    )
+    glossary_path = (
+        Path(args.glossary_in).expanduser()
+        if args.glossary_in
+        else glossary_dir(chapters_path)
+    )
+    translations_out = (
+        Path(args.translations_out).expanduser()
+        if args.translations_out
+        else translations_dir(chunks_path)
+    )
+    prompts_out = (
+        Path(args.prompts_out).expanduser()
+        if args.prompts_out
+        else translation_prompts_dir(chunks_path)
+    )
+
+    if args.limit is not None and int(args.limit) < 0:
+        print("error: --limit cannot be negative", file=sys.stderr)
+        return 2
+    if int(args.max_attempts) <= 0:
+        print("error: --max-attempts must be greater than 0", file=sys.stderr)
+        return 2
+    if int(args.context_chars) < 0:
+        print("error: --context-chars cannot be negative", file=sys.stderr)
+        return 2
+
+    try:
+        chapter_files = chapter_files_for_window(
+            chunks_path, getattr(args, "first_chapters", None)
+        )
+    except ToolError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    limit = args.limit
+
+    # The key is resolved before the run so a setup problem is one line, not a
+    # traceback from inside a provider client. A fully resumed run needs no key;
+    # the runner only builds a translator when a chunk is actually pending.
+    settings = None
+    config_error: ConfigError | None = None
+    try:
+        settings = resolve_settings(
+            provider=args.provider,
+            model=args.model,
+            base_url=args.base_url,
+            api_key=args.api_key,
+            temperature=args.temperature,
+        )
+    except ConfigError as exc:
+        config_error = exc
+
+    if not args.quiet:
+        where = (
+            f"{settings.provider}/{settings.model}"
+            if settings is not None
+            else "no model resolved"
+        )
+        print(f"chapters={chapters_path.expanduser().resolve()}")
+        print(f"chunks={chunks_path.expanduser().resolve()}")
+        print(f"chunk-glossary={chunk_glossary_path.expanduser().resolve()}")
+        print(f"translations={translations_out.expanduser().resolve()}")
+        if not args.no_prompts:
+            print(f"prompts={prompts_out.expanduser().resolve()}")
+        print(
+            f"language={args.source_language} -> {args.target_language}  "
+            f"model={where}  method={args.method}  attempts<={args.max_attempts}  "
+            f"scope={args.glossary_scope}"
+        )
+        if chapter_files is not None:
+            print(
+                f"window      : chunks of the first {args.first_chapters} body chapter(s)"
+            )
+        if limit:
+            print(f"limit       : first {limit} chunk(s) in the window")
+        if args.resume:
+            print("resume      : chunks already translated and unchanged will be reused")
+
+    bar = None if args.quiet or args.json else _TranslationBar(total=0)
+    try:
+        result = run_translation(
+            str(chunks_path),
+            str(translations_out),
+            prompts_dir=None if args.no_prompts else str(prompts_out),
+            chunk_glossary_path=str(chunk_glossary_path),
+            glossary_path=str(glossary_path),
+            glossary_scope=args.glossary_scope,
+            source_language=args.source_language,
+            target_language=args.target_language,
+            book_title=args.book_title or "",
+            settings=settings,
+            max_attempts=args.max_attempts,
+            method=args.method,
+            max_tokens=args.max_tokens or None,
+            context_chars=args.context_chars,
+            dry_run=args.dry_run,
+            limit=limit,
+            chapter_files=chapter_files,
+            resume=args.resume,
+            write_manifest=not args.no_manifest,
+            write_prompts=not args.no_prompts,
+            progress=bar.finish if bar is not None else None,
+            chunk_start=bar.start if bar is not None else None,
+        )
+    except ConfigError as exc:
+        print(f"error: {config_error or exc}", file=sys.stderr)
+        return 2
+    except (MissingDependencyError, ToolError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    finally:
+        if bar is not None:
+            bar.close()
+
+    if args.json:
+        _print_json(result.to_dict())
+        return 0 if result.ok else 1
+    _print_translation_summary(result, dry_run=args.dry_run)
+    return 0 if result.ok else 1
+
+
+def _print_translation_summary(result, dry_run: bool = False) -> None:
+    settings = result.settings or {}
+    totals = result.totals or {}
+    tokens = result.tokens or {}
+    timing = result.timing or {}
+    print()
+    print(
+        f"language        : {result.source_language} -> {result.target_language}"
+        f"  {result.provider or '—'}/{result.model or '—'}"
+    )
+    print(
+        f"chunks          : {result.ok_count}/{result.chunk_count} ok"
+        + (f"  reused: {result.reused_count:,}" if result.reused_count else "")
+        + (
+            f"  failed: {int(totals.get('failed_chunks') or 0):,}"
+            if int(totals.get("failed_chunks") or 0)
+            else ""
+        )
+    )
+    if result.limited:
+        print(f"  limit         : first {result.chunk_count:,} chunk(s) only")
+    if result.glossary_scope == "book":
+        print(
+            f"glossary        : whole book glossary · "
+            f"{result.glossary_entries:,} entr{'y' if result.glossary_entries == 1 else 'ies'} "
+            "per chunk"
+        )
+    else:
+        print(
+            f"glossary        : per-chunk matched terms · "
+            f"{int(totals.get('glossary_rows') or 0):,} row(s) sent"
+            + (
+                f" · {int(totals.get('missing_glossary_chunks') or 0):,} chunk(s) had none"
+                if int(totals.get("missing_glossary_chunks") or 0)
+                else ""
+            )
+        )
+    print(
+        f"text            : {int(totals.get('source_chars') or 0):,} -> "
+        f"{int(totals.get('translation_chars') or 0):,} characters"
+    )
+    print(
+        f"tokens used     : {int(tokens.get('total_tokens') or 0):,} total "
+        f"({int(tokens.get('input_tokens') or 0):,} in, "
+        f"{int(tokens.get('output_tokens') or 0):,} out) over "
+        f"{int(tokens.get('calls') or 0):,} call(s), "
+        f"{int(tokens.get('chunks') or 0):,} chunk(s) asked"
+    )
+    if timing:
+        print(
+            f"time            : {_human_seconds(float(timing.get('run_seconds', 0.0)))}"
+            f"  (model {_human_seconds(float(timing.get('model_seconds', 0.0)))})"
+            f"  {float(timing.get('seconds_per_chunk', 0.0)):.1f} s/chunk"
+        )
+    print(f"output dir      : {result.output_dir}")
+    if not dry_run and result.prompts_dir:
+        print(f"prompts         : {result.prompts_dir}")
+    if result.manifest_path:
+        print(f"manifest        : {result.manifest_path}")
+    if result.trace_path:
+        print(f"trace           : {result.trace_path}")
+    if settings.get("json_only"):
+        print(
+            "  note          : the provider rejected native structured output; "
+            "the run used JSON mode"
+        )
+    if not result.ok:
+        print("\nFAILED chunks:", file=sys.stderr)
+        for error in result.errors:
+            print(f"  - {error}", file=sys.stderr)
+        return
+    if dry_run:
+        print("\nDRY RUN — every chunk was translated, nothing was written.")
+        return
+    if result.reused_count == result.chunk_count and result.processed_count == 0:
+        print("\nOK — nothing to do: every chunk is already translated.")
+        return
+    print(
+        f"\nOK — {int(totals.get('translated_chunks') or 0):,} chunk(s) translated; "
+        "concatenate translations/ in filename order to rebuild the translated book."
+    )
+
+
+def cmd_concatenate(args: argparse.Namespace) -> int:
+    """Stage 8: concatenate the translated chunks into one file per chapter."""
+    from .assembly.runner import resolve_chunks_dir
+
+    if args.chunks_in:
+        chunks_path = resolve_chunks_dir(Path(args.chunks_in).expanduser())
+        chapters_path = chunks_path.parent / CHAPTERS_DIRNAME
+    else:
+        chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
+        chunks_path = chunks_dir(chapters_path)
+    if not has_chunk_files(chunks_path):
+        print(
+            f"no chunk files in {chunks_path.expanduser().resolve()} — run `chunk` first",
+            file=sys.stderr,
+        )
+        return 2
+    translations_path = (
+        Path(args.translations_in).expanduser()
+        if args.translations_in
+        else translations_dir(chunks_path)
+    )
+    if not has_translation_files(translations_path):
+        print(
+            f"no translated chunks in {translations_path.expanduser().resolve()} — "
+            "run `translate` first",
+            file=sys.stderr,
+        )
+        return 2
+    out_dir = (
+        Path(args.chapters_out).expanduser()
+        if args.chapters_out
+        else translated_chapters_dir(chunks_path)
+    )
+
+    if not args.quiet:
+        print(f"chapters={chapters_path.expanduser().resolve()}")
+        print(f"chunks={chunks_path.expanduser().resolve()}")
+        print(f"translations={translations_path.expanduser().resolve()}")
+        print(f"translated-chapters={out_dir.expanduser().resolve()}")
+        if args.first_chapters:
+            print(f"window      : first {args.first_chapters} chapter(s)")
+        if args.skip_if_present:
+            print("resume      : chapter files that already match will be reused")
+
+    try:
+        result = run_assembly(
+            str(chunks_path),
+            str(translations_path),
+            str(out_dir),
+            first_chapters=args.first_chapters,
+            skip_if_present=args.skip_if_present,
+            dry_run=args.dry_run,
+            write_manifest=not args.no_manifest,
+            progress=None if args.quiet else _assembly_progress,
+        )
+    except ToolError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        _print_json(result.to_dict())
+        return 0 if result.ok else 1
+    _print_assembly_summary(result, dry_run=args.dry_run)
+    return 0 if result.ok else 1
+
+
+def _assembly_progress(chapter: dict, done: int, total: int) -> None:
+    """One line per assembled (or skipped) chapter."""
+    if chapter.get("skipped"):
+        flag = "skip"
+        tail = f"  {chapter.get('note') or 'not translated'}"
+    elif chapter.get("reused"):
+        flag = "reuse"
+        tail = ""
+    else:
+        flag = "ok   "
+        tail = ""
+    print(
+        f"  [{done}/{total}] {flag} {chapter['filename']:<44} "
+        f"{int(chapter.get('chunk_count') or 0):>3} chunk(s)  "
+        f"{int(chapter.get('translation_chars') or 0):>7,} chars{tail}"
+    )
+
+
+def _print_assembly_summary(result, dry_run: bool = False) -> None:
+    print()
+    print(
+        f"chapters        : {result.ok_count}/{result.chapter_count} written"
+        + (f"  reused: {result.reused_count}" if result.reused_count else "")
+        + (f"  incomplete: {result.incomplete_count}" if result.incomplete_count else "")
+    )
+    if result.limited:
+        print(f"window          : first {result.first_chapters} chapter(s)")
+    print(
+        f"chunks          : {int(result.totals.get('translated_chunks') or 0):,} translated "
+        f"of {int(result.totals.get('chunks') or 0):,} in the window"
+    )
+    print(
+        f"output          : {result.output_dir}"
+        + ("  (dry run — nothing written)" if dry_run else "")
+    )
+    if result.manifest_path:
+        print(f"manifest        : {result.manifest_path}")
+    if result.trace_path:
+        print(f"trace           : {result.trace_path}")
+    incomplete = [chapter for chapter in result.chapters if chapter.get("skipped")]
+    for chapter in incomplete:
+        print(
+            f"  incomplete    : {chapter['filename']} — "
+            f"{chapter.get('note') or 'not translated'}"
+        )
+    if not result.ok:
+        print("\nFAILED chapters:", file=sys.stderr)
+        for error in result.errors:
+            print(f"  - {error}", file=sys.stderr)
+        return
+    if dry_run:
+        print("\nDRY RUN — every chapter was assembled in memory, nothing was written.")
+        return
+    if result.chapter_count == 0:
+        print("\nOK — no chapters in the requested window.")
+        return
+    print(
+        "\nOK — translated chapters written to a separate folder; "
+        "the source chapters were not touched."
+    )
+
+
 def cmd_glossary(args: argparse.Namespace) -> int:
     """Stage 4: build the book-wide glossary, one chapter at a time, first to last."""
     from .core.settings import resolve_settings
@@ -803,6 +1405,9 @@ def cmd_glossary(args: argparse.Namespace) -> int:
         return 2
     out_dir = (
         Path(args.glossary_out).expanduser() if args.glossary_out else glossary_dir(chapters_path)
+    )
+    limit = chapter_window_limit_for_path(
+        chapters_path, getattr(args, "first_chapters", None), args.limit
     )
 
     # The key is resolved before the run so a setup problem is one line, not a
@@ -841,6 +1446,9 @@ def cmd_glossary(args: argparse.Namespace) -> int:
             skipped.append("back matter")
         if skipped:
             print(f"skip        : {', '.join(skipped)}")
+        label = _window_label(args, limit)
+        if label is not None:
+            print(f"window      : {label}")
 
     try:
         result = run_glossary(
@@ -861,7 +1469,7 @@ def cmd_glossary(args: argparse.Namespace) -> int:
             include_back_matter=args.include_back_matter,
             skip_if_present=args.resume,
             dry_run=args.dry_run,
-            limit=args.limit,
+            limit=limit,
             progress=None if args.quiet else _glossary_progress,
         )
     except ConfigError as exc:
@@ -1096,14 +1704,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="book_splitter",
         description="Two LangGraph agents, a dictionary funnel, a glossary pass, a "
-        "reversible chunker and a per-chunk glossary matcher turn a Markdown book into "
-        "translation-ready material: `split` cuts it into chapters without reading the "
-        "body, `preprocess` repairs each chapter's headers and conversion damage one "
-        "chapter at a time, `dictionary` reduces each chapter to the sentences that carry "
-        "a named entity, `glossary` locks one rendering per term, `chunk` cuts each "
-        "chapter into sentence-safe chunks that concatenate back exactly, and "
-        "`chunk-glossary` tags every chunk and attaches the glossary terms it mentions. "
-        "Sources come from data/input/, output goes to data/output/<book>/.",
+        "reversible chunker, a per-chunk glossary matcher and a chunk translator turn "
+        "a Markdown book into a consistent translation: `split` cuts it into chapters "
+        "without reading the body, `preprocess` repairs each chapter's headers and "
+        "conversion damage one chapter at a time, `dictionary` reduces each chapter to "
+        "the sentences that carry a named entity, `glossary` locks one rendering per "
+        "term, `chunk` cuts each chapter into sentence-safe chunks that concatenate back "
+        "exactly, `chunk-glossary` tags every chunk and attaches the glossary terms it "
+        "mentions, `translate` translates the chunks in reading order with those "
+        "terms, keeping each call's whole prompt for debugging, and `concatenate` "
+        "glues the translated chunks back into one file per chapter. Sources come from "
+        "data/input/, output goes to data/output/<book>/.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -1199,6 +1810,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_split.add_argument(
         "--skip-if-present",
+        "--resume",
+        dest="skip_if_present",
         action="store_true",
         help="reuse the chapter files already in the output folder instead of "
         "splitting again (no model, no key, and the existing trace is left alone)",
@@ -1229,6 +1842,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_scan.add_argument("--digest", action="store_true", help="print the compact text digest")
     p_scan.add_argument("--examples", type=int, default=3)
+    p_scan.add_argument(
+        "--first-chapters",
+        "--chapters",
+        dest="first_chapters",
+        type=int,
+        default=None,
+        help="scan only the first N body chapters (the whole book when omitted)",
+    )
     p_scan.set_defaults(func=cmd_scan)
 
     p_pre = sub.add_parser(
@@ -1264,6 +1885,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-manifest",
         action="store_true",
         help="do not write _preprocess_manifest.json",
+    )
+    p_pre.add_argument(
+        "--first-chapters",
+        "--chapters",
+        dest="first_chapters",
+        type=int,
+        default=None,
+        help="process only the first N body chapters (the whole book when omitted)",
+    )
+    p_pre.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="process only the first N body chapters (kept as an alias of --first-chapters)",
+    )
+    p_pre.add_argument(
+        "--skip-if-present",
+        "--resume",
+        dest="skip_if_present",
+        action="store_true",
+        help="reuse a chapter whose cleaned file a previous run verified, and start "
+        "with the first chapter that is missing",
     )
     p_pre.add_argument(
         "--dry-run",
@@ -1335,6 +1978,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_dict.add_argument(
         "--skip-if-present",
+        "--resume",
+        dest="skip_if_present",
         action="store_true",
         help="reuse a chapter whose reduced (and first-mention) file already exists; a "
         "fully reduced book returns without loading a tagger",
@@ -1356,10 +2001,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="write only the first-mention chapters (implies --no-save-reduced)",
     )
     p_dict.add_argument(
+        "--first-chapters",
+        "--chapters",
+        dest="first_chapters",
+        type=int,
+        default=None,
+        help="reduce only the first N body chapters of the book (the whole book when omitted)",
+    )
+    p_dict.add_argument(
         "--limit",
         type=int,
         default=None,
-        help="reduce only the first N chapters (a quick look while tuning the filters)",
+        help="reduce only the first N body chapters (kept as a unit-limit alias)",
     )
     p_dict.add_argument(
         "--examples",
@@ -1411,15 +2064,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_chunk.add_argument(
         "--skip-if-present",
+        "--resume",
+        dest="skip_if_present",
         action="store_true",
         help="reuse a chapter whose recorded chunk files still concatenate to its "
         "current text; a fully chunked book needs no tokenizer at all",
     )
     p_chunk.add_argument(
+        "--first-chapters",
+        "--chapters",
+        dest="first_chapters",
+        type=int,
+        default=None,
+        help="chunk only the first N body chapters (the whole book when omitted)",
+    )
+    p_chunk.add_argument(
         "--limit",
         type=int,
         default=None,
-        help="chunk only the first N chapters (a quick look before a full run)",
+        help="chunk only the first N body chapters (kept as a unit-limit alias)",
     )
     p_chunk.add_argument(
         "--no-manifest",
@@ -1524,10 +2187,27 @@ def build_parser() -> argparse.ArgumentParser:
         f"rest are recorded as alternatives (default: {DEFAULT_CHUNK_GLOSSARY_CANDIDATES})",
     )
     p_cg.add_argument(
+        "--first-chapters",
+        "--chapters",
+        dest="first_chapters",
+        type=int,
+        default=None,
+        help="tag and match only the chunks of the first N body chapters (the whole "
+        "book when omitted)",
+    )
+    p_cg.add_argument(
         "--limit",
         type=int,
         default=None,
         help="tag and match only the first N chunks (a quick look before a full run)",
+    )
+    p_cg.add_argument(
+        "--skip-if-present",
+        "--resume",
+        dest="skip_if_present",
+        action="store_true",
+        help="reuse a per-chunk glossary file whose chunk hash, threshold, scorer and "
+        "glossary still match; a fully covered window needs no tagger",
     )
     p_cg.add_argument(
         "--no-manifest",
@@ -1542,6 +2222,212 @@ def build_parser() -> argparse.ArgumentParser:
     p_cg.add_argument("--json", action="store_true", help="machine-readable result")
     p_cg.add_argument("--quiet", "-q", action="store_true")
     p_cg.set_defaults(func=cmd_chunk_glossary)
+
+    p_tr = sub.add_parser(
+        "translate",
+        help="stage 7: translate every chunk in reading order, with the glossary "
+        "rows it mentions, into translations/ (English -> Serbian by default) and "
+        "keep the whole prompt of each call in translation-prompts/",
+    )
+    add_book(p_tr, required=False)
+    p_tr.add_argument(
+        "--out",
+        "-o",
+        default=None,
+        help="the chapters folder from stage 1 (default: data/output/<book>/chapters); "
+        "the chunks, glossary and translation folders are derived from the book folder",
+    )
+    p_tr.add_argument(
+        "--chunks-in",
+        default=None,
+        help="the chunks folder from stage 5 (default: data/output/<book>/chunks); "
+        "a book folder or _chunk_manifest.json is also accepted",
+    )
+    p_tr.add_argument(
+        "--chunk-glossary-in",
+        default=None,
+        help="stage 6's per-chunk glossary folder "
+        "(default: data/output/<book>/chunk-glossary)",
+    )
+    p_tr.add_argument(
+        "--glossary-in",
+        default=None,
+        help="stage 4's glossary folder or glossary.json, used when --glossary-scope "
+        "is book (default: data/output/<book>/glossary/glossary.json)",
+    )
+    p_tr.add_argument(
+        "--glossary-scope",
+        choices=TRANSLATION_GLOSSARY_SCOPES,
+        default="chunk",
+        help="'chunk' sends the matched terms stage 6 attached to the chunk "
+        "(default); 'book' sends the whole glossary with every chunk",
+    )
+    p_tr.add_argument(
+        "--translations-out",
+        default=None,
+        help="where the translated chunks land (default: data/output/<book>/translations)",
+    )
+    p_tr.add_argument(
+        "--prompts-out",
+        default=None,
+        help="where the per-chunk prompt/input records land "
+        "(default: data/output/<book>/translation-prompts)",
+    )
+    p_tr.add_argument(
+        "--source-language",
+        "-s",
+        default=DEFAULT_SOURCE_LANGUAGE,
+        help=f"the language the book is written in (default: {DEFAULT_SOURCE_LANGUAGE})",
+    )
+    p_tr.add_argument(
+        "--target-language",
+        "-t",
+        default=DEFAULT_TARGET_LANGUAGE,
+        help=f"the language being translated into (default: {DEFAULT_TARGET_LANGUAGE})",
+    )
+    p_tr.add_argument(
+        "--book-title",
+        default=None,
+        help="the title the prompt uses (default: the source filename from stage 1)",
+    )
+    p_tr.add_argument(
+        "--max-attempts",
+        type=int,
+        default=DEFAULT_TRANSLATION_ATTEMPTS,
+        help="model calls allowed per chunk before it is reported as failed "
+        f"(default: {DEFAULT_TRANSLATION_ATTEMPTS})",
+    )
+    p_tr.add_argument(
+        "--method",
+        "--translation-method",
+        dest="method",
+        choices=TRANSLATION_METHODS,
+        default="auto",
+        help="'auto' asks for native structured output and moves to JSON mode only "
+        "when the provider rejects the schema (default); 'json' starts in JSON mode",
+    )
+    p_tr.add_argument(
+        "--max-tokens",
+        type=int,
+        default=DEFAULT_TRANSLATION_MAX_TOKENS,
+        help="response cap per model call (default: "
+        f"{DEFAULT_TRANSLATION_MAX_TOKENS}); 0 leaves it to the provider",
+    )
+    p_tr.add_argument(
+        "--context-chars",
+        type=int,
+        default=DEFAULT_TRANSLATION_CONTEXT_CHARS,
+        help="send the last N characters of the previous translation as continuity "
+        f"context (default: {DEFAULT_TRANSLATION_CONTEXT_CHARS} = off)",
+    )
+    p_tr.add_argument(
+        "--first-chapters",
+        "--chapters",
+        dest="first_chapters",
+        type=int,
+        default=None,
+        help="translate only the chunks of the first N body chapters (the whole book when "
+        "omitted); a chapter window, unlike --limit, never stops mid-chapter",
+    )
+    p_tr.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="translate only the first N chunks (a cheap look before a full book)",
+    )
+    p_tr.add_argument(
+        "--resume",
+        "--skip-if-present",
+        dest="resume",
+        action="store_true",
+        help="skip chunks that an earlier run already translated (same language pair, "
+        "same chunk hash), and continue with the first pending chunk",
+    )
+    p_tr.add_argument(
+        "--no-prompts",
+        action="store_true",
+        help="do not write the per-chunk prompt/input records",
+    )
+    p_tr.add_argument(
+        "--no-manifest",
+        action="store_true",
+        help="do not write _translation_manifest.json / _translation_trace.json",
+    )
+    p_tr.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="ask the model for every chunk but write no translation, prompt, "
+        "manifest or trace",
+    )
+    p_tr.add_argument("--provider", choices=sorted(PROVIDERS), default=None)
+    p_tr.add_argument("--model", default=None)
+    p_tr.add_argument("--base-url", default=None)
+    p_tr.add_argument("--api-key", default=None)
+    p_tr.add_argument("--temperature", type=float, default=0.0)
+    p_tr.add_argument("--json", action="store_true", help="machine-readable result")
+    p_tr.add_argument("--quiet", "-q", action="store_true")
+    p_tr.set_defaults(func=cmd_translate)
+
+    p_concat = sub.add_parser(
+        "concatenate",
+        aliases=["assemble"],
+        help="stage 8: concatenate the translated chunks back into one file per "
+        "chapter, in a separate translated-chapters/ folder",
+    )
+    add_book(p_concat, required=False)
+    p_concat.add_argument(
+        "--out",
+        "-o",
+        default=None,
+        help="the chapters folder from stage 1 (default: data/output/<book>/chapters); "
+        "used to locate the chunks, translations and book folder",
+    )
+    p_concat.add_argument(
+        "--chunks-in",
+        default=None,
+        help="the chunks folder from stage 5 (default: data/output/<book>/chunks); "
+        "a book folder or _chunk_manifest.json is also accepted",
+    )
+    p_concat.add_argument(
+        "--translations-in",
+        default=None,
+        help="the translated chunks from stage 7 (default: a sibling of chunks/)",
+    )
+    p_concat.add_argument(
+        "--chapters-out",
+        default=None,
+        help="where the translated chapter files go "
+        "(default: data/output/<book>/translated-chapters)",
+    )
+    p_concat.add_argument(
+        "--first-chapters",
+        "--chapters",
+        dest="first_chapters",
+        type=int,
+        default=None,
+        help="assemble only the first N body chapters (the whole translated book when omitted)",
+    )
+    p_concat.add_argument(
+        "--skip-if-present",
+        "--resume",
+        dest="skip_if_present",
+        action="store_true",
+        help="reuse a translated chapter file whose bytes already match the current "
+        "chunks' translations; only new chapters are written",
+    )
+    p_concat.add_argument(
+        "--no-manifest",
+        action="store_true",
+        help="do not write _translated_chapters_manifest.json / _translated_chapters_trace.json",
+    )
+    p_concat.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="assemble every chapter in memory but write no chapter, manifest or trace",
+    )
+    p_concat.add_argument("--json", action="store_true", help="machine-readable result")
+    p_concat.add_argument("--quiet", "-q", action="store_true")
+    p_concat.set_defaults(func=cmd_concatenate)
 
     p_gloss = sub.add_parser(
         "glossary",
@@ -1644,10 +2530,19 @@ def build_parser() -> argparse.ArgumentParser:
         "at the first chapter that is missing",
     )
     p_gloss.add_argument(
+        "--first-chapters",
+        "--chapters",
+        dest="first_chapters",
+        type=int,
+        default=None,
+        help="build the dictionary from only the first N body chapters (the whole book "
+        "when omitted)",
+    )
+    p_gloss.add_argument(
         "--limit",
         type=int,
         default=None,
-        help="process only the first N body chapters (a quick look before a full run)",
+        help="process only the first N body chapters (kept as a unit-limit alias)",
     )
     p_gloss.add_argument(
         "--dry-run",
@@ -1667,6 +2562,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    first_chapters = getattr(args, "first_chapters", None)
+    if first_chapters is not None and int(first_chapters) < 0:
+        print("error: --first-chapters cannot be negative", file=sys.stderr)
+        return 2
     try:
         return int(args.func(args))
     except OSError as exc:

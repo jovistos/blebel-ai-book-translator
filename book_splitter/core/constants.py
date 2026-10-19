@@ -340,6 +340,70 @@ DEFAULT_CHUNK_GLOSSARY_CANDIDATES = 3
 DEFAULT_CHUNK_GLOSSARY_MIN_TERM_CHARS = 2
 
 # --------------------------------------------------------------------------- #
+# Translation stage (stage 7)
+#
+# Stage 7 is the end product the first six stages were built for. It walks the
+# chunks in reading order and asks the model to translate exactly one chunk per
+# call, handing it the glossary rows stage 6 attached to that chunk. Every call
+# is structured output validated by Pydantic (the answer is one JSON object with
+# a single ``translation`` field), retried with the failure named, and priced.
+#
+# Two folders come out of it: ``translations/`` holds the translated text of each
+# chunk under the chunk's own name, and ``translation-prompts/`` holds the whole
+# input of every call — system prompt, user prompt, the serialised messages, the
+# glossary sent, and the source chunk — so a bad translation can be debugged
+# without reconstructing the prompt by hand.
+# --------------------------------------------------------------------------- #
+
+#: Stage 7 writes next to ``chunks/``, never over it.
+TRANSLATIONS_DIRNAME = "translations"
+#: The debugging twin: one prompt/input record per chunk.
+TRANSLATION_PROMPTS_DIRNAME = "translation-prompts"
+TRANSLATION_MANIFEST_FILENAME = "_translation_manifest.json"
+TRANSLATION_TRACE_FILENAME = "_translation_trace.json"
+
+#: Model calls allowed per chunk before it is reported as failed. A failed
+#: validation (prose around the JSON, an empty translation, a refusal) is a
+#: retry, not a hole in the book.
+DEFAULT_TRANSLATION_ATTEMPTS = 3
+#: Response cap per call. A 1,000-token source chunk translates to well under
+#: this, and the cap also stops a model that starts repeating itself.
+DEFAULT_TRANSLATION_MAX_TOKENS = 8_192
+#: Characters of the *previous* chunk's translation sent as context. 0 (the
+#: default) sends none: the chunker already cuts on paragraph/sentence
+#: boundaries, and the glossary is the consistency mechanism. Raise it when a
+#: book's chunks break mid-sentence and the joins read badly.
+DEFAULT_TRANSLATION_CONTEXT_CHARS = 0
+#: Raw answer characters kept in the trace, enough to see a failure, not enough
+#: to turn the trace into a second manuscript.
+DEFAULT_TRANSLATION_RAW_CHARS = 2_000
+
+#: Extraction strategies, mirroring stage 4's names. ``auto`` asks for native
+#: structured output and moves to plain JSON mode only when the provider rejects
+#: the schema; ``structured`` insists on the schema; ``json`` starts in JSON mode.
+TRANSLATION_METHODS: tuple[str, ...] = ("auto", "structured", "json")
+#: Where the glossary rows sent with a chunk come from: stage 6's per-chunk
+#: ``matched_terms`` (default) or the whole of ``glossary.json``.
+TRANSLATION_GLOSSARY_SCOPES: tuple[str, ...] = ("chunk", "book")
+
+# --------------------------------------------------------------------------- #
+# Assembly stage (stage 8)
+#
+# Stage 8 is the inverse of stage 5's cut, applied to the *translated* chunks:
+# it groups ``translations/<chunk>.md`` by the chapter the chunk manifest says
+# each chunk belongs to, concatenates each group in chunk order, and writes one
+# translated chapter file under the source chapter's own name. The output is a
+# separate folder so ``chapters/`` (the source) and ``translated-chapters/`` (the
+# product) are never confused, and so a partial or resumed run can be inspected
+# without touching either the source or the per-chunk translations.
+# --------------------------------------------------------------------------- #
+
+#: Stage 8 writes next to ``translations/``, never over it.
+TRANSLATED_CHAPTERS_DIRNAME = "translated-chapters"
+ASSEMBLY_MANIFEST_FILENAME = "_translated_chapters_manifest.json"
+ASSEMBLY_TRACE_FILENAME = "_translated_chapters_trace.json"
+
+# --------------------------------------------------------------------------- #
 # Output names
 # --------------------------------------------------------------------------- #
 
