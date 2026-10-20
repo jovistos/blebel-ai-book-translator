@@ -24,7 +24,7 @@ was lost.
   That keeps the chunk prefix aligned with the chapter prefix, so a translation
   of the first N chapters is exactly the chunks of those chapters.
 * **Assembly** (stage 8) applies the same body-chapter selection to the chapter
-  names, so ``translated-chapters/`` holds exactly the chapters that were
+  names, so ``08-translated-chapters/`` holds exactly the chapters that were
   translated when a window is set.
 
 The helpers are deliberately conservative: when a chunk manifest has lost its

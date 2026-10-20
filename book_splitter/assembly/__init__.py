@@ -6,13 +6,13 @@ stage joins the two views:
 
 * stage 5's manifest says which chapter each chunk belongs to, and where it sits
   inside that chapter;
-* ``translations/<chunk>.md`` holds the translated text of that chunk;
+* ``07-translations/<chunk>.md`` holds the translated text of that chunk;
 * :func:`~book_splitter.assembly.runner.run_assembly` concatenates each chapter's
   translated chunks, in chunk order, into
-  ``translated-chapters/<chapter>.md``.
+  ``08-translated-chapters/<chapter>.md``.
 
-The output is a separate folder on purpose. ``chapters/`` is the source text and
-must never be overwritten by a translation; ``translated-chapters/`` is the
+The output is a separate folder on purpose. ``01-chapters/`` is the source text and
+must never be overwritten by a translation; ``08-translated-chapters/`` is the
 product and can be deleted and rebuilt at any time.
 
 The stage is resumable: ``--first-chapters N`` narrows it to a prefix, and

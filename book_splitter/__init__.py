@@ -1,6 +1,11 @@
-"""Two LangGraph agents, a dictionary funnel, a glossary, a chunker, a per-chunk glossary, a translator and an assembler.
+"""Four LangGraph agents, a dictionary funnel, a glossary, a chunker, a per-chunk glossary, a front/back matter localizer, a translator, an assembler, a heading postprocessor and a binder.
 
-The pipeline turns one long Markdown book into translation-ready material.
+The pipeline turns one long book into translation-ready material.
+
+Stage 0 — :mod:`book_splitter.conversion` — turns a source EPUB, a text-based
+PDF or a TXT into Markdown under ``00-markdown/``. EPUB/PDF go through docling
+with OCR disabled, so an image-based PDF is rejected instead of OCR'd; a TXT is
+copied under a ``.md`` name. A Markdown source skips this stage entirely.
 
 Stage 1 — :mod:`book_splitter.agent` — splits one long Markdown book into one
 file per chapter **without reading its body**. Design contract:
@@ -49,59 +54,114 @@ Stage 6 — :mod:`book_splitter.chunk_glossary` — joins the two halves of the
 translation material. It runs stage 3's NER tagger over **every** chunk first,
 collecting the entity terms each chunk mentions; only then does it fuzzy-match
 each term against stage 4's glossary (``rapidfuzz``, 95 % by default) and write
-the relevant terms per chunk, under the chunk's own name in ``chunk-glossary/``.
+the relevant terms per chunk, under the chunk's own name in ``06-chunk-glossary/``.
 
-Stage 7 — :mod:`book_splitter.translation` — is the end product. It walks the
-chunks in reading order and translates each one into the target language
-(English into Serbian by default), sending the glossary rows stage 6 attached
-and asking for a Pydantic-validated ``{"translation": ...}`` answer, with retries
-and token accounting. The translated chunks land in ``translations/`` under the
-chunk's own name; the whole prompt of every call — system prompt, user prompt,
-messages, glossary and source chunk — is kept in ``translation-prompts/`` for
-debugging. ``--limit`` translates only the first N chunks, and ``--resume``
-skips the chunks an earlier run already finished.
+Stage 6b — :mod:`book_splitter.matter_agent` — localizes the front and back
+matter **before** translation, as its own LangGraph agent and **without the
+dictionary**. A book-level plan searches the web for an existing published
+translation of the title, fixes the translator credit (**BleBel**), lists the
+original edition's imprint/ISBN/CIP material to omit, and decides the section
+titles; then one agent run per matter chunk localizes it with that binding plan
+and published Markdown formatting. The translated chunks land in the same
+``07-translations/`` folder stage 7 uses, so stage 8 needs no new join rule; stage 7
+skips those chapters. The plan, manifest and every prompt are kept in ``06b-matter/``
+and ``06b-matter-prompts/``.
+
+Stage 7 — :mod:`book_splitter.translation` — is the end product for the body. It
+walks the chunks in reading order, skips the front/back matter stage 6b already
+localized, and translates each body chunk into the target language (English into
+Serbian by default), sending the glossary rows stage 6 attached and asking for a
+Pydantic-validated ``{"translation": ...}`` answer, with retries and token
+accounting. The translated chunks land in ``07-translations/`` under the chunk's own
+name; the whole prompt of every call — system prompt, user prompt, messages,
+glossary and source chunk — is kept in ``07-translation-prompts/`` for debugging.
+``--limit`` translates only the first N chunks, and ``--resume`` skips the chunks
+an earlier run already finished.
 
 Stage 8 — :mod:`book_splitter.assembly` — puts the translated chunks back
 together. Stage 5's manifest says which chapter each chunk belongs to and its
 order inside that chapter; this stage concatenates each chapter's translated
-chunks and writes ``translated-chapters/<chapter>.md`` in a folder separate from
-the source ``chapters/``. A chapter is written only when every one of its chunks
+chunks and writes ``08-translated-chapters/<chapter>.md`` in a folder separate from
+the source ``01-chapters/``. A chapter is written only when every one of its chunks
 was translated, so a partial translation is reported rather than silently
 truncated. ``--first-chapters N`` assembles a prefix, and ``--skip-if-present``
 reuses a chapter whose bytes already match the current translations.
+
+Stage 9 — :mod:`book_splitter.postprocess_agent` — postprocesses the assembled
+**translated** chapters, one chapter at a time, with a book-level naming pass:
+
+* it first inventories every chapter title, chooses one naming policy and makes
+  the chapter headings consistent;
+* it inspects only each chapter's short opening and its heading records, then
+  sets/inserts/keeps the chapter title and ``keep``/``demote``s accidental
+  headings (a demotion removes the ``#`` markup, never the text);
+* it creates or updates the table of contents from the final titles, placing a
+  missing one right after the front matter;
+* the result lands in ``09-postprocessed-chapters/`` — the translated chapters are
+  never edited in place.
+
+Stage 10 — :mod:`book_splitter.binding` — concatenates the postprocessed
+chapters, in reading order, into one ``10-translated-book.md``. It is deterministic:
+the TOC and chapters are joined with one blank line and the result is verified.
 
 Package layout::
 
     book_splitter/
         paths.py        where documents live (input/output folders)
-        cli.py          `inspect` / `split` / `preprocess` / `dictionary` /
-                        `glossary` / `chunk` / `chunk-glossary` / `translate` / `tools`
+        cli.py          `convert` / `inspect` / `split` / `preprocess` /
+                        `dictionary` / `glossary` / `chunk` / `chunk-glossary` /
+                        `matter` / `translate` / `concatenate` / `postprocess` /
+                        `bind` / `tools`
+        conversion/     stage 0: EPUB/PDF/TXT -> Markdown (docling; no OCR)
         core/           constants, errors, LLM settings
         documents/      reading, markdown/bodyline shapes, chapter discovery
         analysis/       TOC detection, header assessment, title location
         slicing/        stage 1: planning, verbatim slicing, verification
         preprocess/     stage 2: header inspection, damage scan, repair engine
         dictionary/     stage 3: sentence funnel, language routing, NER gate
-        glossary/       stage 4: ordered LLM pass that builds the glossary
+        04-glossary/       stage 4: ordered LLM pass that builds the glossary
         chunking/       stage 5: reversible, sentence-safe chapter chunks
         chunk_glossary/ stage 6: per-chunk NER + fuzzy glossary retrieval
+        06b-matter/         stage 6b: front/back matter discovery, plan validation,
+                        publication formatting (no LLM)
+        matter_agent/   stage 6b agent: book plan + per-chunk localization graphs
         translation/    stage 7: per-chunk structured translation + prompt record
         assembly/       stage 8: translated chunks concatenated into chapters
+        postprocess/    stage 9: heading/title/TOC planning and application
+        postprocess_agent/ stage 9 agent: book + per-chapter graphs
+        binding/        stage 10: postprocessed chapters -> one Markdown book
         agent/          stage 1 agent: prompts, model, tools, graph
         preprocess_agent/  stage 2 agent: prompts, model, tools binding, graph
 """
 
 from .agent import SplitterResult, SplitterState, build_graph, run_split
 from .assembly import AssemblyResult, run_assembly
+from .binding import BindResult, run_bind
 from .chunk_glossary import ChunkGlossaryResult, run_chunk_glossary
 from .chunking import ChunkingResult, run_chunking
+from .conversion import ConversionResult, run_conversion
 from .dictionary import DictionaryResult, run_dictionary
 from .glossary import GlossaryResult, run_glossary
+from .matter_agent import (
+    MatterChunkState,
+    MatterPlanState,
+    MatterResult,
+    build_matter_chunk_graph,
+    build_matter_graph,
+    run_matter,
+)
 from .paths import (
     default_input_dir,
     default_output_dir,
     resolve_book_path,
     resolve_output_dir,
+)
+from .postprocess_agent import (
+    ChapterPostprocessState,
+    PostprocessResult,
+    build_chapter_postprocess_graph,
+    build_postprocess_graph,
+    run_postprocess,
 )
 from .preprocess_agent import (
     PreprocessResult,
@@ -113,26 +173,41 @@ from .translation import TranslationResult, run_translation
 
 __all__ = [
     "AssemblyResult",
+    "BindResult",
     "ChunkGlossaryResult",
     "ChunkingResult",
+    "ConversionResult",
     "DictionaryResult",
     "GlossaryResult",
+    "MatterChunkState",
+    "MatterPlanState",
+    "MatterResult",
+    "PostprocessResult",
+    "ChapterPostprocessState",
     "PreprocessResult",
     "PreprocessState",
     "SplitterResult",
     "SplitterState",
     "TranslationResult",
+    "build_chapter_postprocess_graph",
     "build_graph",
+    "build_matter_chunk_graph",
+    "build_matter_graph",
     "build_preprocess_graph",
+    "build_postprocess_graph",
     "run_assembly",
+    "run_bind",
     "run_chunk_glossary",
     "run_chunking",
+    "run_conversion",
+    "run_postprocess",
     "default_input_dir",
     "default_output_dir",
     "resolve_book_path",
     "resolve_output_dir",
     "run_dictionary",
     "run_glossary",
+    "run_matter",
     "run_preprocess",
     "run_split",
     "run_translation",

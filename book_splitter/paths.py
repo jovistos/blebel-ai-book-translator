@@ -3,23 +3,27 @@
 The project keeps generated documents away from the source code:
 
 ``data/input/``
-    Source books (Markdown/PDF/EPUB) handed to the splitter. Read-only inputs.
+    Source books (Markdown/TXT/PDF/EPUB) handed to the splitter. Read-only inputs.
 
 ``data/output/``
     Everything the splitter generates. Per book, the artifacts live under
     ``data/output/<book-stem>/``::
 
         data/output/Aleksandar_Loven_-_Ljubav_seks_i_vase_srce/
-            chapters/00-front-matter.md
-            chapters/01-predgovor.md
+            00-markdown/my-book.md
+            01-chapters/00-front-matter.md
+            01-chapters/01-predgovor.md
             ...
-            chapters/_manifest.json
-            chapters/_agent_trace.json
-            chunks/00001-chapter-1-0000.md
-            chunk-glossary/00001-chapter-1-0000.md.json
-            translations/00001-chapter-1-0000.md
-            translation-prompts/00001-chapter-1-0000.md.json
-            translated-chapters/01-chapter-1.md
+            01-chapters/_manifest.json
+            01-chapters/_agent_trace.json
+            05-chunks/00001-chapter-1-0000.md
+            06-chunk-glossary/00001-chapter-1-0000.md.json
+            07-translations/00001-chapter-1-0000.md
+            07-translation-prompts/00001-chapter-1-0000.md.json
+            08-translated-chapters/01-chapter-1.md
+
+Every artifact folder is prefixed with the number of the stage that writes it, so
+a plain sort of a book's output folder follows the pipeline order.
 
 No module may hard-code those paths: everything goes through this module so the
 layout stays in one place.
@@ -35,15 +39,24 @@ INPUT_DIRNAME = "data/input"
 #: Directory holding every generated artifact. Never committed.
 OUTPUT_DIRNAME = "data/output"
 #: Sub-directory of an output folder that receives the chapter files.
-CHAPTERS_DIRNAME = "chapters"
+#: Stage numbers keep a book folder sorted in pipeline order.
+CHAPTERS_DIRNAME = "01-chapters"
+#: Sub-directory that receives stage 0's converted Markdown.
+MARKDOWN_DIRNAME = "00-markdown"
 #: Sub-directory of an output folder that receives stage 3's reduced chapters.
-REDUCED_DIRNAME = "reduced"
+REDUCED_DIRNAME = "03-reduced"
 #: Sub-directory that receives stage 3's further-reduced chapters (first mentions).
-UNIQUE_DIRNAME = "reduced-unique"
+UNIQUE_DIRNAME = "03-reduced-unique"
 #: Sub-directory that receives stage 5's translation-sized chunks.
-CHUNKS_DIRNAME = "chunks"
+CHUNKS_DIRNAME = "05-chunks"
 
 _MARKDOWN_SUFFIXES = (".md", ".markdown")
+#: Plain text is already the content stage 0 writes; only the name changes.
+_TEXT_SUFFIXES = (".txt",)
+#: Formats docling converts to Markdown in stage 0.
+_DOCLING_SUFFIXES = (".pdf", ".epub")
+#: Every source format the pipeline accepts.
+SOURCE_SUFFIXES = _MARKDOWN_SUFFIXES + _TEXT_SUFFIXES + _DOCLING_SUFFIXES
 
 
 def repo_root(start: Path | str | None = None) -> Path:
@@ -72,7 +85,7 @@ def default_output_dir(root: Path | str | None = None) -> Path:
 def book_slug(path: Path | str) -> str:
     """A filesystem-safe identifier for a source document (its stem)."""
     stem = Path(path).name
-    for suffix in _MARKDOWN_SUFFIXES + (".pdf", ".epub", ".txt"):
+    for suffix in SOURCE_SUFFIXES:
         if stem.lower().endswith(suffix):
             stem = stem[: -len(suffix)]
             break
@@ -101,8 +114,18 @@ def book_chapters_dir(
     *,
     output_root: Path | str | None = None,
 ) -> Path:
-    """``data/output/<book-stem>/chapters/`` — where the chapter files land."""
+    """``data/output/<book-stem>/01-chapters/`` — where the chapter files land."""
     return book_output_dir(book, root, output_root=output_root) / CHAPTERS_DIRNAME
+
+
+def book_markdown_dir(
+    book: Path | str,
+    root: Path | str | None = None,
+    *,
+    output_root: Path | str | None = None,
+) -> Path:
+    """``data/output/<book-stem>/00-markdown/`` — stage 0's converted source."""
+    return book_output_dir(book, root, output_root=output_root) / MARKDOWN_DIRNAME
 
 
 def resolve_book_path(
@@ -118,6 +141,9 @@ def resolve_book_path(
     1. an existing path, used as-is (``data/input/foo.md``, ``/tmp/foo.md``)
     2. a bare filename or stem resolved inside ``data/input/``
     3. ``None`` — the single Markdown file in ``data/input/``, when unambiguous
+
+    A source may be Markdown, plain text, PDF or EPUB: the non-Markdown ones are
+    converted by stage 0 before the splitter reads them.
 
     Raises :class:`FileNotFoundError` with an actionable message otherwise.
     """
@@ -135,7 +161,7 @@ def resolve_book_path(
         return candidate
 
     if raw.suffix == "":
-        for suffix in _MARKDOWN_SUFFIXES:
+        for suffix in SOURCE_SUFFIXES:
             with_suffix = (in_dir / f"{raw.name}{suffix}").resolve()
             if with_suffix.is_file():
                 return with_suffix
@@ -152,7 +178,7 @@ def resolve_output_dir(
     root: Path | str | None = None,
     output_root: Path | str | None = None,
 ) -> Path:
-    """Resolve ``--out``, defaulting to ``data/output/<book-stem>/chapters``."""
+    """Resolve ``--out``, defaulting to ``data/output/<book-stem>/01-chapters``."""
     if out is not None and str(out).strip():
         return Path(out).expanduser()
     return book_chapters_dir(book, root, output_root=output_root)

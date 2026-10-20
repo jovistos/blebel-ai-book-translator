@@ -5,10 +5,10 @@ call at a time. This stage puts the translated slices back together, using the
 membership and order stage 5 recorded:
 
 ```
-chunks/00001-01-predgovor-0000.md          translations/00001-...-0000.md
-chunks/00002-01-predgovor-0001.md          translations/00002-...-0001.md
+05-chunks/00001-01-predgovor-0000.md          07-translations/00001-...-0000.md
+05-chunks/00002-01-predgovor-0001.md          07-translations/00002-...-0001.md
                     \\                    /
-                     translated-chapters/01-predgovor.md
+                     08-translated-chapters/01-predgovor.md
 ```
 
 Two rules make the output trustworthy:
@@ -22,7 +22,7 @@ Two rules make the output trustworthy:
   as an incomplete chapter and skipped, not written as a plausible-looking but
   truncated chapter.
 
-The folder is separate from ``chapters/`` on purpose: the source text is never
+The folder is separate from ``01-chapters/`` on purpose: the source text is never
 overwritten by the translation. ``--first-chapters N`` narrows the stage to a
 prefix, and ``--skip-if-present`` reuses a chapter file whose assembled text is
 already exactly what the current translations produce, so growing ``N`` only
@@ -49,7 +49,12 @@ from ..core.constants import (
 )
 from ..core.errors import ToolError
 from ..documents.chapters import translated_chapters_dir, translations_dir
-from ..documents.window import body_chapter_names, chunk_chapter_names, normalize_limit
+from ..documents.window import (
+    body_chapter_names,
+    chunk_chapter_names,
+    is_body_chapter_name,
+    normalize_limit,
+)
 
 #: Monotonic clock used for the timings; injectable so tests can be exact.
 Clock = Callable[[], float]
@@ -253,9 +258,18 @@ def run_assembly(
     limit = normalize_limit(first_chapters)
     body_names = body_chapter_names(all_names)
     limited = limit is not None and limit < len(body_names)
-    # A window is a body-chapter window: front/back matter is not assembled even
-    # when N happens to be larger than the book's chapter count.
-    names = list(all_names) if limit is None else body_names[:limit]
+    # A window limits the *body* chapters, never the front/back matter: a book
+    # built from the first N chapters still needs its title page and its back
+    # page, and the matter stage localizes them for exactly this assembly.
+    if limit is None:
+        names = list(all_names)
+    else:
+        selected = set(body_names[:limit])
+        names = [
+            name
+            for name in all_names
+            if not is_body_chapter_name(name) or name in selected
+        ]
     grouped = _group_by_chapter(entries, names)
 
     records: list[TranslatedChapter] = []

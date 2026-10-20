@@ -21,8 +21,9 @@ part of the registration, not of a hand-maintained list:
     ``tail.py`` (the end of the book: is there back matter, and where does it
     start — read through an escalating window),
     ``websearch.py`` (``web_search`` / ``fetch_web_page``: the published chapter
-    list of a book that lost its own TOC, the only tools here that use the
-    network),
+    list of a book that lost its own TOC, and — for the matter stage — an
+    existing published translation whose title should be reused; these are the
+    only tools here that use the network, shared by the split and matter stages),
     ``proposal.py`` (the tools the agent answers through), ``execution.py``
     (slicing and verification).
 
@@ -30,6 +31,21 @@ part of the registration, not of a hand-maintained list:
     ``agent/tools/preprocess.py``: header collection per chapter and per book,
     damage inspection, the cleaning-plan submission tool, and the apply/verify
     pair.
+
+``matter`` (the stage before translation)
+    ``agent/tools/matter.py``: the front/back matter inventory, full-section and
+    full-chunk readers (this stage is allowed to read prose — it translates it),
+    the book-level localization plan, and the per-chunk localization submission
+    tool. It reuses ``web_search`` / ``fetch_web_page`` from stage 1 and the
+    shared structural tools instead of duplicating them.
+
+``postprocess`` (stage 9)
+    ``agent/tools/postprocess.py``: the book title inventory, bounded chapter
+    openings and heading records, the naming/TOC plan, the per-chapter title
+    plan, and the apply/verify pair for translated chapters. It also binds the
+    shared ``web_search`` / ``fetch_web_page``: the published-contents lookup is
+    mandatory before the book plan, and the graph refuses the plan until
+    ``web_search`` has been called.
 
 Modules
 -------
@@ -41,6 +57,10 @@ Modules
     Stage 1.
 ``preprocess``
     Stage 2.
+``matter``
+    Front/back matter localization.
+``postprocess``
+    Stage 9.
 ``policy``
     The "no writes before validation" rule enforced by the graph.
 
@@ -51,6 +71,8 @@ imported for their side effect as well as for their names.
 from . import (  # noqa: F401
     execution,
     extract,
+    matter,
+    postprocess,
     preprocess,
     proposal,
     search,
@@ -67,7 +89,33 @@ from .extract import (
     extract_native_toc,
     scan_markdown_headers,
 )
+from .matter import (
+    list_book_chapters,
+    list_matter_sections,
+    read_matter_chunk,
+    read_matter_section,
+    report_matter_localization,
+    report_matter_plan,
+    reset_matter_scope,
+    set_matter_scope,
+    validate_matter_localization,
+    validate_matter_plan_tool,
+)
 from .policy import BLOCKED_MESSAGE, blocked_payload, is_blocked
+from .postprocess import (
+    apply_book_toc,
+    apply_chapter_postprocess,
+    inspect_chapter_headings,
+    inspect_chapter_opening,
+    inspect_heading_context,
+    inspect_matter_blocks,
+    list_chapter_titles,
+    report_book_plan,
+    report_chapter_postprocess,
+    validate_book_plan_tool,
+    validate_chapter_postprocess,
+    verify_postprocessed_chapters,
+)
 from .preprocess import (
     apply_chapter_cleaning,
     collect_book_headers,
@@ -81,6 +129,10 @@ from .preprocess import (
 )
 from .proposal import propose_split_map, validate_split_map_tool
 from .registry import (
+    MATTER,
+    MATTER_WRITE_TOOLS,
+    POSTPROCESS,
+    POSTPROCESS_WRITE_TOOLS,
     PREPROCESS,
     PREPROCESS_WRITE_TOOLS,
     SHARED,
@@ -93,10 +145,13 @@ from .registry import (
     describe_tools,
     grouped_tools,
     is_write_tool,
+    matter_stage,
+    postprocess_stage,
     preprocess_stage,
     register_tool,
     split_stage,
     stage_of,
+    stages_of,
     tool_by_name,
     tool_names,
     tools_for_stage,
@@ -121,6 +176,12 @@ SPLIT_TOOLS = tools_for_stage(SPLIT)
 #: Toolset exposed to the stage-2 (preprocessing) agent.
 PREPROCESS_TOOLS = tools_for_stage(PREPROCESS)
 
+#: Toolset exposed to the front/back matter localization agent.
+MATTER_TOOLS = tools_for_stage(MATTER)
+
+#: Toolset exposed to the stage-9 (translated-heading postprocessing) agent.
+POSTPROCESS_TOOLS = tools_for_stage(POSTPROCESS)
+
 #: Every registered tool, in definition order (kept for backwards compatibility).
 TOOLS = all_tools()
 
@@ -130,9 +191,19 @@ TOOL_BY_NAME = {tool.name: tool for tool in TOOLS}
 #: Per-stage dispatch tables.
 SPLIT_TOOL_BY_NAME = bind_all(SPLIT_TOOLS)
 PREPROCESS_TOOL_BY_NAME = bind_all(PREPROCESS_TOOLS)
+MATTER_TOOL_BY_NAME = bind_all(MATTER_TOOLS)
+POSTPROCESS_TOOL_BY_NAME = bind_all(POSTPROCESS_TOOLS)
 
 __all__ = [
     "BLOCKED_MESSAGE",
+    "MATTER",
+    "MATTER_TOOLS",
+    "MATTER_TOOL_BY_NAME",
+    "MATTER_WRITE_TOOLS",
+    "POSTPROCESS",
+    "POSTPROCESS_TOOLS",
+    "POSTPROCESS_TOOL_BY_NAME",
+    "POSTPROCESS_WRITE_TOOLS",
     "PREPROCESS",
     "PREPROCESS_TOOLS",
     "PREPROCESS_TOOL_BY_NAME",
@@ -147,7 +218,9 @@ __all__ = [
     "TOOL_BY_NAME",
     "WRITE_TOOLS",
     "all_tools",
+    "apply_book_toc",
     "apply_chapter_cleaning",
+    "apply_chapter_postprocess",
     "bind_all",
     "blocked_payload",
     "collect_book_headers",
@@ -165,28 +238,51 @@ __all__ = [
     "grouped_tools",
     "inspect_book_tail",
     "inspect_chapter_damage",
+    "inspect_chapter_headings",
+    "inspect_chapter_opening",
+    "inspect_heading_context",
     "inspect_line_window",
+    "inspect_matter_blocks",
     "is_blocked",
     "is_write_tool",
+    "list_book_chapters",
     "list_chapter_files",
+    "list_chapter_titles",
+    "list_matter_sections",
     "locate_toc_titles_in_file",
+    "matter_stage",
+    "postprocess_stage",
     "preprocess_stage",
     "propose_split_map",
+    "read_matter_chunk",
+    "read_matter_section",
     "register_tool",
+    "report_book_plan",
     "report_chapter_cleaning",
+    "report_chapter_postprocess",
+    "report_matter_localization",
+    "report_matter_plan",
+    "reset_matter_scope",
     "sample_corpus_text",
     "scan_book_damage",
     "scan_corpus_damage_tool",
     "scan_markdown_headers",
+    "set_matter_scope",
     "shared_tool",
     "slice_book_by_line_numbers",
     "split_stage",
     "stage_of",
+    "stages_of",
     "tool_by_name",
     "tool_names",
     "tools_for_stage",
+    "validate_book_plan_tool",
     "validate_chapter_cleaning",
+    "validate_chapter_postprocess",
+    "validate_matter_localization",
+    "validate_matter_plan_tool",
     "validate_split_map_tool",
+    "verify_postprocessed_chapters",
     "verify_preprocessed_chapters",
     "verify_sliced_output",
     "web_search",

@@ -9,8 +9,8 @@ The run is deliberately **two phases**, in this order:
 
 ```
 phase 1 — NER over every chunk                         (one complete pass)
-    chunks/00000-…  -> tagger -> ["Džordž"(PER), "London"(LOC), …]
-    chunks/00001-…  -> tagger -> ["Dženi"(PER), "Beograd"(LOC), …]
+    05-chunks/00000-…  -> tagger -> ["Džordž"(PER), "London"(LOC), …]
+    05-chunks/00001-…  -> tagger -> ["Dženi"(PER), "Beograd"(LOC), …]
     …
     no glossary is read yet; the phase is complete before phase 2 starts
 
@@ -19,7 +19,7 @@ phase 2 — fuzzy retrieval for every collected term      (one complete pass)
     "Dženi"  -> glossary entry "Dženi"       100.0  -> character / Dženi
     "Mithril"-> best 71.4, below threshold          -> unmatched
     …
-    chunk-glossary/<chunk>.json  (the chunk's own name, one file per chunk)
+    06-chunk-glossary/<chunk>.json  (the chunk's own name, one file per chunk)
 ```
 
 That ordering is the contract, not an implementation detail: the NER pass must
@@ -34,8 +34,8 @@ rendering, so a chunk term only needs the entry that names it. The score is a
 percentage on rapidfuzz's 0..100 scale and is a command-line option (95 by
 default).
 
-The output folder mirrors the chunk folder: ``chunks/00001-x-0000.md`` gets
-``chunk-glossary/00001-x-0000.md.json``. The file carries the chunk's identity
+The output folder mirrors the chunk folder: ``05-chunks/00001-x-0000.md`` gets
+``06-chunk-glossary/00001-x-0000.md.json``. The file carries the chunk's identity
 (global order, chapter, character and line spans), every NER term with its match
 or near miss, and a ``matched_terms`` list a translation prompt can consume
 directly.
@@ -332,7 +332,7 @@ def resolve_glossary_path(
     glossary_path: str | Path | None,
     chunks_path: str | Path,
 ) -> Path:
-    """Where ``glossary.json`` is: explicit, or the book folder's ``glossary/``."""
+    """Where ``glossary.json`` is: explicit, or the book folder's ``04-glossary/``."""
     if glossary_path:
         return glossary_file(glossary_path)
     return _book_root(chunks_path) / GLOSSARY_DIRNAME / GLOSSARY_FILENAME

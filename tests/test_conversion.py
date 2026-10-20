@@ -1,0 +1,404 @@
+"""Offline tests for stage 0: EPUB/PDF/TXT -> Markdown.
+
+docling itself is never imported here: the converter is stubbed, so these tests
+pin the *decisions* stage 0 makes — a TXT is copied unchanged, a PDF without a
+text layer is rejected instead of OCR'd, a text-based PDF/EPUB goes to docling,
+and an existing conversion is reused only while the source hash still matches.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+from book_splitter.conversion import (
+    classify_source,
+    converted_markdown_path,
+    inspect_pdf_text_layer,
+    is_markdown_source,
+    run_conversion,
+)
+from book_splitter.conversion import runner as conversion_runner
+from book_splitter.core.constants import CONVERT_MANIFEST_FILENAME
+from book_splitter.core.errors import MissingDependencyError, ToolError
+
+
+def fake_docling(monkeypatch, markdown: str = "# Chapter One\n\nSome converted text.\n"):
+    """Replace docling: record the calls and return fixed Markdown."""
+    calls: list[tuple[str, str]] = []
+
+    def _convert(path, kind):
+        calls.append((str(path), kind))
+        return markdown
+
+    monkeypatch.setattr(conversion_runner, "_convert_with_docling", _convert)
+    return calls
+
+
+def fake_pdf_pages(monkeypatch, texts: list[str], pages: int | None = None):
+    """Replace the PDF text-layer reader with fixed page texts."""
+
+    def _read(path, sample_pages):  # noqa: ARG001
+        return (pages if pages is not None else len(texts)), list(texts)
+
+    monkeypatch.setattr(conversion_runner, "_read_pdf_page_texts", _read)
+
+
+# --------------------------------------------------------------------------- #
+# classification and paths
+# --------------------------------------------------------------------------- #
+def test_classify_source_covers_the_three_supported_families(tmp_path):
+    for name, expected in (
+        ("book.md", "markdown"),
+        ("book.markdown", "markdown"),
+        ("book.txt", "text"),
+        ("book.pdf", "pdf"),
+        ("book.PDF", "pdf"),
+        ("book.epub", "epub"),
+    ):
+        path = tmp_path / name
+        path.write_text("x", encoding="utf-8")
+        assert classify_source(path) == expected
+
+
+def test_classify_source_rejects_an_unknown_extension_and_a_missing_file(tmp_path):
+    other = tmp_path / "book.docx"
+    other.write_text("x", encoding="utf-8")
+    with pytest.raises(ToolError, match="unsupported source format"):
+        classify_source(other)
+    with pytest.raises(ToolError, match="not found"):
+        classify_source(tmp_path / "missing.pdf")
+    assert is_markdown_source("a.md") and not is_markdown_source("a.pdf")
+
+
+def test_converted_markdown_path_uses_the_book_slug_and_00_markdown(tmp_path):
+    assert converted_markdown_path(
+        "data/input/My Book.pdf", output_root=tmp_path
+    ) == tmp_path / "My-Book" / "00-markdown" / "My-Book.md"
+
+
+# --------------------------------------------------------------------------- #
+# TXT: rename only
+# --------------------------------------------------------------------------- #
+def test_a_txt_source_is_copied_byte_for_byte_and_named_md(tmp_path):
+    source = tmp_path / "notes.txt"
+    payload = "Chapter One\r\n\r\nSome text — ünïcode.\r\n".encode()
+    source.write_bytes(payload)
+
+    result = run_conversion(source, tmp_path / "out")
+
+    target = tmp_path / "out" / "notes.md"
+    assert result.ok and result.written and not result.reused
+    assert result.source_kind == "text"
+    assert result.method == "text-copy"
+    assert target.read_bytes() == payload  # only the name changed
+    manifest = json.loads(
+        (tmp_path / "out" / CONVERT_MANIFEST_FILENAME).read_text(encoding="utf-8")
+    )
+    assert manifest["source_kind"] == "text"
+    assert manifest["output"] == "notes.md"
+
+
+def test_a_markdown_source_is_a_no_op(tmp_path):
+    source = tmp_path / "book.md"
+    source.write_text("# Title\n", encoding="utf-8")
+
+    result = run_conversion(source, tmp_path / "out")
+
+    assert result.method == "already-markdown"
+    assert result.markdown_path == str(source.resolve())
+    assert not result.written
+    assert not (tmp_path / "out").exists()
+
+
+# --------------------------------------------------------------------------- #
+# PDF: the text-layer gate
+# --------------------------------------------------------------------------- #
+def test_a_text_based_pdf_is_converted_with_docling(tmp_path, monkeypatch):
+    source = tmp_path / "book.pdf"
+    source.write_bytes(b"%PDF-1.7 fake")
+    fake_pdf_pages(monkeypatch, ["A real page of prose. " * 20] * 12, pages=320)
+    calls = fake_docling(monkeypatch, "# Chapter One\n\nConverted prose from the PDF.\n")
+
+    result = run_conversion(source, tmp_path / "out")
+
+    assert calls == [(str(source), "pdf")]
+    assert result.pages == 320
+    assert result.text_pages == 12
+    assert result.text_based is True
+    assert result.method == "docling-pdf" and result.written
+    assert (tmp_path / "out" / "book.md").read_text(encoding="utf-8").startswith("# Chapter One")
+    manifest = json.loads(
+        (tmp_path / "out" / CONVERT_MANIFEST_FILENAME).read_text(encoding="utf-8")
+    )
+    assert manifest["pages"] == 320 and manifest["text_based"] is True
+    assert manifest["method"] == "docling-pdf"
+
+
+def test_an_image_based_pdf_is_rejected_and_docling_is_never_asked(tmp_path, monkeypatch):
+    source = tmp_path / "scan.pdf"
+    source.write_bytes(b"%PDF-1.7 fake scan")
+    # Page numbers only: not a text layer worth converting.
+    fake_pdf_pages(monkeypatch, ["18", "19", "", "20", ""] * 2, pages=400)
+
+    def _must_not_run(path, kind):  # noqa: ARG001
+        raise AssertionError("docling must not run for an image-based PDF")
+
+    monkeypatch.setattr(conversion_runner, "_convert_with_docling", _must_not_run)
+
+    with pytest.raises(ToolError, match="no embedded text layer") as excinfo:
+        run_conversion(source, tmp_path / "out")
+
+    assert "OCR is deliberately disabled" in str(excinfo.value)
+    assert not (tmp_path / "out" / "scan.md").exists()
+
+
+def test_inspect_pdf_text_layer_reports_the_evidence(monkeypatch, tmp_path):
+    source = tmp_path / "book.pdf"
+    source.write_bytes(b"%PDF-1.7 fake")
+
+    fake_pdf_pages(monkeypatch, [""] * 11 + ["A page with actual words on it. " * 5], pages=200)
+    report = inspect_pdf_text_layer(source)
+
+    assert report["pages"] == 200
+    assert report["sampled_pages"] == 12
+    assert report["text_pages"] == 1
+    assert report["text_based"] is False  # 1/12 is below the 50 % threshold
+    indices = report["sample_indices"]
+    assert len(indices) == 12
+    assert indices[0] == 0 and indices[-1] < 200
+    assert indices == sorted(set(indices))
+
+
+def test_inspect_pdf_text_layer_accepts_a_short_text_pdf(monkeypatch, tmp_path):
+    source = tmp_path / "short.pdf"
+    source.write_bytes(b"%PDF-1.7 fake")
+    fake_pdf_pages(monkeypatch, ["A single page of real prose. " * 10])
+
+    report = inspect_pdf_text_layer(source)
+
+    assert report["text_based"] is True
+    assert report["text_pages"] >= 1
+
+
+# --------------------------------------------------------------------------- #
+# EPUB
+# --------------------------------------------------------------------------- #
+def test_an_epub_is_converted_with_docling(tmp_path, monkeypatch):
+    source = tmp_path / "novel.epub"
+    source.write_bytes(b"PK\x03\x04 fake epub")
+    calls = fake_docling(monkeypatch, "# Chapter One\n\nThe EPUB text, long enough to keep.\n")
+
+    result = run_conversion(source, tmp_path / "out")
+
+    assert calls == [(str(source), "epub")]
+    assert result.method == "docling-epub" and result.written
+    assert (tmp_path / "out" / "novel.md").is_file()
+
+
+def test_docling_is_a_lazy_missing_dependency(tmp_path, monkeypatch):
+    source = tmp_path / "novel.epub"
+    source.write_bytes(b"PK\x03\x04 fake epub")
+    # Make ``from docling... import`` fail even in an environment that has it.
+    monkeypatch.setitem(__import__("sys").modules, "docling", None)
+    monkeypatch.setitem(__import__("sys").modules, "docling.document_converter", None)
+
+    with pytest.raises(MissingDependencyError, match="pip install docling"):
+        conversion_runner._convert_with_docling(source, "epub")
+
+
+def test_pdf_conversion_switches_docling_ocr_off(tmp_path, monkeypatch):
+    """The no-OCR promise is made at docling's API, not just in the preflight."""
+    import sys
+    import types
+
+    captured: dict = {}
+
+    class PdfPipelineOptions:
+        do_ocr = True
+        do_table_structure = True
+        generate_page_images = True
+        generate_picture_images = True
+
+    class PdfFormatOption:
+        def __init__(self, pipeline_options):
+            self.pipeline_options = pipeline_options
+
+    class InputFormat:
+        PDF = "pdf"
+
+    class DocumentConverter:
+        def __init__(self, format_options=None):
+            captured["format_options"] = format_options
+
+        def convert(self, path):
+            captured["path"] = path
+
+            class _Document:
+                def export_to_markdown(self):
+                    return "# Converted\n\n" + "A converted page of text. " * 10
+
+            class _Result:
+                document = _Document()
+
+            return _Result()
+
+    base_models = types.ModuleType("docling.datamodel.base_models")
+    base_models.InputFormat = InputFormat
+    pipeline_options = types.ModuleType("docling.datamodel.pipeline_options")
+    pipeline_options.PdfPipelineOptions = PdfPipelineOptions
+    datamodel = types.ModuleType("docling.datamodel")
+    datamodel.base_models = base_models
+    datamodel.pipeline_options = pipeline_options
+    document_converter = types.ModuleType("docling.document_converter")
+    document_converter.DocumentConverter = DocumentConverter
+    document_converter.PdfFormatOption = PdfFormatOption
+    docling = types.ModuleType("docling")
+    docling.datamodel = datamodel
+    docling.document_converter = document_converter
+    for name, module in (
+        ("docling", docling),
+        ("docling.datamodel", datamodel),
+        ("docling.datamodel.base_models", base_models),
+        ("docling.datamodel.pipeline_options", pipeline_options),
+        ("docling.document_converter", document_converter),
+    ):
+        monkeypatch.setitem(sys.modules, name, module)
+
+    markdown = conversion_runner._convert_with_docling(tmp_path / "book.pdf", "pdf")
+
+    options = captured["format_options"]["pdf"].pipeline_options
+    assert options.do_ocr is False
+    assert options.do_table_structure is False
+    assert captured["path"] == str(tmp_path / "book.pdf")
+    assert markdown.startswith("# Converted")
+
+
+# --------------------------------------------------------------------------- #
+# reuse
+# --------------------------------------------------------------------------- #
+def test_an_existing_conversion_is_reused_until_the_source_changes(tmp_path):
+    source = tmp_path / "notes.txt"
+    target = tmp_path / "out" / "notes.md"
+    source.write_text("first version\n", encoding="utf-8")
+
+    first = run_conversion(source, tmp_path / "out")
+    second = run_conversion(source, tmp_path / "out")
+
+    assert first.written and not first.reused
+    assert second.reused and not second.written
+    assert target.read_text(encoding="utf-8") == "first version\n"
+
+    source.write_text("second version\n", encoding="utf-8")
+    third = run_conversion(source, tmp_path / "out")
+
+    assert third.written and not third.reused
+    assert target.read_text(encoding="utf-8") == "second version\n"
+
+
+def test_force_converts_again_even_when_the_hash_matches(tmp_path):
+    source = tmp_path / "notes.txt"
+    source.write_text("same\n", encoding="utf-8")
+    run_conversion(source, tmp_path / "out")
+
+    forced = run_conversion(source, tmp_path / "out", force=True)
+
+    assert forced.written and not forced.reused
+
+
+# --------------------------------------------------------------------------- #
+# dry run
+# --------------------------------------------------------------------------- #
+def test_a_dry_run_validates_without_writing(tmp_path, monkeypatch):
+    txt = tmp_path / "notes.txt"
+    txt.write_text("hello\n", encoding="utf-8")
+    txt_result = run_conversion(txt, tmp_path / "out", dry_run=True)
+    assert txt_result.dry_run and not txt_result.written
+    assert not (tmp_path / "out" / "notes.md").exists()
+
+    pdf = tmp_path / "book.pdf"
+    pdf.write_bytes(b"%PDF-1.7 fake")
+    fake_pdf_pages(monkeypatch, ["A text page. " * 10] * 3)
+
+    def _must_not_run(path, kind):  # noqa: ARG001
+        raise AssertionError("a dry run must not invoke docling")
+
+    monkeypatch.setattr(conversion_runner, "_convert_with_docling", _must_not_run)
+    pdf_result = run_conversion(pdf, tmp_path / "out", dry_run=True)
+    assert pdf_result.dry_run and not pdf_result.written
+    assert pdf_result.method == "docling-pdf"
+    assert not (tmp_path / "out" / "book.md").exists()
+
+
+# --------------------------------------------------------------------------- #
+# CLI
+# --------------------------------------------------------------------------- #
+def test_convert_cli_writes_the_markdown_and_reports_json(tmp_path, capsys):
+    from book_splitter.cli import main
+
+    source = tmp_path / "notes.txt"
+    source.write_text("# Title\n\nBody\n", encoding="utf-8")
+
+    code = main(["convert", str(source), "--out", str(tmp_path / "md"), "--json"])
+
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["source_kind"] == "text"
+    assert payload["method"] == "text-copy"
+    assert (tmp_path / "md" / "notes.md").read_text(encoding="utf-8") == source.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_convert_cli_reports_an_image_based_pdf_as_an_error(tmp_path, monkeypatch, capsys):
+    from book_splitter.cli import main
+
+    source = tmp_path / "scan.pdf"
+    source.write_bytes(b"%PDF-1.7 fake")
+    fake_pdf_pages(monkeypatch, [""] * 12, pages=100)
+
+    code = main(["convert", str(source), "--out", str(tmp_path / "md")])
+
+    assert code == 2
+    captured = capsys.readouterr()
+    assert "no embedded text layer" in captured.err
+    assert "OCR is deliberately disabled" in captured.err
+    assert not (tmp_path / "md").exists()
+
+
+def test_split_converts_a_non_markdown_source_before_slicing(tmp_path, monkeypatch, capsys):
+    """`split BOOK.txt` needs Markdown: stage 0 runs first, transparently."""
+    from book_splitter import cli
+    from book_splitter.agent.result import SplitterResult
+
+    source = tmp_path / "book.txt"
+    source.write_text("# Chapter One\n\nSome text.\n", encoding="utf-8")
+
+    real_convert = cli.run_conversion
+
+    def converted_into_tmp(src, out=None, **kwargs):  # noqa: ARG001
+        return real_convert(src, tmp_path / "md", **kwargs)
+
+    monkeypatch.setattr(cli, "run_conversion", converted_into_tmp)
+
+    seen: dict = {}
+
+    def fake_split(source_path, output_dir, **kwargs):  # noqa: ARG001
+        seen["source"] = source_path
+        return SplitterResult(
+            ok=True,
+            source_path=str(source_path),
+            output_dir=str(output_dir),
+            strategy="markdown_headers",
+            chapter_count=1,
+            verification={"reassembles_byte_for_byte": True},
+        )
+
+    monkeypatch.setattr("book_splitter.agent.run_split", fake_split)
+
+    code = cli.main(["split", str(source), "--out", str(tmp_path / "chapters")])
+
+    assert code == 0
+    assert Path(seen["source"]).suffix == ".md"
+    assert Path(seen["source"]).read_text(encoding="utf-8") == source.read_text(encoding="utf-8")

@@ -144,8 +144,15 @@ def inspect_chapter_damage(chapter_path: str, kinds: str = "") -> str:
 
     Returns one finding per damaged spot: the line number, the two fragments and
     a reconstructed word. `kinds` is an optional comma-separated filter from
-    `page_number_in_word`, `split_word`, `space_before_punctuation`;
-    empty means all of them.
+    `page_number_in_word`, `inline_page_number`, `split_word`,
+    `space_before_punctuation`; empty means all of them.
+
+    `inline_page_number` findings are the regex search for page numbers merged
+    into a text line (`- 2 0 "Well`, `... the - 6 8 -`). Each carries the token,
+    its `position`, the words before and after it on the line, the nearest line
+    before and after, and whether the number fits between the printed page
+    markers around it. Decide from that context whether it really is a page
+    number; `suggested: review` means the evidence is weak.
 
     The chapter's prose is never returned — only the damaged fragment and the
     few characters around it.
@@ -196,14 +203,17 @@ def report_chapter_cleaning(
     `operations` is the complete list of line decisions, each
     `{"line_number": int, "decision": "keep"|"demote"|"remove"|"remove_caption"|
     "merge_with_next", "note": "<why, short>"}`. `remove` deletes a printed page
-    number (with or without `#` markup); `remove_caption` deletes a standalone
+    number (with or without `#` markup, bare, dash-framed like `- 2 -`, spaced
+    like `- 1 0 4 -`, or underscore-framed like `- \\_ 1 1 \\_`); `remove_caption`
+    deletes a standalone
     figure/table caption, whose picture is not in the Markdown anyway. Lines you
     do not mention are left exactly as they are, so list only what changes.
 
     `text_fixes` is the optional list of body-text repairs, each
     `{"line_number": int, "fix": "page_number_in_word"|"split_word"|
-    "space_before_punctuation"}`. Only request a fix that `inspect_chapter_damage`
-    actually reported.
+    "space_before_punctuation"|"inline_page_number"}`. Only request a fix that
+    `inspect_chapter_damage` actually reported. `inline_page_number` deletes the
+    page-number token from a text line and keeps every word around it.
 
     The plan is validated by the graph before anything is written; if it is
     rejected you will be asked to correct it, so always dry-run it first with
@@ -287,11 +297,12 @@ def apply_chapter_cleaning(
     `operations` are the header decisions (see `report_chapter_cleaning`);
     `text_fixes` are optional body-text repairs, each
     `{"line_number": int, "fix": "split_word"|"page_number_in_word"|
-    "space_before_punctuation"}` — take them from `inspect_chapter_damage`, and
-    remember that `split_word` joins a line with the next one.
+    "space_before_punctuation"|"inline_page_number"}` — take them from
+    `inspect_chapter_damage`, and remember that `split_word` joins a line with
+    the next one while `inline_page_number` only removes the page-number token.
 
-    The result is written to `output_dir` (default: the `preprocessed/` folder
-    next to `chapters/`). Only bookkeeping is returned — hashes, line counts,
+    The result is written to `output_dir` (default: the `02-preprocessed/` folder
+    next to `01-chapters/`). Only bookkeeping is returned — hashes, line counts,
     what was removed, and a per-line provenance map — never the text written.
 
     The graph blocks this tool until the plan has passed validation for this

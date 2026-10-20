@@ -14,8 +14,8 @@ contract:
    default, and a flag). The accepted terms are written next to the chunk, under
    the chunk's own name::
 
-       chunks/00001-01-predgovor-0000.md
-       chunk-glossary/00001-01-predgovor-0000.md.json
+       05-chunks/00001-01-predgovor-0000.md
+       06-chunk-glossary/00001-01-predgovor-0000.md.json
 
 That file is what a translation prompt needs: the chunk's identity (global
 order, chapter, character and line spans), every NER term with its match or near

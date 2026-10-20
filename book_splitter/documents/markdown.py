@@ -16,8 +16,18 @@ import re
 from ..core.constants import MAX_PAGE_NUMBER_DIGITS, MAX_TITLE_LINE_CHARS
 
 MD_HEADER_RE = re.compile(r"^(#{1,6})\s*(.*)$")
-#: A line that is nothing but a number (``18``, ``## 101``, ``790``).
-PAGE_NUMBER_ONLY_RE = re.compile(f"^#*\\s*(\\d{{1,{MAX_PAGE_NUMBER_DIGITS}}})\\s*$")
+#: Dashes a converter may print around a page number (``- 18 -``, ``— 208 —``).
+PAGE_NUMBER_FRAME = r"[-\u2010-\u2015\u2212]"
+#: The only characters a page-number line may hold after its optional header
+#: hashes and its ``\_`` escapes are removed. Whitespace is allowed anywhere,
+#: because the PDF conversion often spaces the digits apart (``- 1 0 4 -``).
+PAGE_NUMBER_TEXT_RE = re.compile(r"^[#\s\-–—_\d]+$")
+#: The shape of a page number once its whitespace is gone: optional dashes and
+#: underscores on either side of one run of digits.
+PAGE_NUMBER_COMPACT_RE = re.compile(
+    rf"^(?P<open>{PAGE_NUMBER_FRAME}*)(?P<under>_*)(?P<digits>\d+)"
+    rf"(?P<under2>_*)(?P<close>{PAGE_NUMBER_FRAME}*)$"
+)
 #: A number glued to the end of a word (``us12``, ``božan199``).
 TRAILING_NUMBER_RE = re.compile(
     f"^(?P<head>.*?[^\\W\\d_])(?P<digits>\\d{{1,{MAX_PAGE_NUMBER_DIGITS}}})$"
@@ -56,13 +66,58 @@ def header_body(line: str) -> str:
     return head[1] if head else line.strip()
 
 
-def is_page_number_line(line: str) -> bool:
-    """True when the line is only a number — ``19`` or ``## 19``.
+def _page_number_value(line: str) -> int | None:
+    """Parse a page-number line and return the printed number, or ``None``.
 
-    This is the single most common PDF-conversion artefact: the printed page
-    number became a header of its own.
+    The PDF converter leaves the number in several shapes, all of which have to
+    survive: a bare header (``## 18``), a bare body line (``19``), the printed
+    dashes (``- 2 -``, ``- 2 2 5 - -``), escaped or plain underscores that were
+    emphasis markers around it (``- \\_ 1 1 \\_``), and digits spaced apart by
+    the conversion (``- 1 0 4 -``, ``- 3 3``).
+
+    A one-sided dash is accepted only when the digits themselves are spaced
+    (``- 3 3``): an unspaced ``- 2`` is a Markdown list item, not a page number.
     """
-    return bool(PAGE_NUMBER_ONLY_RE.match(line.strip()))
+    text = line.strip()
+    text = re.sub(r"^#{1,6}\s*", "", text)
+    # The converter escapes the underscores it keeps around the number.
+    text = text.replace("\\_", "_")
+    if not text or not PAGE_NUMBER_TEXT_RE.match(text):
+        return None
+
+    spaced_digits = bool(re.search(r"\d\s+\d", text))
+    compact = re.sub(r"\s+", "", text)
+    match = PAGE_NUMBER_COMPACT_RE.match(compact)
+    if not match:
+        return None
+    digits = match.group("digits")
+    if len(digits) > MAX_PAGE_NUMBER_DIGITS:
+        return None
+
+    has_underscore_open = bool(match.group("under"))
+    has_underscore_close = bool(match.group("under2"))
+    if has_underscore_open or has_underscore_close:
+        # Both underscores must be there; a lone `_` is markdown emphasis.
+        return int(digits) if has_underscore_open and has_underscore_close else None
+
+    has_dash_open = bool(match.group("open"))
+    has_dash_close = bool(match.group("close"))
+    if has_dash_open or has_dash_close:
+        if has_dash_open and has_dash_close:
+            return int(digits)
+        return int(digits) if spaced_digits else None
+    return int(digits)
+
+
+def is_page_number_line(line: str) -> bool:
+    """True when the line is only a printed page number.
+
+    Accepts ``19``, ``## 19``, ``- 19 -``, ``## — 208 —``, ``- 1 0 4 -``,
+    ``- \\_ 1 1 \\_`` and one-sided spaced forms such as ``- 3 3``. A number
+    inside a word or a one-sided unspaced ``- 2`` (a Markdown list item) does
+    not qualify.
+    """
+    return _page_number_value(line) is not None
 
 
 def is_all_caps(text: str, max_chars: int = MAX_TITLE_LINE_CHARS) -> bool:
@@ -79,9 +134,12 @@ def is_all_caps(text: str, max_chars: int = MAX_TITLE_LINE_CHARS) -> bool:
 
 
 def page_number_of(line: str) -> int | None:
-    """The printed page number of an artefact line, or ``None``."""
-    m = PAGE_NUMBER_ONLY_RE.match(line.strip())
-    return int(m.group(1)) if m else None
+    """The printed page number of an artefact line, or ``None``.
+
+    Works for every shape :func:`is_page_number_line` accepts, including the
+    spaced and underscore-framed forms (``- 1 0 4 -``, ``- \\_ 1 1 \\_``).
+    """
+    return _page_number_value(line)
 
 
 def split_trailing_number(text: str) -> tuple[str, int] | None:

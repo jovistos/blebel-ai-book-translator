@@ -19,7 +19,7 @@ The funnel, cheapest test first:
     keep a sentence only if it introduces a noun no earlier sentence used;
 ``run_dictionary``
     drive that over every chapter, first to last, and write two folders:
-    ``reduced/`` (every entity-bearing sentence) and ``reduced-unique/`` (the
+    ``03-reduced/`` (every entity-bearing sentence) and ``03-reduced-unique/`` (the
     first mentions only, book-wide and in reading order).
 
 The tagger is chosen by language: CLASSLA for South Slavic, stanza for English

@@ -5,7 +5,7 @@ carries an entity, and a novel says ``Marko`` in nine hundred of them. A
 dictionary needs the noun once, not nine hundred times, so this module drops a
 sentence whose nouns have all been met before::
 
-    reduced/06-glava-3.md          reduced-unique/06-glava-3.md
+    03-reduced/06-glava-3.md          03-reduced-unique/06-glava-3.md
     Marko je ušao u sobu.          Marko je ušao u sobu.     <- PER "Marko" is new
     Marko je seo za sto.           (dropped: "Marko" alone, already met)
     Ana je ušla za njim.           Ana je ušla za njim.      <- PER "Ana" is new
@@ -104,8 +104,8 @@ class UniqueSelection:
     def to_dict(self) -> dict:
         """The compact shape stored in the trace: counts and nouns, not the sentences.
 
-        The kept sentences *are* ``reduced-unique/<same-filename>.md`` and the dropped
-        ones are the difference against ``reduced/<same-filename>.md``, so repeating
+        The kept sentences *are* ``03-reduced-unique/<same-filename>.md`` and the dropped
+        ones are the difference against ``03-reduced/<same-filename>.md``, so repeating
         them in the audit trail would add tens of kilobytes of prose to explain what a
         two-folder ``diff`` already shows. What the trace keeps is the part the files
         cannot show: which nouns each sentence brought, and which ones it repeated.

@@ -38,9 +38,12 @@ from ..documents.markdown import header_of, is_page_number_line, page_number_of
 from ..documents.text import excerpt
 from .damage import (
     FIXES,
+    INLINE_PAGE_NUMBER,
     PAGE_NUMBER_IN_WORD,
     SPACE_BEFORE_PUNCTUATION,
     SPLIT_WORD,
+    inline_page_number_candidate,
+    repair_inline_page_number,
     repair_page_number_in_word,
     repair_space_before_punctuation,
     repair_split_word,
@@ -389,6 +392,9 @@ def apply_cleaning_plan(
             result.touched[number] = {"fix": kind}
         elif kind == PAGE_NUMBER_IN_WORD:
             working[number - 1] = repair_page_number_in_word(working[number - 1])
+            result.touched[number] = {"fix": kind}
+        elif kind == INLINE_PAGE_NUMBER:
+            working[number - 1] = repair_inline_page_number(working[number - 1])
             result.touched[number] = {"fix": kind}
 
     for fix in _index_fixes(text_fixes):
@@ -756,6 +762,29 @@ def verify_text_fixes(path: str | Path, text_fixes: list[dict]) -> dict[str, Any
                     "line_number": number,
                     "fix": kind,
                     "digits_removed": [h["digits"] for h in hits],
+                }
+            )
+        elif kind == INLINE_PAGE_NUMBER:
+            candidate = inline_page_number_candidate(source)
+            if candidate is None:
+                problems.append(
+                    f"text fix for line {number}: no page number is merged into a text line"
+                )
+                continue
+            expected = repair_inline_page_number(source)
+            kept = source[: candidate["start"]] + source[candidate["end"] :]
+            if re.sub(r"\s+", "", kept) != re.sub(r"\s+", "", expected):
+                problems.append(
+                    f"text fix for line {number}: the repair changed more than the "
+                    "inline page number"
+                )
+            checked.append(
+                {
+                    "line_number": number,
+                    "fix": kind,
+                    "page_number": candidate["page_number"],
+                    "token": candidate["token"],
+                    "position": candidate["position"],
                 }
             )
         elif kind == SPLIT_WORD:

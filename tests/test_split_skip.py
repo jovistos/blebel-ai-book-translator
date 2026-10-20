@@ -23,7 +23,7 @@ def make_book(tmp_path: Path) -> tuple[Path, Path]:
     """A source file plus a chapters folder that looks like a finished split."""
     source = tmp_path / "book.md"
     source.write_text(BOOK_TEXT, encoding="utf-8")
-    chapters = tmp_path / "chapters"
+    chapters = tmp_path / "01-chapters"
     chapters.mkdir()
     (chapters / "01-prva.md").write_text("## Prva\n\ntext\n", encoding="utf-8")
     (chapters / "02-druga.md").write_text("## Druga\n\nmore text\n", encoding="utf-8")

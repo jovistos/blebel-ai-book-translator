@@ -304,7 +304,7 @@ def test_cli_split_with_a_map_needs_no_provider(plain, tmp_path, monkeypatch, ca
     source.write_bytes(plain.read_bytes())
     map_path = tmp_path / "map.json"
     map_path.write_text(json.dumps(PLAIN_MAP, ensure_ascii=False), encoding="utf-8")
-    out_dir = tmp_path / "chapters"
+    out_dir = tmp_path / "01-chapters"
 
     code = cli_main(["split", str(source), "--map", str(map_path), "--out", str(out_dir)])
     captured = capsys.readouterr()

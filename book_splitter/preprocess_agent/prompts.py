@@ -15,7 +15,9 @@ chapter.
 ## The book you are cleaning
 It came from a PDF converter. Typical damage:
 - the printed page number became a heading of its own (`## 18`, `## 790`) or was left
-  as a plain body line between two paragraphs (`19`, `21`);
+  as a plain body line between two paragraphs (`19`, `21`); the dashes printed around it may \
+survive too (`- 2 -`, `— 208 —`, `## - 18 -`), sometimes with a space between every digit \
+(`- 1 3 -`, `- 1 0 4 -`) or with escaped underscores (`- \\_ 1 1 \\_`);
 - a figure caption became a heading (`## Slika 7. Protok ...`) or was left as a plain
   body line (`Slika 4. Blokada ljubavi. ...`);
 - body text that a page break promoted to a heading (a long line ending mid-sentence);
@@ -23,6 +25,9 @@ It came from a PDF converter. Typical damage:
 first half cut mid-word (`## ... i želja za smrć` then `## u`);
 - a page number printed *inside* a word (`pažljivu psi` + `182 ljutnje`), or glued to the start \
 of one (`1otkucaja`);
+- a page number merged into a text line instead of standing alone: at the start \
+(`- 2 0 "Well`), at the end (`... to be mean to him the - 6 8 -`), in the middle \
+(`... a year. - 117 "Obviously,"`), or bare at a line edge (`... Valerie 265`);
 - stray whitespace before punctuation (`mišić ,`).
 
 ## What you may look at
@@ -37,7 +42,10 @@ a small window around it — that is what `inspect_line_window` is for.
 decision, and a `body_candidates` list: page numbers and captions that the converter left as \
 *plain* body lines, with no `#` markup.
 2. `inspect_chapter_damage` when you want the body-text findings. They are found by *shape*, \
-not by meaning: the tool tells you the two fragments and the reconstructed word.
+not by meaning: the tool tells you the two fragments and the reconstructed word. It also lists \
+`inline_page_number` candidates with the words before and after them on the line, the nearest \
+line before/after, and whether the number fits between the printed page markers around it. \
+Decide each candidate yourself — some numbers are not page numbers.
 3. For any header whose recommendation you doubt, call `inspect_line_window` around it. \
 Recommendations are suggestions, not orders: the evidence is what matters.
 4. `validate_chapter_cleaning` with your operations. Fix every entry under `issues`. Warnings \
@@ -50,7 +58,9 @@ the chapter — the graph applies the plan and writes the file. You do not write
 - `demote` — remove the `#` markup, keep the text as a paragraph. Use it for a figure caption, \
 for body text that became a heading, and for a second half of a heading that is being merged.
 - `remove` — the line is ONLY a printed page number, so it is deleted. This works for a \
-header (`## 18`) and for a plain body line (`19`) alike.
+header (`## 18`) and for a plain body line (`19`) alike, including a number the converter \
+kept framed with dashes or underscores, or spaced digit by digit (`- 2 -`, `— 208 —`, \
+`## - 18 -`, `- 1 0 4 -`, `- \\_ 1 1 \\_`).
 - `remove_caption` — the line is a standalone figure/table caption, so it is deleted. Captions \
 label pictures that are not in the Markdown at all, so they are removed rather than kept as \
 paragraphs. Use it for `## Slika 7. Protok ...` and for an unmarked `Slika 4. Blokada ljubavi.`
@@ -62,6 +72,13 @@ merging, not by deleting.
 - A heading that names a structural unit (`GLAVA n`, `PRVI DEO`, `UVOD`, `PREDGOVOR`, \
 `BELEŠKE`, `n. POGLAVLJE`) is real; keep it (merge it with its other half if it is split).
 - Short ALL-CAPS lines are real headings.
+- A line the inspector lists as a page-number `body_candidate` (`suggested: remove`, \
+`risk: very_low`) is a printed page number: include every one in your first plan. Its spaced \
+(`- 1 0 4 -`) and underscore-framed (`- \\_ 1 1 \\_`) shapes count too.
+- An `inline_page_number` candidate is a page number only when the token is printed page \
+furniture, not a year, count, price, address or a dash in dialogue. `extra.fits_page_sequence: \
+true` is strong evidence; `extra.suggested: review` means decide from the words around it. Remove it with \
+the `inline_page_number` fix, which keeps every word on both sides.
 - A short line that ends with sentence punctuation and reads as a sentence is not a heading.
 - Figure captions (`Slika`, `Tabela`, `Figure`) are labels, not book text: delete them with \
 `remove_caption`. A sentence that merely *mentions* a figure stays: it is prose.
@@ -72,13 +89,15 @@ heading, not an artefact.
 
 ## Text fixes
 Body-text repairs are requested separately, as `text_fixes` with `{"line_number", "fix"}` where \
-`fix` is `page_number_in_word`, `split_word`, or `space_before_punctuation`. Only request a fix \
-the damage tool actually found. `split_word` joins a line with the next one, so request it only \
-when `inspect_chapter_damage` reports that shape.
+`fix` is `page_number_in_word`, `inline_page_number`, `split_word`, or \
+`space_before_punctuation`. Only request a fix the damage tool actually found. \
+`inline_page_number` removes the page-number token from a text line and keeps every word; \
+`split_word` joins a line with the next one, so request it only when `inspect_chapter_damage` \
+reports that shape.
 
-Be conservative: a wrong `demote` costs a heading, a wrong `remove` loses text, and a wrong \
-`merge_with_next` glues two unrelated lines together. When the evidence is genuinely unclear, \
-`keep`.
+Be conservative: a wrong `demote` costs a heading, a wrong `remove` loses text, a wrong \
+`inline_page_number` deletes a number that was really prose, and a wrong `merge_with_next` glues \
+two unrelated lines together. When the evidence is genuinely unclear, `keep`.
 """
 
 NUDGE_NO_PROPOSAL = (

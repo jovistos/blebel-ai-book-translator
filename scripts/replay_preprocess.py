@@ -22,7 +22,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from book_splitter.core.constants import PREPROCESS_TRACE_FILENAME  # noqa: E402
+from book_splitter.core.constants import (  # noqa: E402
+    CHAPTERS_DIRNAME,
+    PREPROCESS_TRACE_FILENAME,
+)
 from book_splitter.documents.chapters import (  # noqa: E402
     discover_chapters,
     preprocessed_dir,
@@ -101,7 +104,11 @@ def main() -> int:
 
 def _default_chapters() -> Path:
     output = ROOT / "data" / "output"
-    folders = [p / "chapters" for p in sorted(output.iterdir()) if (p / "chapters").is_dir()]
+    folders = [
+        p / CHAPTERS_DIRNAME
+        for p in sorted(output.iterdir())
+        if (p / CHAPTERS_DIRNAME).is_dir()
+    ]
     if not folders:
         raise SystemExit("no chapters folder in data/output; run `split` first")
     return folders[0]

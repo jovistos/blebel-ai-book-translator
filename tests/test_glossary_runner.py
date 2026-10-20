@@ -11,6 +11,7 @@ every call, retries included.
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -111,7 +112,7 @@ def make_book(
     chapters = chapters or CHAPTERS
     kinds = kinds if kinds is not None else KINDS
     root = tmp_path / name
-    folder = root / "chapters"
+    folder = root / "01-chapters"
     folder.mkdir(parents=True, exist_ok=True)
     entries = []
     for index, (filename, text) in enumerate(chapters.items(), start=1):
@@ -134,7 +135,7 @@ def make_book(
         ),
         encoding="utf-8",
     )
-    unique = root / "reduced-unique"
+    unique = root / "03-reduced-unique"
     unique.mkdir(parents=True, exist_ok=True)
     for filename, text in (reduced if reduced is not None else chapters).items():
         (unique / filename).write_text(text, encoding="utf-8")
@@ -162,7 +163,7 @@ def test_front_and_back_matter_are_skipped_but_still_reported(tmp_path):
     folder = make_book(tmp_path, chapters=chapters, kinds=kinds)
 
     extractor = FakeExtractor(by_chapter({"01-chapter-1.md": [entry("Potter", "Poter")]}))
-    result = run_glossary(str(folder), str(folder.parent / "glossary"), extractor=extractor)
+    result = run_glossary(str(folder), str(folder.parent / "04-glossary"), extractor=extractor)
 
     assert len(extractor.calls) == 1  # only the body chapter was mined
     # Neither skipped block was sent to the model, not even as evidence.
@@ -188,7 +189,7 @@ def test_the_skip_can_be_overridden_for_either_block(tmp_path):
     extractor = FakeExtractor(lambda s, u: [])
     result = run_glossary(
         str(folder),
-        str(folder.parent / "glossary"),
+        str(folder.parent / "04-glossary"),
         extractor=extractor,
         include_front_matter=True,
     )
@@ -228,7 +229,7 @@ def test_limit_stops_at_the_first_n_chapters(tmp_path):
     folder = make_book(tmp_path)
     extractor = FakeExtractor(by_chapter({"01-chapter-1.md": [entry("Potter", "Poter")]}))
     result = run_glossary(
-        str(folder), str(folder.parent / "glossary"), extractor=extractor, limit=2
+        str(folder), str(folder.parent / "04-glossary"), extractor=extractor, limit=2
     )
     # The first two files are the front matter and chapter 1; only one is mined.
     assert len(extractor.calls) == 1
@@ -250,7 +251,7 @@ def test_each_chapter_is_handed_the_dictionary_the_earlier_ones_built(tmp_path):
             }
         )
     )
-    result = run_glossary(str(folder), str(folder.parent / "glossary"), extractor=extractor)
+    result = run_glossary(str(folder), str(folder.parent / "04-glossary"), extractor=extractor)
 
     first, second = extractor.prompts
     # The book's own chapter numbering, not the file numbering (front matter is 1).
@@ -279,7 +280,7 @@ def test_every_entry_keeps_the_chapter_it_came_from(tmp_path):
             }
         )
     )
-    result = run_glossary(str(folder), str(folder.parent / "glossary"), extractor=extractor)
+    result = run_glossary(str(folder), str(folder.parent / "04-glossary"), extractor=extractor)
     provenance = {
         item["term"]: (item["chapter_index"], item["chapter_filename"])
         for item in result.entries
@@ -304,7 +305,7 @@ def test_the_first_rendering_wins_and_a_later_disagreement_is_recorded(tmp_path)
             }
         )
     )
-    result = run_glossary(str(folder), str(folder.parent / "glossary"), extractor=extractor)
+    result = run_glossary(str(folder), str(folder.parent / "04-glossary"), extractor=extractor)
 
     assert result.entry_count == 1
     assert [item["translation"] for item in result.entries] == ["Poter"]
@@ -357,7 +358,7 @@ def test_a_long_chapter_is_split_and_the_parts_share_the_dictionary(tmp_path):
 
     extractor = FakeExtractor(handler)
     result = run_glossary(
-        str(folder), str(folder.parent / "glossary"), extractor=extractor, chunk_chars=200
+        str(folder), str(folder.parent / "04-glossary"), extractor=extractor, chunk_chars=200
     )
 
     parts = result.chapters[0]["chunks"]
@@ -387,7 +388,7 @@ def test_one_failed_chapter_does_not_stop_the_book(tmp_path):
         return [entry("Charlotte", "Šarlot")]
 
     extractor = FakeExtractor(handler)
-    result = run_glossary(str(folder), str(folder.parent / "glossary"), extractor=extractor)
+    result = run_glossary(str(folder), str(folder.parent / "04-glossary"), extractor=extractor)
 
     assert result.ok is False
     assert result.processed_count == 2  # both body chapters were attempted
@@ -410,7 +411,7 @@ def test_the_request_count_is_attempts_not_chapters(tmp_path):
         )
 
     extractor = FakeExtractor(handler)
-    result = run_glossary(str(folder), str(folder.parent / "glossary"), extractor=extractor)
+    result = run_glossary(str(folder), str(folder.parent / "04-glossary"), extractor=extractor)
     assert result.chapters[1]["attempts"] == 2
     assert result.timing["model_calls"] == 4  # two chapters, two attempts each
     assert result.tokens["calls"] == 2  # but only two responses were billed
@@ -420,7 +421,7 @@ def test_the_token_total_is_every_call_of_every_chapter(tmp_path):
     folder = make_book(tmp_path)
     heavy = TokenUsage(input_tokens=500, output_tokens=50, total_tokens=550, calls=2)
     extractor = FakeExtractor(lambda s, u: [entry("Potter", "Poter")], usage=heavy)
-    result = run_glossary(str(folder), str(folder.parent / "glossary"), extractor=extractor)
+    result = run_glossary(str(folder), str(folder.parent / "04-glossary"), extractor=extractor)
 
     assert result.tokens == {
         "input_tokens": 1_000,
@@ -439,7 +440,7 @@ def test_the_token_total_is_every_call_of_every_chapter(tmp_path):
 # --------------------------------------------------------------------------- #
 def test_the_four_artifacts_describe_the_same_dictionary(tmp_path):
     folder = make_book(tmp_path)
-    out = folder.parent / "glossary"
+    out = folder.parent / "04-glossary"
     extractor = FakeExtractor(
         by_chapter(
             {
@@ -486,7 +487,7 @@ def test_the_four_artifacts_describe_the_same_dictionary(tmp_path):
 
 def test_dry_run_asks_the_model_and_writes_nothing(tmp_path):
     folder = make_book(tmp_path)
-    out = folder.parent / "glossary"
+    out = folder.parent / "04-glossary"
     extractor = FakeExtractor(by_chapter({"01-chapter-1.md": [entry("Potter", "Poter")]}))
     result = run_glossary(str(folder), str(out), extractor=extractor, dry_run=True)
 
@@ -501,7 +502,7 @@ def test_dry_run_asks_the_model_and_writes_nothing(tmp_path):
 # --------------------------------------------------------------------------- #
 def test_resume_reuses_the_dictionary_and_only_pays_for_what_is_missing(tmp_path):
     folder = make_book(tmp_path)
-    out = folder.parent / "glossary"
+    out = folder.parent / "04-glossary"
     first = FakeExtractor(
         by_chapter({"01-chapter-1.md": [entry("Potter", "Poter", "character", "narrator")]})
     )
@@ -530,10 +531,46 @@ def test_resume_reuses_the_dictionary_and_only_pays_for_what_is_missing(tmp_path
     assert result.tokens["calls"] == 2
 
 
+def test_resume_starts_over_when_the_chapter_folder_changes(tmp_path):
+    """Raw and cleaned chapters share filenames but not text, so work is rebuilt."""
+    folder = make_book(tmp_path)
+    out = folder.parent / "04-glossary"
+    first = FakeExtractor(
+        by_chapter(
+            {
+                "01-chapter-1.md": [entry("Potter", "Poter")],
+                "02-chapter-2.md": [entry("Charlotte", "Šarlot")],
+            }
+        )
+    )
+    run_glossary(str(folder), str(out), extractor=first)
+    assert read_json(out / "_glossary_manifest.json")["chapters_path"] == str(folder)
+
+    cleaned = folder.parent / "02-preprocessed"
+    cleaned.mkdir()
+    for path in folder.glob("*.md"):
+        shutil.copy(path, cleaned / path.name)
+
+    second = FakeExtractor(
+        by_chapter(
+            {
+                "01-chapter-1.md": [entry("Potter", "Poter")],
+                "02-chapter-2.md": [entry("Charlotte", "Šarlot")],
+            }
+        )
+    )
+    result = run_glossary(str(cleaned), str(out), extractor=second, skip_if_present=True)
+
+    assert result.resumed is False
+    assert len(second.calls) == 2  # both chapters were asked again
+    assert result.reused_count == 0
+    assert read_json(out / "_glossary_manifest.json")["chapters_path"] == str(cleaned)
+
+
 def test_resume_refuses_to_overwrite_a_glossary_whose_file_went_missing(tmp_path):
     """A manifest says a dictionary existed; an empty file is damage, not a reset."""
     folder = make_book(tmp_path)
-    out = folder.parent / "glossary"
+    out = folder.parent / "04-glossary"
     first = FakeExtractor(by_chapter({"01-chapter-1.md": [entry("Potter", "Poter")],
                                       "02-chapter-2.md": [entry("Charlotte", "Šarlot")]}))
     run_glossary(str(folder), str(out), extractor=first)
@@ -554,7 +591,7 @@ def test_resume_refuses_to_overwrite_a_glossary_whose_file_went_missing(tmp_path
 def test_every_finished_chapter_is_persisted_immediately(tmp_path):
     """A killed run must cost the chapter in flight, not the whole dictionary."""
     folder = make_book(tmp_path)
-    out = folder.parent / "glossary"
+    out = folder.parent / "04-glossary"
 
     def handler(_system: str, user: str):
         if "02-chapter-2.md" in user:
@@ -574,7 +611,7 @@ def test_every_finished_chapter_is_persisted_immediately(tmp_path):
 
 def test_a_run_where_every_chapter_failed_leaves_the_existing_glossary_alone(tmp_path):
     folder = make_book(tmp_path)
-    out = folder.parent / "glossary"
+    out = folder.parent / "04-glossary"
     first = FakeExtractor(lambda s, u: [entry("Potter", "Poter")])
     run_glossary(str(folder), str(out), extractor=first)
     before = read_json(out / "glossary.json")
@@ -590,7 +627,7 @@ def test_a_run_where_every_chapter_failed_leaves_the_existing_glossary_alone(tmp
 
 def test_a_fresh_run_where_every_chapter_failed_writes_no_glossary(tmp_path):
     folder = make_book(tmp_path)
-    out = folder.parent / "glossary"
+    out = folder.parent / "04-glossary"
 
     def always_fails(_system: str, _user: str):
         raise ExtractionError("boom")
@@ -602,7 +639,7 @@ def test_a_fresh_run_where_every_chapter_failed_writes_no_glossary(tmp_path):
 
 def test_a_fully_resumed_run_needs_no_model_at_all(tmp_path):
     folder = make_book(tmp_path)
-    out = folder.parent / "glossary"
+    out = folder.parent / "04-glossary"
     extractor = FakeExtractor(lambda s, u: [entry("Potter", "Poter")])
     run_glossary(str(folder), str(out), extractor=extractor)
 
@@ -618,7 +655,7 @@ def test_a_fully_resumed_run_needs_no_model_at_all(tmp_path):
 def test_a_fully_resumed_run_never_resolves_provider_settings(tmp_path):
     """No pending chapter means no key, no network, no provider client."""
     folder = make_book(tmp_path)
-    out = folder.parent / "glossary"
+    out = folder.parent / "04-glossary"
     run_glossary(str(folder), str(out), extractor=FakeExtractor(lambda s, u: [entry("Potter", "Poter")]))
 
     def must_not_resolve():
@@ -654,7 +691,7 @@ def test_a_pending_chapter_resolves_settings_once(tmp_path, monkeypatch):
         lambda settings, **kwargs: FakeExtractor(lambda s, u: [entry("Potter", "Poter")]),
     )
     result = run_glossary(
-        str(folder), str(folder.parent / "glossary"), settings_factory=factory
+        str(folder), str(folder.parent / "04-glossary"), settings_factory=factory
     )
     assert len(resolved) == 1
     assert result.provider == "deepseek"
@@ -666,23 +703,23 @@ def test_a_pending_chapter_resolves_settings_once(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------- #
 def test_the_reduced_fallback_covers_a_book_whose_unique_folder_was_never_written(tmp_path):
     folder = make_book(tmp_path)
-    for child in (folder.parent / "reduced-unique").glob("*.md"):
+    for child in (folder.parent / "03-reduced-unique").glob("*.md"):
         child.unlink()
-    reduced = folder.parent / "reduced"
+    reduced = folder.parent / "03-reduced"
     reduced.mkdir()
     (reduced / "01-chapter-1.md").write_text("Alexandra Potter lives in London.\n", encoding="utf-8")
 
     assert resolve_sentences_dir(folder, sentences_dir=None, sentences="unique") == reduced
 
     extractor = FakeExtractor(lambda s, u: [entry("Potter", "Poter")])
-    result = run_glossary(str(folder), str(folder.parent / "glossary"), extractor=extractor)
+    result = run_glossary(str(folder), str(folder.parent / "04-glossary"), extractor=extractor)
     assert result.sentences_dir == str(reduced)
     assert result.entry_count == 1
 
 
 def test_sentences_reduced_reads_the_bigger_folder(tmp_path):
     folder = make_book(tmp_path)
-    reduced = folder.parent / "reduced"
+    reduced = folder.parent / "03-reduced"
     reduced.mkdir()
     (reduced / "01-chapter-1.md").write_text("Everything with a name.\n", encoding="utf-8")
     assert resolve_sentences_dir(folder, sentences_dir=None, sentences="reduced") == reduced
@@ -690,7 +727,7 @@ def test_sentences_reduced_reads_the_bigger_folder(tmp_path):
 
 def test_without_either_reduction_folder_the_run_says_so(tmp_path):
     folder = make_book(tmp_path)
-    for name in ("reduced-unique", "reduced"):
+    for name in ("03-reduced-unique", "03-reduced"):
         target = folder.parent / name
         if target.exists():
             for child in target.glob("*.md"):
@@ -705,9 +742,9 @@ def test_without_either_reduction_folder_the_run_says_so(tmp_path):
 
 def test_a_missing_sentence_file_fails_only_that_chapter(tmp_path):
     folder = make_book(tmp_path)
-    (folder.parent / "reduced-unique" / "02-chapter-2.md").unlink()
+    (folder.parent / "03-reduced-unique" / "02-chapter-2.md").unlink()
     extractor = FakeExtractor(lambda s, u: [entry("Potter", "Poter")])
-    result = run_glossary(str(folder), str(folder.parent / "glossary"), extractor=extractor)
+    result = run_glossary(str(folder), str(folder.parent / "04-glossary"), extractor=extractor)
 
     assert result.ok is False
     assert len(extractor.calls) == 1
@@ -736,7 +773,7 @@ def test_progress_is_reported_once_per_processed_chapter(tmp_path):
     seen: list[tuple[str, int, int]] = []
     run_glossary(
         str(folder),
-        str(folder.parent / "glossary"),
+        str(folder.parent / "04-glossary"),
         extractor=extractor,
         progress=lambda record, done, total: seen.append((record["filename"], done, total)),
     )

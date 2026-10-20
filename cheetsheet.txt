@@ -1,8 +1,17 @@
 cd /home/jovis/Documents/WORK/BleBelTranslateBook
 source .venv_splitter/bin/activate
 
+# stage 0: EPUB/text-based PDF/TXT -> Markdown in data/output/<book>/00-markdown/
+# (TXT is copied; a PDF with no embedded text layer is rejected instead of OCR'd)
+.venv_splitter/bin/python -m book_splitter convert "My Book.epub"
+.venv_splitter/bin/python -m book_splitter convert "My Book.pdf" --dry-run
+.venv_splitter/bin/python scripts/run_pipeline.py "My Book.epub" --stop-after convert
+
 # the whole pipeline over the first N chapters (split itself is always the full book);
-# --skip-if-present makes a later, larger N reuse the finished chapters and chunks
+# --skip-if-present makes a later, larger N reuse the finished chapters and chunks.
+# Stage 2 (preprocess) is on by default and its cleaned 02-preprocessed/ folder is
+# what the dictionary, glossary and chunker read: add --no-preprocess to skip the
+# cleaning (and read 01-chapters/), or --text-in <folder> to choose explicitly.
 .venv_splitter/bin/python scripts/run_pipeline.py \
   "Dont You Forget About Me - Alexandra Potter.md" \
   --skip-if-present \
@@ -17,6 +26,48 @@ source .venv_splitter/bin/activate
   --with-translate \
   --cpu
 
+# translated chapters + heading postprocessing + one full book
+.venv_splitter/bin/python scripts/run_pipeline.py \
+  "Dont You Forget About Me - Alexandra Potter.md" \
+  --skip-if-present \
+  --first-chapters 5 \
+  --with-translate \
+  --with-postprocess \
+  --cpu
+
+# the same translation, but stage 7 uses the LOCAL LM Studio model instead of
+# DeepSeek. Only the body-chapter translation changes: front/back matter (stage
+# 6b) and every other stage keep the SPLITTER_* settings in .env.
+# Omit --translate-model to auto-detect the loaded model (an "en2sr" id wins).
+.venv_splitter/bin/python scripts/run_pipeline.py \
+  "Dont You Forget About Me - Alexandra Potter.md" \
+  --skip-if-present \
+  --first-chapters 5 \
+  --with-translate \
+  --translate-provider lmstudio \
+  --translate-model gemma-4-31b-en2sr-v3@q4_k_m \
+  --cpu
+
+# stage 7 only, with the local model, over existing chunks
+.venv_splitter/bin/python -m book_splitter translate \
+  "Dont You Forget About Me - Alexandra Potter.md" \
+  --translator lmstudio \
+  --model gemma-4-31b-en2sr-v3@q4_k_m
+
+# stage 7 only, explicitly back on DeepSeek (the default)
+.venv_splitter/bin/python -m book_splitter translate \
+  "Dont You Forget About Me - Alexandra Potter.md" \
+  --translator deepseek
+
+# stage 6b only: localize front/back matter (no dictionary; web-searches the
+# published title; credits BleBel; omits original-edition imprint material).
+# Missing 00-front-matter.md / 99-back-matter.md are created from the filename
+# ("Title - Author") and localized too.
+.venv_splitter/bin/python scripts/run_pipeline.py \
+  "Dont You Forget About Me - Alexandra Potter.md" \
+  --start-at matter \
+  --cpu
+
 # stage 8 only, over an existing translation
 .venv_splitter/bin/python scripts/run_pipeline.py \
   "Dont You Forget About Me - Alexandra Potter.md" \
@@ -25,7 +76,23 @@ source .venv_splitter/bin/activate
   --skip-if-present \
   --cpu
 
+# stage 9 only, then stage 10 only
+.venv_splitter/bin/python scripts/run_pipeline.py \
+  "Dont You Forget About Me - Alexandra Potter.md" \
+  --start-at postprocess \
+  --first-chapters 5 \
+  --skip-if-present \
+  --cpu
 
+.venv_splitter/bin/python scripts/run_pipeline.py \
+  "Dont You Forget About Me - Alexandra Potter.md" \
+  --start-at bind \
+  --cpu
 
-
-  python scripts/run_pipeline.py "Dont You Forget About Me - Alexandra Potter.md" --first-chapters 2 --skip-if-present --with-translate
+# standalone commands
+.venv_splitter/bin/python -m book_splitter matter \
+  "Dont You Forget About Me - Alexandra Potter.md" --resume
+.venv_splitter/bin/python -m book_splitter postprocess \
+  "Dont You Forget About Me - Alexandra Potter.md" --resume
+.venv_splitter/bin/python -m book_splitter bind \
+  "Dont You Forget About Me - Alexandra Potter.md"

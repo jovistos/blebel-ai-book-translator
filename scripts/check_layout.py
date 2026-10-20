@@ -31,6 +31,8 @@ def main() -> int:
 
     # Stages 3, 5 and 6 are optional: report them, but never fail the check because of them.
     optional = {
+        "docling": "stage 0 EPUB/PDF to Markdown (TXT/Markdown need no dependency)",
+        "pypdfium2": "stage 0 PDF text-layer preflight (installed with docling)",
         "classla": "stage 3/6 NER for sr/hr/sl/bg",
         "stanza": "stage 3/6 NER for en",
         "lingua": "stage 3/6 language detection (lingua-language-detector)",

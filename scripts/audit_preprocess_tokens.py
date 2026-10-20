@@ -83,7 +83,7 @@ def main() -> int:
 
     total = 0
     for book in sorted(p for p in root.iterdir() if p.is_dir()):
-        chapters, cleaned = book / "chapters", book / "preprocessed"
+        chapters, cleaned = book / "01-chapters", book / "02-preprocessed"
         if not cleaned.is_dir():
             continue
         print("=" * 70)

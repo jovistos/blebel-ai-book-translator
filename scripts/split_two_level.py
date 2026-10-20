@@ -5,7 +5,7 @@ Some conversions keep the part/book markers but mangle or drop most chapter
 headings. A flat split then has only bad options: one giant file per book, or a
 guess. This script builds a two-level map instead, deterministically:
 
-    data/output/<book>/chapters/
+    data/output/<book>/01-chapters/
         00-front-matter.md
         01-foreword-opening.md
         02-prologue-chapter-4.md
@@ -184,7 +184,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--in-dir", default=None, help=f"folder holding the source (default: {default_input_dir()})"
     )
     parser.add_argument(
-        "--out", "-o", default=None, help="output folder (default: <book>/chapters)"
+        "--out", "-o", default=None, help="output folder (default: <book>/01-chapters)"
     )
     parser.add_argument(
         "--book-pattern", default=DEFAULT_BOOK_PATTERN, help="regex for book markers"

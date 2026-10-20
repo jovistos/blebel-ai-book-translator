@@ -92,21 +92,21 @@ class FakeTranslator:
 def _project(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     """A stage-1/4/5/6 layout: chapters, chunks, glossary and per-chunk terms."""
     book = tmp_path / "book"
-    chapters = book / "chapters"
+    chapters = book / "01-chapters"
     chapters.mkdir(parents=True)
     for filename, text in CHAPTERS.items():
         (chapters / filename).write_text(text, encoding="utf-8")
     chunking = run_chunking(str(chapters), tokenizer="word", chunk_size=100)
     assert chunking.ok is True
 
-    glossary = book / "glossary"
+    glossary = book / "04-glossary"
     glossary.mkdir()
     (glossary / "glossary.json").write_text(
         json.dumps(GLOSSARY, ensure_ascii=False), encoding="utf-8"
     )
 
-    chunks = book / "chunks"
-    chunk_glossary = book / "chunk-glossary"
+    chunks = book / "05-chunks"
+    chunk_glossary = book / "06-chunk-glossary"
     chunk_glossary.mkdir()
     by_chapter = {row["term"]: row for row in GLOSSARY["entries"]}
     for entry in chunk_files(chunks):
@@ -154,15 +154,15 @@ def test_every_chunk_is_translated_once_in_reading_order(tmp_path: Path):
     assert order == sorted(order)
     assert len(translator.calls) == result.chunk_count
     # The default folders are siblings of chunks/.
-    assert Path(result.output_dir) == book / "translations"
-    assert Path(result.prompts_dir) == book / "translation-prompts"
+    assert Path(result.output_dir) == book / "07-translations"
+    assert Path(result.prompts_dir) == book / "07-translation-prompts"
     assert _files(Path(result.output_dir)) == _files(chunks)
     for name in _files(Path(result.output_dir)):
         assert (Path(result.output_dir) / name).read_text(encoding="utf-8").startswith(
             "PREVEDENO:"
         )
-    assert (book / "translations" / "_translation_manifest.json").is_file()
-    assert (book / "translations" / "_translation_trace.json").is_file()
+    assert (book / "07-translations" / "_translation_manifest.json").is_file()
+    assert (book / "07-translations" / "_translation_trace.json").is_file()
 
 
 def test_the_prompt_carries_only_that_chunks_glossary_rows(tmp_path: Path):
@@ -357,8 +357,8 @@ def test_dry_run_calls_the_model_but_writes_nothing(tmp_path: Path):
 
     assert result.ok is True
     assert len(translator.calls) == result.chunk_count
-    assert not (book / "translations").exists()
-    assert not (book / "translation-prompts").exists()
+    assert not (book / "07-translations").exists()
+    assert not (book / "07-translation-prompts").exists()
     assert result.manifest_path is None
     assert result.trace_path is None
 
@@ -423,7 +423,7 @@ def test_resume_ignores_a_manifest_entry_whose_chunk_changed(tmp_path: Path):
 def test_resume_without_a_manifest_translates_everything(tmp_path: Path):
     book, _chapters, chunks, _chunk_glossary = _project(tmp_path)
     run_translation(str(chunks), translator=FakeTranslator(), limit=1)
-    manifest = book / "translations" / "_translation_manifest.json"
+    manifest = book / "07-translations" / "_translation_manifest.json"
     manifest.unlink()
     translator = FakeTranslator()
 
@@ -437,7 +437,7 @@ def test_the_manifest_records_the_whole_run_and_its_tokens(tmp_path: Path):
     book, _chapters, chunks, _chunk_glossary = _project(tmp_path)
     result = run_translation(str(chunks), translator=FakeTranslator())
 
-    manifest = load_translation_manifest(book / "translations")
+    manifest = load_translation_manifest(book / "07-translations")
     assert manifest["stage"] == "translate"
     assert manifest["ok"] is True
     assert manifest["ok_count"] == manifest["chunk_count"] == 3
@@ -461,7 +461,7 @@ def test_a_limited_resume_does_not_drop_manifest_entries_beyond_the_limit(tmp_pa
     )
 
     assert result.reused_count == 1
-    manifest = load_translation_manifest(book / "translations")
+    manifest = load_translation_manifest(book / "07-translations")
     assert len(manifest["files"]) == 3  # the two beyond the limit are still recorded
     assert {record["filename"] for record in manifest["files"]} == set(_files(chunks))
 
@@ -480,7 +480,7 @@ def test_a_non_resume_limited_run_keeps_the_records_of_the_other_chunks(tmp_path
 
     assert result.resumed is False
     assert len(translator.calls) == 1
-    manifest = load_translation_manifest(book / "translations")
+    manifest = load_translation_manifest(book / "07-translations")
     assert {record["filename"] for record in manifest["files"]} == set(_files(chunks))
 
     # The two untouched chunks are still reusable, so a full resume asks nothing.
@@ -506,7 +506,7 @@ def test_an_interrupted_run_keeps_the_records_of_the_chunks_not_yet_reached(tmp_
             progress=stop_after_first,
         )
 
-    manifest = load_translation_manifest(book / "translations")
+    manifest = load_translation_manifest(book / "07-translations")
     assert {record["filename"] for record in manifest["files"]} == set(_files(chunks))
 
 
@@ -520,6 +520,6 @@ def test_a_limited_run_in_a_new_language_does_not_carry_old_records(tmp_path: Pa
         str(chunks), translator=FakeTranslator(), target_language="hr", limit=1
     )
 
-    manifest = load_translation_manifest(book / "translations")
+    manifest = load_translation_manifest(book / "07-translations")
     assert manifest["target_language"] == "hr"
     assert len(manifest["files"]) == 1

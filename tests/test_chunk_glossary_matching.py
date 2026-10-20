@@ -77,7 +77,7 @@ def _entry(term: str, translation: str, **extra) -> dict:
 
 
 def test_load_glossary_accepts_a_folder_and_a_file(tmp_path: Path):
-    folder = tmp_path / "glossary"
+    folder = tmp_path / "04-glossary"
     folder.mkdir()
     payload = {
         "entries": [

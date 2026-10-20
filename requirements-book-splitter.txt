@@ -20,6 +20,13 @@ rapidfuzz>=3.0
 # Optional: let `resolve_api_key` reuse keys from ~/.dsh/.credentials.yaml.
 # PyYAML>=6.0
 
+# Optional: stage 0 (`book_splitter convert`) turns an EPUB or a text-based PDF
+# into Markdown with docling. A TXT or Markdown source needs no dependency, and
+# docling is imported lazily, so install it only when converting. The PDF
+# text-layer preflight uses pypdfium2, which docling already brings; PyMuPDF is
+# an acceptable fallback. OCR is never attempted for an image-based PDF.
+# docling>=2.7
+
 # Optional: `extract_native_toc` for the original PDF/EPUB sources.
 # PyMuPDF>=1.24
 # ebooklib>=0.18

@@ -57,10 +57,10 @@ def test_the_threshold_and_scorer_are_options():
 
 
 def test_an_empty_chunks_folder_is_a_setup_error(tmp_path: Path, capsys):
-    chapters = tmp_path / "book" / "chapters"
+    chapters = tmp_path / "book" / "01-chapters"
     chapters.mkdir(parents=True)
     (chapters / "01-a.md").write_text("Džordž.\n", encoding="utf-8")
-    empty = tmp_path / "book" / "chunks"
+    empty = tmp_path / "book" / "05-chunks"
     empty.mkdir()
     code = cli.main(["chunk-glossary", "--out", str(chapters), "--chunks-in", str(empty)])
     assert code == 2
@@ -88,7 +88,7 @@ def test_the_run_writes_one_file_per_chunk(tmp_path: Path, offline_tagger, capsy
     assert "entities        :" in printed
     assert "matched         :" in printed
     assert "threshold 95.0%" in printed
-    output = chapters.parent / "chunk-glossary"
+    output = chapters.parent / "06-chunk-glossary"
     assert output.is_dir()
     files = sorted(output.glob("*.md.json"))
     assert files
@@ -140,7 +140,7 @@ def test_json_output_is_the_machine_readable_run(tmp_path: Path, offline_tagger,
     assert code == 0
     assert payload["ok"] is True
     assert [phase["name"] for phase in payload["phases"]] == ["ner", "match"]
-    assert payload["output_dir"].endswith("chunk-glossary")
+    assert payload["output_dir"].endswith("06-chunk-glossary")
     assert payload["settings"]["threshold"] == 95.0
     assert payload["settings"]["scorer"] == "ratio"
     assert payload["chunk_count"] >= 1
@@ -164,7 +164,7 @@ def test_dry_run_prints_the_numbers_and_writes_nothing(tmp_path: Path, offline_t
 
     assert code == 0
     assert "DRY RUN — both phases ran, nothing was written." in printed
-    assert not (chapters.parent / "chunk-glossary").exists()
+    assert not (chapters.parent / "06-chunk-glossary").exists()
 
 
 def test_a_non_percentage_threshold_is_rejected(tmp_path: Path, offline_tagger, capsys):

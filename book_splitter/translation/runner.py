@@ -1,20 +1,26 @@
-"""Stage 7: translate every chunk, in reading order, with the chunk's glossary.
+"""Stage 7: translate every body chunk, in reading order, with the chunk's glossary.
 
-The first six stages produce translation material. This is the stage that turns it
-into the translated book:
+The first six stages produce translation material. Stage 6b localizes the front
+and back matter with its own agent; this is the stage that turns the remaining
+body chunks into the translated book:
 
 ```
-chunks/00000-00-front-matter-0000.md          chunk-glossary/00000-….md.json
+05-chunks/00001-01-chapter-1-0000.md              06-chunk-glossary/00001-….md.json
         │                                              │
         └──────────────┬───────────────────────────────┘
                        ▼
              prompt: system + glossary rows + source chunk
                        │
                        ▼   one structured-output call per chunk
-             translations/00000-00-front-matter-0000.md
-             translation-prompts/00000-….md.json          (the whole input)
-             translation-prompts/00000-….md.prompt.md     (the same, readable)
+             07-translations/00001-01-chapter-1-0000.md
+             07-translation-prompts/00001-….md.json          (the whole input)
+             07-translation-prompts/00001-….md.prompt.md     (the same, readable)
 ```
+
+Front/back matter chunks (``00-front-matter.md``, a preface, a notes section…) are
+filtered out unless ``include_matter=True``: stage 6b already wrote their
+localized chunks to the same ``07-translations/`` folder with a different prompt and
+**without** the dictionary.
 
 **The order matters.** Chunks are visited in reading order, one model call at a
 time, because each call is handed the tail of the previous translation when
@@ -33,7 +39,7 @@ an unchanged source or a summary is retried with the failure named. A chunk that
 still fails is reported and the book continues: a hole is visible in the manifest,
 an aborted run is not.
 
-**The whole input is kept.** For every chunk, ``translation-prompts/<chunk>.json``
+**The whole input is kept.** For every chunk, ``07-translation-prompts/<chunk>.json``
 holds the system prompt, the user prompt, the serialised messages, the glossary
 rows that were sent, the source chunk and the answer (or the error);
 ``<chunk>.prompt.md`` holds the same two prompts in a form a human can read. That
@@ -66,12 +72,15 @@ from ..chunk_glossary.runner import (
 )
 from ..chunking.runner import load_chunk_manifest
 from ..core.constants import (
+    CHAPTERS_DIRNAME,
     CHUNK_GLOSSARY_DIRNAME,
     DEFAULT_SOURCE_LANGUAGE,
     DEFAULT_TARGET_LANGUAGE,
     DEFAULT_TRANSLATION_ATTEMPTS,
     DEFAULT_TRANSLATION_CONTEXT_CHARS,
     DEFAULT_TRANSLATION_MAX_TOKENS,
+    GLOSSARY_DIRNAME,
+    GLOSSARY_FILENAME,
     TRANSLATION_GLOSSARY_SCOPES,
     TRANSLATION_MANIFEST_FILENAME,
     TRANSLATION_METHODS,
@@ -268,11 +277,11 @@ def _source_file(chunks_path: Path) -> str:
     source_file = str(manifest.get("source_file") or manifest.get("source_path") or "")
     if source_file:
         return source_file
-    split = load_split_manifest(chunks_path.parent / "chapters")
+    split = load_split_manifest(chunks_path.parent / CHAPTERS_DIRNAME)
     source_file = str(split.get("source_file") or split.get("source_path") or "")
     if source_file:
         return source_file
-    glossary_file = chunks_path.parent / "glossary" / "glossary.json"
+    glossary_file = chunks_path.parent / GLOSSARY_DIRNAME / GLOSSARY_FILENAME
     if glossary_file.is_file():
         try:
             payload = json.loads(glossary_file.read_text(encoding="utf-8"))
@@ -382,6 +391,7 @@ def run_translation(
     dry_run: bool = False,
     limit: int | None = None,
     chapter_files: Sequence[str] | None = None,
+    include_matter: bool = False,
     resume: bool = False,
     write_manifest: bool = True,
     write_prompts: bool = True,
@@ -403,6 +413,11 @@ def run_translation(
     then translates only the first N of the filtered chunks. ``dry_run`` still
     calls the model — the answer *is* the artifact, so there is nothing to
     validate without asking — but writes no file.
+
+    Front and back matter are skipped by default: they are localized by the
+    separate :mod:`book_splitter.matter_agent` stage, with a different prompt and
+    without the dictionary. Pass ``include_matter=True`` only to reproduce the
+    older behaviour for a book whose matter the caller has already handled.
     """
     run_started = clock()
     scope = str(glossary_scope or "chunk").strip().lower()
@@ -431,6 +446,24 @@ def run_translation(
                 "no chunks belong to the requested chapter window "
                 f"({', '.join(sorted(allowed)[:5])}…)"
             )
+    # Front and back matter belong to the localization stage that runs before
+    # this one. It translated their chunks with a different prompt and without
+    # the dictionary, so translating them again here would overwrite that work.
+    matter_skipped = 0
+    if not include_matter:
+        from ..matter.inspect import matter_chapter_names
+
+        matter_names = matter_chapter_names(
+            source_dir, source_dir.parent / CHAPTERS_DIRNAME
+        )
+        if matter_names:
+            kept = [
+                chunk
+                for chunk in all_inputs
+                if chunk.chapter_filename not in matter_names
+            ]
+            matter_skipped = len(all_inputs) - len(kept)
+            all_inputs = kept
     # A chunk's identity for resume is its *actual* current text, not the hash a
     # manifest remembered: a chunk file edited on disk must be translated again,
     # even when its old manifest entry still carries the old hash.
@@ -447,6 +480,45 @@ def run_translation(
         if prompts_dir
         else translation_prompts_dir(out_dir)
     )
+    title = _book_title(source_dir, book_title)
+    source_file = _source_file(source_dir)
+
+    if not all_inputs:
+        # Nothing but front/back matter in the window: the matter stage already
+        # wrote those translations. The body stage has no work, and demanding a
+        # per-chunk glossary it would never use would be a false failure.
+        return TranslationResult(
+            ok=True,
+            chunks_path=str(source_dir),
+            chunk_glossary_path=str(
+                resolve_chunk_glossary_dir(chunk_glossary_path or "", source_dir)
+            ),
+            output_dir=str(out_dir),
+            prompts_dir=str(prompt_dir),
+            source_language=str(source_language),
+            target_language=str(target_language),
+            book_title=title,
+            source_file=source_file,
+            glossary_scope=scope,
+            chunk_count=0,
+            ok_count=0,
+            processed_count=0,
+            skipped_count=matter_skipped,
+            dry_run=dry_run,
+            save=save,
+            resumed=False,
+            limited=limited,
+            settings={
+                "glossary_scope": scope,
+                "include_matter": bool(include_matter),
+                "matter_skipped": matter_skipped,
+            },
+            tokens={"calls": 0, "chunks": 0},
+            totals={"translated_chunks": 0, "matter_skipped": matter_skipped},
+            timing={"run_seconds": round(clock() - run_started, 4)},
+            chunks=[],
+            errors=[],
+        )
 
     resolved_chunk_glossary = resolve_chunk_glossary_dir(
         chunk_glossary_path or "", source_dir
@@ -463,8 +535,6 @@ def run_translation(
     else:
         book_rows = load_book_glossary_rows(resolved_glossary)
 
-    title = _book_title(source_dir, book_title)
-    source_file = _source_file(source_dir)
     system_prompt = build_system_prompt(source_language, target_language, title)
 
     # -- resume: which chunks does this run not have to ask about? ---------- #
@@ -520,6 +590,8 @@ def run_translation(
         "write_prompts": bool(write_prompts),
         "limit": int(limit) if limit is not None else None,
         "chapter_files": list(chapter_files) if chapter_files is not None else None,
+        "include_matter": bool(include_matter),
+        "matter_skipped": matter_skipped,
         "resume": bool(resume),
         "json_only": bool(getattr(translator, "json_only", False)),
     }
@@ -731,7 +803,7 @@ def run_translation(
         chunk_count=len(records),
         ok_count=sum(1 for record in records if record.ok),
         processed_count=len(pending),
-        skipped_count=0,
+        skipped_count=matter_skipped,
         reused_count=sum(1 for record in records if record.reused),
         dry_run=dry_run,
         save=save,

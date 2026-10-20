@@ -21,7 +21,7 @@ come first, so it can read them before the text, and the text to act on comes
 last. The system prompt is constant so a provider that caches a prefix pays for
 it once per book.
 
-The prompts are also saved verbatim under ``translation-prompts/`` (see
+The prompts are also saved verbatim under ``07-translation-prompts/`` (see
 :mod:`book_splitter.translation.runner`), so what the model actually saw can be
 read without rebuilding a prompt from the glossary and the chunk.
 """

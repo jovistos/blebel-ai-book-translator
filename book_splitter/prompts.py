@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .agent.prompts import (
+    FINAL_TURN_NUDGE,
     NUDGE_NO_PROPOSAL,
     SCOUT_REPORT_TEMPLATE,
     SYSTEM_PROMPT,
@@ -10,6 +11,7 @@ from .agent.prompts import (
 )
 
 __all__ = [
+    "FINAL_TURN_NUDGE",
     "NUDGE_NO_PROPOSAL",
     "SCOUT_REPORT_TEMPLATE",
     "SYSTEM_PROMPT",

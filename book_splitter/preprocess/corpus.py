@@ -31,6 +31,7 @@ from ..documents.bodyline import (
 from ..documents.io import load_lines
 from ..documents.markdown import header_of, is_page_number_line
 from ..documents.text import excerpt
+from .damage import inline_page_number_candidate
 
 #: Sampling strategies, in the order the tool tries them.
 SAMPLE_HEAD = "head"
@@ -160,6 +161,11 @@ DAMAGE_PATTERNS: dict[str, dict[str, str]] = {
         "fix": "remove the line (page artefact)",
         "stage": "preprocess",
     },
+    "inline_page_number": {
+        "summary": "a page number merged into a text line instead of standing alone",
+        "fix": "drop the number, keep the words on both sides",
+        "stage": "preprocess",
+    },
     "single_char_header": {
         "summary": "a one-character header, usually the other half of a split heading",
         "fix": "merge with the neighbouring heading",
@@ -216,6 +222,11 @@ def scan_corpus_damage(
             if not head and is_page_number_line(line):
                 _bump(counts, chapter_counts, "plain_page_number")
                 _example(examples, "plain_page_number", chapter, number, line, max_examples_per_pattern, max_line_chars)
+            elif not head and not is_caption_line(line):
+                inline = inline_page_number_candidate(line)
+                if inline is not None:
+                    _bump(counts, chapter_counts, "inline_page_number")
+                    _example(examples, "inline_page_number", chapter, number, line, max_examples_per_pattern, max_line_chars)
             if has_midword_number(line):
                 _bump(counts, chapter_counts, "page_number_in_word", len(has_midword_number(line)))
                 _example(examples, "page_number_in_word", chapter, number, line, max_examples_per_pattern, max_line_chars)

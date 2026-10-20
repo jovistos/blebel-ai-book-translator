@@ -42,7 +42,9 @@ def _settings(**_kwargs):
 def offline(monkeypatch):
     """Replace both the settings resolution and the model behind the translator."""
     translator = FakeTranslator()
-    monkeypatch.setattr("book_splitter.core.settings.resolve_settings", _settings)
+    monkeypatch.setattr(
+        "book_splitter.core.settings.resolve_translation_settings", _settings
+    )
     monkeypatch.setattr(translation_runner, "make_translator", lambda *a, **k: translator)
     return translator
 
@@ -71,11 +73,61 @@ def test_the_language_pair_limit_and_resume_are_options():
     assert args.resume is True
 
 
+def test_the_translator_flag_offers_exactly_deepseek_and_lmstudio():
+    parser = cli.build_parser()
+    assert parser.parse_args(["translate"]).translator is None
+    assert (
+        parser.parse_args(["translate", "--translator", "lmstudio"]).translator
+        == "lmstudio"
+    )
+    # ``--provider`` stays as an alias for older command lines.
+    assert (
+        parser.parse_args(["translate", "--provider", "deepseek"]).translator
+        == "deepseek"
+    )
+    with pytest.raises(SystemExit):
+        parser.parse_args(["translate", "--translator", "openai"])
+
+
+def test_the_lmstudio_choice_reaches_the_translation_resolver(
+    tmp_path: Path, monkeypatch, capsys
+):
+    _book, chapters, _chunks, _chunk_glossary = _project(tmp_path)
+    seen: dict = {}
+
+    def resolve(**kwargs):
+        seen.update(kwargs)
+        return _settings()
+
+    monkeypatch.setattr(
+        "book_splitter.core.settings.resolve_translation_settings", resolve
+    )
+    monkeypatch.setattr(
+        translation_runner, "make_translator", lambda *a, **k: FakeTranslator()
+    )
+
+    code = cli.main(
+        [
+            "translate",
+            "--out",
+            str(chapters),
+            "--limit",
+            "1",
+            "--translator",
+            "lmstudio",
+            "-q",
+        ]
+    )
+
+    assert code == 0
+    assert seen["provider"] == "lmstudio"
+
+
 def test_an_empty_chunks_folder_is_a_setup_error(tmp_path: Path, capsys):
-    chapters = tmp_path / "book" / "chapters"
+    chapters = tmp_path / "book" / "01-chapters"
     chapters.mkdir(parents=True)
     (chapters / "01-a.md").write_text("George.\n", encoding="utf-8")
-    empty = tmp_path / "book" / "chunks"
+    empty = tmp_path / "book" / "05-chunks"
     empty.mkdir()
     code = cli.main(["translate", "--out", str(chapters), "--chunks-in", str(empty)])
     assert code == 2
@@ -111,8 +163,8 @@ def test_the_run_writes_translations_prompts_and_narrates_tokens(
     assert "scope=chunk" in printed
     assert "output dir      :" in printed
     assert "prompts         :" in printed
-    translations = book / "translations"
-    prompts = book / "translation-prompts"
+    translations = book / "07-translations"
+    prompts = book / "07-translation-prompts"
     assert _files(translations) == _files(chunks)[:2]
     assert len(_files(prompts, "*.md.json")) == 2
     assert len(_files(prompts, "*.prompt.md")) == 2
@@ -126,7 +178,7 @@ def test_the_limit_reaches_the_run(tmp_path: Path, offline, capsys):
     code = cli.main(["translate", "--out", str(chapters), "--limit", "1", "--quiet"])
     assert code == 0
     assert len(offline.calls) == 1
-    assert _files(_book / "translations") == _files(chunks)[:1]
+    assert _files(_book / "07-translations") == _files(chunks)[:1]
 
 
 def test_the_target_language_reaches_the_prompt(tmp_path: Path, offline, capsys):
@@ -140,7 +192,7 @@ def test_the_target_language_reaches_the_prompt(tmp_path: Path, offline, capsys)
 
 def test_explicit_output_folders_are_used(tmp_path: Path, offline):
     book, chapters, _chunks, _chunk_glossary = _project(tmp_path)
-    translations = tmp_path / "elsewhere" / "translations"
+    translations = tmp_path / "elsewhere" / "07-translations"
     prompts = tmp_path / "elsewhere" / "debug"
     code = cli.main(
         [
@@ -159,7 +211,7 @@ def test_explicit_output_folders_are_used(tmp_path: Path, offline):
     assert code == 0
     assert len(_files(translations)) == 1
     assert len(_files(prompts, "*.md.json")) == 1
-    assert not (book / "translations").exists()
+    assert not (book / "07-translations").exists()
 
 
 def test_no_prompts_writes_only_the_translations(tmp_path: Path, offline):
@@ -168,8 +220,8 @@ def test_no_prompts_writes_only_the_translations(tmp_path: Path, offline):
         ["translate", "--out", str(chapters), "--limit", "1", "--no-prompts", "-q"]
     )
     assert code == 0
-    assert _files(book / "translations")
-    assert not (book / "translation-prompts").exists()
+    assert _files(book / "07-translations")
+    assert not (book / "07-translation-prompts").exists()
 
 
 def test_no_manifest_writes_no_bookkeeping(tmp_path: Path, offline):
@@ -178,7 +230,7 @@ def test_no_manifest_writes_no_bookkeeping(tmp_path: Path, offline):
         ["translate", "--out", str(chapters), "--limit", "1", "--no-manifest", "-q"]
     )
     assert code == 0
-    assert not (book / "translations" / "_translation_manifest.json").exists()
+    assert not (book / "07-translations" / "_translation_manifest.json").exists()
 
 
 def test_the_glossary_scope_book_sends_the_whole_dictionary(tmp_path: Path, offline):
@@ -210,7 +262,7 @@ def test_resume_does_not_call_the_model_for_finished_chunks(tmp_path: Path, offl
     assert code == 0
     assert len(offline.calls) == 2  # nothing new was asked
     manifest = json.loads(
-        (book / "translations" / "_translation_manifest.json").read_text(encoding="utf-8")
+        (book / "07-translations" / "_translation_manifest.json").read_text(encoding="utf-8")
     )
     assert manifest["reused_count"] == 2
 
@@ -224,7 +276,9 @@ def test_a_failing_chunk_exits_one_and_lists_it(tmp_path: Path, monkeypatch, cap
         return "PREVEDENO"
 
     offline = FakeTranslator(explode)
-    monkeypatch.setattr("book_splitter.core.settings.resolve_settings", _settings)
+    monkeypatch.setattr(
+        "book_splitter.core.settings.resolve_translation_settings", _settings
+    )
     monkeypatch.setattr(translation_runner, "make_translator", lambda *a, **k: offline)
 
     code = cli.main(["translate", "--out", str(chapters), "-q"])
@@ -242,8 +296,8 @@ def test_dry_run_writes_nothing(tmp_path: Path, offline):
     )
     assert code == 0
     assert len(offline.calls) == 1
-    assert not (book / "translations").exists()
-    assert not (book / "translation-prompts").exists()
+    assert not (book / "07-translations").exists()
+    assert not (book / "07-translation-prompts").exists()
 
 
 def test_the_json_flag_returns_the_counts_and_tokens(tmp_path: Path, offline, capsys):
@@ -255,7 +309,7 @@ def test_the_json_flag_returns_the_counts_and_tokens(tmp_path: Path, offline, ca
     assert payload["target_language"] == "sr"
     assert payload["chunk_count"] == 1
     assert payload["tokens"]["total_tokens"] == 150
-    assert payload["output_dir"].endswith("translations")
+    assert payload["output_dir"].endswith("07-translations")
 
 
 def test_quiet_prints_no_progress_lines(tmp_path: Path, offline, capsys):
@@ -285,7 +339,7 @@ def test_chunks_in_accepts_the_chunk_manifest(tmp_path: Path, offline):
         ]
     )
     assert code == 0
-    assert len(_files(book / "translations")) == 1
+    assert len(_files(book / "07-translations")) == 1
 
 
 def test_first_chapters_translates_only_the_chunks_of_that_window(
@@ -298,7 +352,7 @@ def test_first_chapters_translates_only_the_chunks_of_that_window(
     )
 
     assert code == 0
-    translated = _files(book / "translations")
+    translated = _files(book / "07-translations")
     # The fixture chunks one chapter per file, so the window is two chunks.
     assert len(translated) == 2
     assert len(_files(chunks)) == 3
@@ -308,14 +362,14 @@ def test_first_chapters_ignores_front_matter(tmp_path: Path, offline):
     from book_splitter.chunking import chunk_files, run_chunking
 
     book = tmp_path / "book"
-    chapters = book / "chapters"
+    chapters = book / "01-chapters"
     chapters.mkdir(parents=True)
     (chapters / "00-front-matter.md").write_text("Front matter text.\n", encoding="utf-8")
     (chapters / "01-one.md").write_text("Chapter one text here.\n", encoding="utf-8")
     (chapters / "02-two.md").write_text("Chapter two text here.\n", encoding="utf-8")
     run_chunking(str(chapters), tokenizer="word", chunk_size=5)
-    chunks = book / "chunks"
-    chunk_glossary = book / "chunk-glossary"
+    chunks = book / "05-chunks"
+    chunk_glossary = book / "06-chunk-glossary"
     chunk_glossary.mkdir()
     for entry in chunk_files(chunks):
         payload = {"chunk": {"filename": entry["filename"]}, "matched_terms": []}
@@ -328,7 +382,7 @@ def test_first_chapters_ignores_front_matter(tmp_path: Path, offline):
     )
 
     assert code == 0
-    translated = _files(book / "translations")
+    translated = _files(book / "07-translations")
     assert len(translated) == len(
         [e for e in chunk_files(chunks) if e["chapter_filename"] == "01-one.md"]
     )

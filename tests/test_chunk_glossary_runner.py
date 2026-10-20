@@ -124,18 +124,18 @@ class RecordingMatcher:
 def _project(tmp_path: Path, *, chunk_size: int = 8) -> tuple[Path, Path, Path]:
     """A stage-1/5/4 layout: chapters, chunks and a glossary, in one book folder."""
     book = tmp_path / "book"
-    chapters = book / "chapters"
+    chapters = book / "01-chapters"
     chapters.mkdir(parents=True)
     for filename, text in CHAPTERS.items():
         (chapters / filename).write_text(text, encoding="utf-8")
     chunking = run_chunking(str(chapters), tokenizer="word", chunk_size=chunk_size)
     assert chunking.ok is True
-    glossary = book / "glossary"
+    glossary = book / "04-glossary"
     glossary.mkdir()
     (glossary / "glossary.json").write_text(
         json.dumps(GLOSSARY, ensure_ascii=False), encoding="utf-8"
     )
-    return chapters, book / "chunks", glossary
+    return chapters, book / "05-chunks", glossary
 
 
 def _lexicon() -> list[LexiconEntry]:

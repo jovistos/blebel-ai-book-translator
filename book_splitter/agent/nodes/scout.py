@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from ...analysis.headers import assess_headers
 from ...analysis.toc import detect_toc_block
-from ...core.constants import MAX_HEADERS_IN_REPORT
+from ...core.constants import MAX_FEEDBACK_LOOPS, MAX_HEADERS_IN_REPORT
 from ...documents.io import load_lines
 from ..prompts import SCOUT_REPORT_TEMPLATE, SYSTEM_PROMPT
 from ..state import SplitterState
@@ -36,6 +36,7 @@ def make_scout_node():
             toc_block=toc_block,
             assessment=assessment,
             native_toc=native_toc,
+            max_attempts=int(state.get("max_attempts", MAX_FEEDBACK_LOOPS)),
         )
         task = (
             f"Split the book at {source} into chapter files inside {state['output_dir']}.\n"
@@ -69,11 +70,13 @@ def build_scout_report(
     toc_block: dict[str, Any],
     assessment: dict[str, Any],
     native_toc: dict[str, Any] | None = None,
+    max_attempts: int = MAX_FEEDBACK_LOOPS,
 ) -> str:
     """Render the deterministic report that opens the conversation.
 
     Only line numbers and short header strings are included: this text is the
-    model's entire view of the book.
+    model's entire view of the book. ``max_attempts`` is stated up front so the
+    model plans its exploration instead of spending the last turn inspecting.
     """
     shown = headers_payload["headers"][:MAX_HEADERS_IN_REPORT]
     header_list = (
@@ -84,6 +87,10 @@ def build_scout_report(
         header_list += f"\n  ... {headers_payload['count'] - len(shown)} more headers omitted"
 
     notes: list[str] = []
+    notes.append(
+        f"budget: {max_attempts} model turn(s) in total; reserve the last one for "
+        "`propose_split_map` — an exhausted run writes nothing"
+    )
     if native_toc and native_toc.get("available"):
         notes.append(f"native TOC available with {native_toc.get('count')} entries")
     if toc_block.get("found"):

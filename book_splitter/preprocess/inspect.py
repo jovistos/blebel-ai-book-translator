@@ -159,8 +159,9 @@ def _next_nonblank_text(lines: list[str], idx0: int) -> tuple[int | None, str]:
 def looks_like_page_number(text: str, level: int) -> tuple[bool, int | None]:
     """True when a header body is only a printed page number.
 
-    ``## 18``, ``## 790``, ``18`` all qualify. A number inside a word
-    (``## 2. POGLAVLJE``) does not.
+    ``## 18``, ``## 790``, ``18``, a dash-framed ``## - 18 -``, a spaced
+    ``- 1 0 4 -`` and an underscore-framed ``- \\_ 1 1 \\_`` all qualify. A
+    number inside a word (``## 2. POGLAVLJE``) does not.
     """
     if is_page_number_line(text):
         return True, page_number_of(text)
@@ -309,11 +310,11 @@ def inspect_body_candidates(
 ) -> list[dict[str, Any]]:
     """Page numbers and captions that the converter left as *plain* body lines.
 
-    Some artefacts never got a ``#``: ``19`` sits alone between two paragraphs
-    and ``Slika 4. Blokada ljubavi. ...`` is a caption without markup. They are
-    found by shape (a line that is only digits; a line that opens with a caption
-    marker and a number), so the agent can decide about them without reading any
-    prose.
+    Some artefacts never got a ``#``: ``19``, ``- 19 -``, ``- 1 3 -`` or
+    ``- \\_ 1 1 \\_`` sits alone between two paragraphs and ``Slika 4. Blokada
+    ljubavi. ...`` is a caption without markup. They are found by shape (a line
+    that is only a page number; a line that opens with a caption marker and a
+    number), so the agent can decide about them without reading any prose.
     """
     found: list[dict[str, Any]] = []
     for idx, raw in enumerate(lines, start=1):

@@ -1,12 +1,16 @@
 """Body-text damage detection and repair (stage 2).
 
-The book this pipeline was built for came out of a PDF converter with three
+The book this pipeline was built for came out of a PDF converter with four
 kinds of damage that are *shape*-recognisable, and one repair for each:
 
 ``page_number_in_word``
     A printed page number landed inside a word, because the word was split
     across a page break: ``pažljivu psi`` / ``182 ljutnje``. Repair: join the
     fragments and drop the number, so the word becomes ``psiljutnje``.
+``inline_page_number``
+    A printed page number was merged into a text line instead of sitting on its
+    own: ``- 2 0 "Well`` or ``... to be mean to him the - 6 8 -``. Repair: drop
+    the token and keep every word on both sides.
 ``split_word``
     A word was cut at a line end with no hyphen: ``... i božan199`` /
     ``stvena ...``. Repair: join the two lines, dropping the printed number.
@@ -29,19 +33,25 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..core.constants import MAX_PAGE_NUMBER_DIGITS, PAGE_NUMBER_RUN_WINDOW
 from ..documents.bodyline import (
     count_space_before_punct,
     describes_split_number,
     has_midword_number,
+    is_caption_line,
     is_word_continuation,
 )
 from ..documents.io import load_lines
+from ..documents.markdown import header_of, is_page_number_line, page_number_of
 from ..documents.text import excerpt
 
 #: A finding kind (also the ``fix`` name an agent may request).
 PAGE_NUMBER_IN_WORD = "page_number_in_word"
+INLINE_PAGE_NUMBER = "inline_page_number"
 SPLIT_WORD = "split_word"
 SPACE_BEFORE_PUNCTUATION = "space_before_punctuation"
+#: Every damage kind the scanner knows.
+DAMAGE_KINDS = (PAGE_NUMBER_IN_WORD, INLINE_PAGE_NUMBER, SPLIT_WORD, SPACE_BEFORE_PUNCTUATION)
 
 #: Digits glued to the previous word (``us12 merena``): keep the fragments glued.
 MIDWORD_RE = re.compile(r"(?<=[a-zžćčšđ])(\d{1,4})(?=\s+[a-zžćčšđ])")
@@ -51,12 +61,29 @@ LEADING_GLUED_RE = re.compile(r"^\d{1,4}(?=[a-zžćčšđ])")
 #: and the space, so the two fragments of the split word are joined.
 LEADING_SPACED_RE = re.compile(r"^(\d{1,4})\s+(?=[a-zžćčšđ])")
 
+#: A page number merged into a text line, with the dashes the converter kept:
+#: ``- 2 0 "Well`` at the start, ``... the - 6 8 -`` at the end, or a token in
+#: the middle (``... a year. - 117 "Obviously,"``). Whitespace is required on
+#: both sides so a real hyphen inside a word (``mid-1980s``) never matches.
+INLINE_DASHED_PAGE_RE = re.compile(
+    r"(?<!\S)(?P<token>[-–—]\s*\d(?:\s*\d){0,3}\s*[-–—]?)(?=\s|$)"
+)
+#: A bare number the converter left at the very start or end of a text line
+#: (``... Valerie 265``). Only line edges are considered, so a number in the
+#: middle of a sentence is never a candidate.
+INLINE_BARE_PAGE_RE = re.compile(r"(?<!\S)(?P<token>\d(?:\s*\d){0,3})(?=\s|$)")
+
 #: Canonical repairs: what each finding kind does, and how safe it is.
 FIXES: dict[str, dict[str, str]] = {
     PAGE_NUMBER_IN_WORD: {
         "summary": "drop a printed page number printed inside a word and close the word",
         "risk": "low",
         "example": "'pažljivu psi' + '182 ljutnje' -> 'pažljivu psiljutnje'",
+    },
+    INLINE_PAGE_NUMBER: {
+        "summary": "drop a printed page number merged into a text line, keeping the words around it",
+        "risk": "medium",
+        "example": "'- 2 0 \"Well,' -> '\"Well,'",
     },
     SPLIT_WORD: {
         "summary": "join a line whose last word continues on the next line",
@@ -144,6 +171,258 @@ def repair_page_number_in_word(
     return LEADING_GLUED_RE.sub("", line, count=1)
 
 
+def _only_page_decor(text: str) -> bool:
+    """True when ``text`` holds no words — only page-number furniture."""
+    return not text.strip("-_–—# \t")
+
+
+def _inline_candidate(text: str, match: re.Match[str], signal: str) -> dict[str, Any] | None:
+    """Turn one regex match into a candidate record with offsets and position."""
+    start, end = match.start(), match.end()
+    token = match.group("token")
+    digits = re.sub(r"\D", "", token)
+    if not digits or len(digits) > MAX_PAGE_NUMBER_DIGITS:
+        return None
+    # A bare four-digit number at a line edge is almost always a year in a date
+    # header (``NOVEMBER 1 5, 2 0 0 0``), not a printed page number. A dashed
+    # four-digit token is still accepted.
+    if signal == "bare" and len(digits) >= MAX_PAGE_NUMBER_DIGITS:
+        return None
+    before = text[:start].strip()
+    after = text[end:].strip()
+    if before and after:
+        position = "middle"
+    elif after:
+        position = "prefix"
+    else:
+        position = "suffix"
+    return {
+        "start": start,
+        "end": end,
+        "token": token.strip(),
+        "page_number": int(digits),
+        "position": position,
+        "signal": signal,
+        "before": before,
+        "after": after,
+    }
+
+
+def inline_page_number_candidate(line: str) -> dict[str, Any] | None:
+    """The first page number merged into a text line, with its exact offsets.
+
+    Two shapes are considered: a dashed token anywhere in the line (``- 2 0
+    "Well,``, ``... the - 6 8 -``, ``... a year. - 117 "Obviously,"``) and a bare
+    number at one edge of the line (``... Valerie 265``). A line that is *only* a
+    page number is not an inline candidate; the standalone detector handles it.
+    """
+    text = line.rstrip("\n")
+    if not text.strip() or header_of(text):
+        return None
+    leading = len(text) - len(text.lstrip())
+    trailing = len(text.rstrip())
+
+    for match in INLINE_DASHED_PAGE_RE.finditer(text):
+        before, after = text[: match.start()], text[match.end() :]
+        if _only_page_decor(before) and _only_page_decor(after):
+            continue
+        candidate = _inline_candidate(text, match, "dashed")
+        if candidate is not None:
+            return candidate
+
+    for match in INLINE_BARE_PAGE_RE.finditer(text):
+        # A bare number is only interesting at a line edge; in the middle of a
+        # sentence it is ordinary prose (``130 otkucaja``).
+        if match.start() != leading and match.end() != trailing:
+            continue
+        before, after = text[: match.start()], text[match.end() :]
+        if _only_page_decor(before) and _only_page_decor(after):
+            continue
+        candidate = _inline_candidate(text, match, "bare")
+        if candidate is not None:
+            return candidate
+    return None
+
+
+def repair_inline_page_number(line: str) -> str:
+    """Drop the page-number token from a text line and keep every word.
+
+    ``'- 2 0 "Well,'`` → ``'"Well,'``; ``'... the - 6 8 -'`` → ``'... the'``;
+    ``'... a year. - 117 "Obviously,"'`` → ``'... a year. "Obviously,"'``. Only
+    whitespace around the removed token is normalised; no word is touched.
+    """
+    candidate = inline_page_number_candidate(line)
+    if candidate is None:
+        return line
+    text = line.rstrip("\n")
+    before = text[: candidate["start"]].rstrip()
+    after = text[candidate["end"] :].lstrip()
+    if before and after:
+        return f"{before} {after}"
+    return before or after
+
+
+def _previous_prose_line(lines: list[str], idx: int) -> tuple[int | None, str]:
+    """The nearest non-blank, non-page-number line before ``idx``."""
+    for i in range(idx - 1, -1, -1):
+        text = lines[i].strip()
+        if text and not is_page_number_line(text):
+            return i + 1, text
+    return None, ""
+
+
+def _next_prose_line(lines: list[str], idx: int) -> tuple[int | None, str]:
+    """The nearest non-blank, non-page-number line after ``idx``."""
+    for i in range(idx + 1, len(lines)):
+        text = lines[i].strip()
+        if text and not is_page_number_line(text):
+            return i + 1, text
+    return None, ""
+
+
+def _page_markers(lines: list[str]) -> list[tuple[int, int]]:
+    """``(line_number, printed_page)`` for every standalone page-number line."""
+    markers: list[tuple[int, int]] = []
+    for idx, raw in enumerate(lines):
+        if is_page_number_line(raw):
+            page = page_number_of(raw)
+            if page is not None:
+                markers.append((idx + 1, page))
+    return markers
+
+
+def _surrounding_page_markers(
+    markers: list[tuple[int, int]], line_number: int
+) -> tuple[tuple[int, int] | None, tuple[int, int] | None]:
+    """The nearest printed page marker before and after ``line_number``."""
+    before: tuple[int, int] | None = None
+    after: tuple[int, int] | None = None
+    for marker_line, page in markers:
+        if marker_line < line_number:
+            before = (marker_line, page)
+        elif marker_line > line_number:
+            after = (marker_line, page)
+            break
+    return before, after
+
+
+def _fits_page_sequence(
+    page: int,
+    before: tuple[int, int] | None,
+    after: tuple[int, int] | None,
+) -> bool | None:
+    """Whether ``page`` falls between the printed markers around it."""
+    if before is not None and after is not None:
+        if before[1] > after[1]:
+            return None  # the sequence restarts; the bounds mean nothing
+        return before[1] <= page <= after[1]
+    if before is not None:
+        # With only one bound, the page still has to be close to it; a bare
+        # ``844`` after page 246 is a number in the text, not a page break.
+        return before[1] <= page <= before[1] + PAGE_NUMBER_RUN_WINDOW
+    if after is not None:
+        return after[1] - PAGE_NUMBER_RUN_WINDOW <= page <= after[1]
+    return None
+
+
+def find_inline_page_numbers(lines: list[str]) -> list[Finding]:
+    """Every page number merged into a text line, with words on both sides.
+
+    Each finding carries the token, its position (``prefix`` / ``suffix`` /
+    ``middle``), the surrounding text on the line, the nearest line before and
+    after it, and — the strongest evidence — whether the number falls between
+    the printed page markers around that line. That lets an agent tell a real
+    page number from a year, a count or a dialogue dash without reading the
+    chapter.
+    """
+    findings: list[Finding] = []
+    markers = _page_markers(lines)
+    for idx, raw in enumerate(lines):
+        line = raw.rstrip("\n")
+        if not line.strip() or header_of(line):
+            continue
+        if is_page_number_line(line) or is_caption_line(line):
+            continue
+        candidate = inline_page_number_candidate(line)
+        if candidate is None:
+            continue
+
+        previous_number, previous_text = _previous_prose_line(lines, idx)
+        next_number, next_text = _next_prose_line(lines, idx)
+        before = excerpt(candidate["before"][-80:], 80)
+        after = excerpt(candidate["after"][:120], 120)
+        previous = excerpt(previous_text[-100:], 100)
+        following = excerpt(next_text[:100], 100)
+        token = candidate["token"]
+        page = candidate["page_number"]
+        position = candidate["position"]
+        signal = candidate["signal"]
+        marker_before, marker_after = _surrounding_page_markers(markers, idx + 1)
+        fits = _fits_page_sequence(page, marker_before, marker_after)
+
+        evidence = (
+            f"{signal} page-number shape {token!r} merged into a text line "
+            f"({position}); before={before or previous!r} "
+            f"after={after or following!r}"
+        )
+        if marker_before is not None and marker_after is not None:
+            evidence += (
+                f"; printed pages nearby are {marker_before[1]} "
+                f"(line {marker_before[0]}) and {marker_after[1]} "
+                f"(line {marker_after[0]})"
+            )
+        elif marker_before is not None:
+            evidence += f"; nearest printed page before is {marker_before[1]}"
+        elif marker_after is not None:
+            evidence += f"; nearest printed page after is {marker_after[1]}"
+        else:
+            evidence += "; no printed page markers nearby"
+        if fits is True:
+            evidence += f" - {page} fits the sequence"
+        elif fits is False:
+            evidence += f" - {page} does not fit the sequence"
+
+        if fits is True:
+            risk = "low" if signal == "dashed" else "medium"
+            suggested = "remove"
+        elif fits is False:
+            risk = "medium" if signal == "dashed" else "high"
+            suggested = "review"
+        else:
+            risk = "low" if signal == "dashed" else "medium"
+            suggested = "remove" if signal == "dashed" else "review"
+
+        findings.append(
+            Finding(
+                kind=INLINE_PAGE_NUMBER,
+                line_number=idx + 1,
+                risk=risk,
+                before=before,
+                after=after,
+                evidence=evidence,
+                extra={
+                    "token": token,
+                    "page_number": page,
+                    "position": position,
+                    "signal": signal,
+                    "suggested": suggested,
+                    "fits_page_sequence": fits,
+                    "page_before": marker_before[1] if marker_before else None,
+                    "page_before_line": marker_before[0] if marker_before else None,
+                    "page_after": marker_after[1] if marker_after else None,
+                    "page_after_line": marker_after[0] if marker_after else None,
+                    "before_same_line": before,
+                    "after_same_line": after,
+                    "previous_line_number": previous_number,
+                    "previous_text": previous,
+                    "next_line_number": next_number,
+                    "next_text": following,
+                },
+            )
+        )
+    return findings
+
+
 def repair_space_before_punctuation(line: str) -> str:
     """``'mišić ,'`` → ``'mišić,'`` (never touches a leading indent)."""
     return re.sub(r"(?<=\S)[ \t]+([,.;:!?])", r"\1", line)
@@ -173,13 +452,14 @@ def scan_chapter_damage(
 ) -> dict[str, Any]:
     """Every detectable body-text defect in one chapter.
 
-    Only line numbers, the two fragments and a reconstructed word are returned —
-    never a paragraph. The output is meant to be read by an agent deciding which
-    fixes to request, and by a validator checking the result.
+    Only line numbers, short before/after fragments and the surrounding context
+    of an inline page number are returned — never a paragraph. The output is
+    meant to be read by an agent deciding which fixes to request, and by a
+    validator checking the result.
     """
     p = Path(path).expanduser()
     lines = load_lines(p)
-    wanted = set(kinds or (PAGE_NUMBER_IN_WORD, SPLIT_WORD, SPACE_BEFORE_PUNCTUATION))
+    wanted = set(kinds or DAMAGE_KINDS)
     findings: list[Finding] = []
 
     for idx, raw in enumerate(lines):
@@ -222,6 +502,9 @@ def scan_chapter_damage(
                         extra={"count": count},
                     )
                 )
+
+    if INLINE_PAGE_NUMBER in wanted:
+        findings.extend(find_inline_page_numbers(lines))
 
     if SPLIT_WORD in wanted:
         for idx in range(len(lines) - 1):
@@ -290,12 +573,17 @@ def damage_digest(report: dict[str, Any], max_items: int = 25) -> str:
 
 
 __all__ = [
+    "DAMAGE_KINDS",
     "FIXES",
     "Finding",
+    "INLINE_PAGE_NUMBER",
     "PAGE_NUMBER_IN_WORD",
     "SPACE_BEFORE_PUNCTUATION",
     "SPLIT_WORD",
     "damage_digest",
+    "find_inline_page_numbers",
+    "inline_page_number_candidate",
+    "repair_inline_page_number",
     "repair_page_number_in_word",
     "repair_space_before_punctuation",
     "repair_split_word",

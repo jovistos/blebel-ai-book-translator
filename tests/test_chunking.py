@@ -42,7 +42,7 @@ TEXTS = {
 @pytest.fixture
 def chapters(tmp_path: Path) -> Path:
     """Two ordered chapter files, the shape stage 1 writes."""
-    folder = tmp_path / "chapters"
+    folder = tmp_path / "01-chapters"
     folder.mkdir()
     for name, text in TEXTS.items():
         (folder / name).write_text(text, encoding="utf-8")
@@ -79,7 +79,7 @@ def test_chunks_are_exact_slices_that_reconstruct_the_book(chapters: Path):
     assert result.chunk_count > 2
     assert result.errors == []
 
-    manifest = load_chunk_manifest(chapters.parent / "chunks")
+    manifest = load_chunk_manifest(chapters.parent / "05-chunks")
     assert manifest["stage"] == "chunk"
     assert manifest["chunk_count"] == result.chunk_count
     assert manifest["verification"]["chunks_are_source_slices"] is True
@@ -100,14 +100,14 @@ def test_chunks_are_exact_slices_that_reconstruct_the_book(chapters: Path):
         assert len({entry["filename"] for entry in entries}) == len(entries)
 
     # And the actual files are the text.
-    assert reconstruct_chapter(chapters.parent / "chunks", "01-prva.md") == TEXTS["01-prva.md"]
-    assert reconstruct_chapter(chapters.parent / "chunks", "02-druga") == TEXTS["02-druga.md"]
-    assert reconstruct_book(chapters.parent / "chunks") == _book_text()
+    assert reconstruct_chapter(chapters.parent / "05-chunks", "01-prva.md") == TEXTS["01-prva.md"]
+    assert reconstruct_chapter(chapters.parent / "05-chunks", "02-druga") == TEXTS["02-druga.md"]
+    assert reconstruct_book(chapters.parent / "05-chunks") == _book_text()
 
 
 def test_filenames_sort_into_reading_order(chapters: Path):
     result = run_chunking(str(chapters), tokenizer="word", chunk_size=20)
-    folder = chapters.parent / "chunks"
+    folder = chapters.parent / "05-chunks"
     markdown = sorted(path.name for path in folder.glob("*.md"))
     assert markdown == [entry["filename"] for entry in result.files]
     assert markdown[0].startswith("00000-")
@@ -124,7 +124,7 @@ def test_chunk_size_is_an_option_and_is_a_hard_limit(chapters: Path):
         assert entry["token_count"] <= 12, entry
         assert entry["bytes"] > 0 or entry["start_char"] == entry["end_char"]
     assert small.verification["chunk_size_violations"] == 0
-    assert reconstruct_book(chapters.parent / "chunks") == _book_text()
+    assert reconstruct_book(chapters.parent / "05-chunks") == _book_text()
 
 
 def test_paragraphs_and_sentences_are_not_broken_when_they_fit(chapters: Path):
@@ -147,7 +147,7 @@ def test_a_paragraph_that_is_too_long_is_split_without_losing_a_character(chapte
     # at a sentence or at a word, never inside one.
     assert {"sentence", "word"} & {entry["boundary_before"] for entry in result.files}
     assert result.verification["word_breaking_chunks"] == 0
-    assert reconstruct_chapter(chapters.parent / "chunks", "02-druga.md") == TEXTS["02-druga.md"]
+    assert reconstruct_chapter(chapters.parent / "05-chunks", "02-druga.md") == TEXTS["02-druga.md"]
 
 
 def test_dry_run_computes_and_verifies_but_writes_nothing(chapters: Path):
@@ -158,14 +158,14 @@ def test_dry_run_computes_and_verifies_but_writes_nothing(chapters: Path):
     assert result.dry_run is True
     assert result.manifest_path is None
     assert result.trace_path is None
-    assert not (chapters.parent / "chunks").exists()
+    assert not (chapters.parent / "05-chunks").exists()
 
 
 def test_skip_if_present_reuses_every_chunk_file(chapters: Path):
     first = run_chunking(str(chapters), tokenizer="word", chunk_size=20)
     assert first.ok and first.skipped is False
 
-    folder = chapters.parent / "chunks"
+    folder = chapters.parent / "05-chunks"
     before = {path.name: path.read_bytes() for path in folder.glob("*.md")}
 
     second = run_chunking(str(chapters), tokenizer="word", chunk_size=20, skip_if_present=True)
@@ -189,7 +189,7 @@ def test_a_changed_chapter_is_rechunked_on_a_reused_run(chapters: Path):
     assert result.ok is True
     assert result.skipped_count == 1  # the first chapter was untouched
     assert result.processed_count == 1
-    assert reconstruct_chapter(chapters.parent / "chunks", "02-druga.md") == changed
+    assert reconstruct_chapter(chapters.parent / "05-chunks", "02-druga.md") == changed
 
 
 def test_a_different_chunk_size_forces_a_fresh_cut(chapters: Path):
@@ -205,7 +205,7 @@ def test_a_different_chunk_size_forces_a_fresh_cut(chapters: Path):
 
 def test_manifest_and_trace_are_written_next_to_the_chunks(chapters: Path):
     result = run_chunking(str(chapters), tokenizer="word", chunk_size=20)
-    folder = chapters.parent / "chunks"
+    folder = chapters.parent / "05-chunks"
 
     assert (folder / CHUNK_MANIFEST_FILENAME).is_file()
     assert (folder / CHUNK_TRACE_FILENAME).is_file()
@@ -218,7 +218,7 @@ def test_manifest_and_trace_are_written_next_to_the_chunks(chapters: Path):
 
 def test_no_manifest_flag_leaves_only_chunk_files(chapters: Path):
     result = run_chunking(str(chapters), tokenizer="word", chunk_size=20, write_manifest=False)
-    folder = chapters.parent / "chunks"
+    folder = chapters.parent / "05-chunks"
 
     assert result.ok is True
     assert not (folder / CHUNK_MANIFEST_FILENAME).exists()
@@ -228,7 +228,7 @@ def test_no_manifest_flag_leaves_only_chunk_files(chapters: Path):
 
 
 def test_an_empty_chapter_is_reported_without_breaking_the_run(tmp_path: Path):
-    folder = tmp_path / "chapters"
+    folder = tmp_path / "01-chapters"
     folder.mkdir()
     (folder / "01-empty.md").write_text("", encoding="utf-8")
     (folder / "02-text.md").write_text("Jedna rečenica. Druga.\n", encoding="utf-8")
@@ -239,7 +239,7 @@ def test_an_empty_chapter_is_reported_without_breaking_the_run(tmp_path: Path):
     assert result.chapter_count == 2
     assert result.chapters[0]["chunk_count"] == 0
     assert result.chapters[0]["reconstructs_byte_for_byte"] is True
-    assert reconstruct_chapter(folder.parent / "chunks", "01-empty.md") == ""
+    assert reconstruct_chapter(folder.parent / "05-chunks", "01-empty.md") == ""
 
 
 def test_boundary_kind_names_the_strongest_boundary():
@@ -271,7 +271,7 @@ def test_cli_chunk_writes_a_manifest_and_prints_the_numbers(chapters: Path, caps
     assert code == 0
     assert "chunks          :" in out
     assert "reconstruction  : chapters=True book=True" in out
-    assert (chapters.parent / "chunks" / CHUNK_MANIFEST_FILENAME).is_file()
+    assert (chapters.parent / "05-chunks" / CHUNK_MANIFEST_FILENAME).is_file()
 
 
 def test_cli_chunk_json_is_machine_readable(chapters: Path, capsys):
@@ -306,7 +306,7 @@ def test_cli_chunk_rejects_a_non_positive_chunk_size(chapters: Path, capsys):
 
 
 def test_cli_chunk_without_chapters_explains_the_missing_stage(tmp_path: Path, capsys):
-    empty = tmp_path / "chapters"
+    empty = tmp_path / "01-chapters"
     empty.mkdir()
     code = cli.main(["chunk", "--out", str(empty)])
     captured = capsys.readouterr()

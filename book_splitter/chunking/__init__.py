@@ -4,7 +4,7 @@ The public surface is intentionally small and has two halves:
 
 * the write side — :func:`run_chunking` (and :func:`build_chunker` /
   :func:`chunk_text` for a single string), which reads a chapters folder and
-  writes ``chunks/`` plus ``_chunk_manifest.json``;
+  writes ``05-chunks/`` plus ``_chunk_manifest.json``;
 * the read side — :func:`load_chunk_manifest`, :func:`chunk_files`,
   :func:`reconstruct_chapter` and :func:`reconstruct_book`, which put the text
   back together without guessing a separator.

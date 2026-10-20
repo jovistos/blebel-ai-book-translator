@@ -24,7 +24,21 @@ from .constants import (
     TRACE_FILENAME,
 )
 from .errors import ConfigError, ToolError
-from .settings import PROVIDERS, LLMSettings, load_dotenv_files, resolve_api_key, resolve_settings
+from .settings import (
+    DEFAULT_TRANSLATION_PROVIDER,
+    LMSTUDIO_DISCOVERY_TIMEOUT,
+    PROVIDERS,
+    TRANSLATION_CHOICES,
+    TRANSLATION_PROVIDERS,
+    LLMSettings,
+    list_lmstudio_models,
+    load_dotenv_files,
+    pick_lmstudio_model,
+    resolve_api_key,
+    resolve_settings,
+    resolve_translation_settings,
+    translation_model_label,
+)
 
 __all__ = [
     "ConfigError",
@@ -35,9 +49,11 @@ __all__ = [
     "DEFAULT_MIN_CHAPTERS",
     "DEFAULT_RECURSION_LIMIT",
     "DEFAULT_TOC_MATCH_SCORE",
+    "DEFAULT_TRANSLATION_PROVIDER",
     "EXCERPT_CHARS",
     "FRONT_MATTER_FILENAME",
     "LLMSettings",
+    "LMSTUDIO_DISCOVERY_TIMEOUT",
     "MANIFEST_FILENAME",
     "MAX_FEEDBACK_LOOPS",
     "MAX_FRONT_MATTER_CHARS",
@@ -51,8 +67,14 @@ __all__ = [
     "TOC_MAX_BLOCK_LINES",
     "TOC_SCAN_LINES",
     "TRACE_FILENAME",
+    "TRANSLATION_CHOICES",
+    "TRANSLATION_PROVIDERS",
     "ToolError",
+    "list_lmstudio_models",
     "load_dotenv_files",
+    "pick_lmstudio_model",
     "resolve_api_key",
     "resolve_settings",
+    "resolve_translation_settings",
+    "translation_model_label",
 ]

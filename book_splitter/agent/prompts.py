@@ -193,6 +193,21 @@ Look at the SCOUT REPORT, decide which strategy applies, and finish by calling \
 `validate_split_map_tool` first. Do not stop before `propose_split_map` succeeds."""
 
 
+FINAL_TURN_NUDGE = """FINAL TURN — this turn must end with `propose_split_map`.
+
+You have used every exploratory turn. Do not call another inspection tool
+(`find_lines_matching`, `inspect_line_window`, `inspect_book_tail`, `web_search`,
+`fetch_web_page`, `extract_*`), and do not call `validate_split_map_tool` either: there is no \
+turn left to act on its answer. When this turn ends without a submitted map, the run gives up \
+and writes nothing, and the turns already spent are wasted.
+
+Call `propose_split_map` NOW with the best complete map your evidence supports — the split \
+points you have already confirmed, in ascending order, each with a filename. This overrides the \
+protocol's validate-first step: submission is the only useful call left. Use only line numbers a \
+tool result actually showed you; never invent one. A map built only from what you have seen is \
+cut verbatim and verified byte for byte, and is worth far more than no map at all."""
+
+
 def validation_feedback(validation: dict) -> str:
     """Turn a failed validation into a correction prompt for the agent."""
     issues = "\n".join(f"- {i}" for i in validation.get("issues", [])) or "- (none)"

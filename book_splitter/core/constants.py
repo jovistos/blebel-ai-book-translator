@@ -221,12 +221,13 @@ LANGUAGE_SAMPLE_SEED = 13
 #: Languages offered to the detector (the union the two backends can serve).
 DETECTABLE_LANGUAGES: tuple[str, ...] = ("sr", "hr", "sl", "bg", "mk", "en")
 
-#: Stage 3 writes next to stages 1 and 2, never over them.
-REDUCED_DIRNAME = "reduced"
+#: Stage 3 writes next to stages 1 and 2, never over them. Folder names carry
+#: the stage number so a book folder sorts in pipeline order.
+REDUCED_DIRNAME = "03-reduced"
 #: The second, smaller funnel output: one sentence per noun (first mentions only).
-#: It is a sibling of ``reduced/``, not a replacement for it — the two folders are
+#: It is a sibling of ``03-reduced/``, not a replacement for it — the two folders are
 #: meant to be compared while the extra filter is tuned.
-UNIQUE_DIRNAME = "reduced-unique"
+UNIQUE_DIRNAME = "03-reduced-unique"
 REDUCED_MANIFEST_FILENAME = "_reduced_manifest.json"
 REDUCED_TRACE_FILENAME = "_reduced_trace.json"
 
@@ -240,8 +241,8 @@ REDUCED_TRACE_FILENAME = "_reduced_trace.json"
 # the renderings it invents are compatible with the ones already fixed.
 # --------------------------------------------------------------------------- #
 
-#: Default file names of the stage-4 artifacts, written next to ``reduced-unique/``.
-GLOSSARY_DIRNAME = "glossary"
+#: Default file names of the stage-4 artifacts, written next to ``03-reduced-unique/``.
+GLOSSARY_DIRNAME = "04-glossary"
 GLOSSARY_FILENAME = "glossary.json"
 GLOSSARY_MARKDOWN_FILENAME = "glossary.md"
 GLOSSARY_MANIFEST_FILENAME = "_glossary_manifest.json"
@@ -289,7 +290,7 @@ CHUNK_FALLBACK_TOKENIZER = "approx"
 CHUNK_ORDER_DIGITS = 5
 CHUNK_INDEX_DIGITS = 4
 #: Chunking writes next to the chapter folders, never over them.
-CHUNKS_DIRNAME = "chunks"
+CHUNKS_DIRNAME = "05-chunks"
 CHUNK_MANIFEST_FILENAME = "_chunk_manifest.json"
 CHUNK_TRACE_FILENAME = "_chunk_trace.json"
 
@@ -311,8 +312,8 @@ CHUNK_TRACE_FILENAME = "_chunk_trace.json"
 # rendering, and stage 6 only attaches it to the chunks that need it.
 # --------------------------------------------------------------------------- #
 
-#: Stage 6 writes next to ``chunks/``, never over it.
-CHUNK_GLOSSARY_DIRNAME = "chunk-glossary"
+#: Stage 6 writes next to ``05-chunks/``, never over it.
+CHUNK_GLOSSARY_DIRNAME = "06-chunk-glossary"
 CHUNK_GLOSSARY_MANIFEST_FILENAME = "_chunk_glossary_manifest.json"
 CHUNK_GLOSSARY_TRACE_FILENAME = "_chunk_glossary_trace.json"
 
@@ -348,17 +349,17 @@ DEFAULT_CHUNK_GLOSSARY_MIN_TERM_CHARS = 2
 # is structured output validated by Pydantic (the answer is one JSON object with
 # a single ``translation`` field), retried with the failure named, and priced.
 #
-# Two folders come out of it: ``translations/`` holds the translated text of each
-# chunk under the chunk's own name, and ``translation-prompts/`` holds the whole
+# Two folders come out of it: ``07-translations/`` holds the translated text of each
+# chunk under the chunk's own name, and ``07-translation-prompts/`` holds the whole
 # input of every call — system prompt, user prompt, the serialised messages, the
 # glossary sent, and the source chunk — so a bad translation can be debugged
 # without reconstructing the prompt by hand.
 # --------------------------------------------------------------------------- #
 
-#: Stage 7 writes next to ``chunks/``, never over it.
-TRANSLATIONS_DIRNAME = "translations"
+#: Stage 7 writes next to ``05-chunks/``, never over it.
+TRANSLATIONS_DIRNAME = "07-translations"
 #: The debugging twin: one prompt/input record per chunk.
-TRANSLATION_PROMPTS_DIRNAME = "translation-prompts"
+TRANSLATION_PROMPTS_DIRNAME = "07-translation-prompts"
 TRANSLATION_MANIFEST_FILENAME = "_translation_manifest.json"
 TRANSLATION_TRACE_FILENAME = "_translation_trace.json"
 
@@ -387,21 +388,155 @@ TRANSLATION_METHODS: tuple[str, ...] = ("auto", "structured", "json")
 TRANSLATION_GLOSSARY_SCOPES: tuple[str, ...] = ("chunk", "book")
 
 # --------------------------------------------------------------------------- #
+# Front/back matter localization (the stage before translation)
+#
+# Front and back matter are not chapters and must not be translated as if they
+# were. A title page, a copyright page and a table of contents are *localized*
+# for the translated edition: the title may already have a published rendering,
+# some of the original edition's legal/imprint material does not belong in the
+# translation, and the new edition must say who translated it. That is a
+# different task from translating a body chunk, so it runs as its own LangGraph
+# agent before stage 7 and never consumes the dictionary.
+#
+# Its translated chunks still land in ``07-translations/`` (the chunk names are the
+# join key stage 8 reads); this folder holds the book-level plan, the run's
+# manifest/trace, and the prompt record of every agent call.
+# --------------------------------------------------------------------------- #
+
+#: The localization stage writes its book-level record next to ``07-translations/``.
+MATTER_DIRNAME = "06b-matter"
+#: The debugging twin: one whole agent input record per matter chunk.
+MATTER_PROMPTS_DIRNAME = "06b-matter-prompts"
+MATTER_MANIFEST_FILENAME = "_matter_manifest.json"
+MATTER_TRACE_FILENAME = "_matter_trace.json"
+
+#: The translator credit the localized front matter must state. The stage fixes
+#: the name; only the surrounding sentence is localized.
+MATTER_TRANSLATOR_NAME = "BleBel"
+#: Default English credit line, used only when the model did not supply its own
+#: localized sentence. The localized form is preferred.
+DEFAULT_MATTER_CREDIT = "Translated by BleBel"
+#: Model turns allowed for the book-level plan and for one matter chunk.
+DEFAULT_MATTER_ATTEMPTS = 5
+#: Cap on the source text a single read-tool call returns. Front/back matter is
+#: usually short; a larger section is still read in one call up to this cap and
+#: the tool says when it had to clip (the runner then refuses to localize a
+#: clipped section rather than silently dropping text).
+MAX_MATTER_READ_CHARS = 60_000
+#: The raw answer kept in the trace for one matter chunk.
+MAX_MATTER_TRANSLATION_CHARS = 40_000
+#: The minimum share of the source's length a non-omitted matter translation
+#: may keep. Lower than a body chunk's because a localized title page is
+#: deliberately shorter than the original imprint page.
+MIN_MATTER_LENGTH_RATIO = 0.08
+
+# --------------------------------------------------------------------------- #
 # Assembly stage (stage 8)
 #
 # Stage 8 is the inverse of stage 5's cut, applied to the *translated* chunks:
-# it groups ``translations/<chunk>.md`` by the chapter the chunk manifest says
+# it groups ``07-translations/<chunk>.md`` by the chapter the chunk manifest says
 # each chunk belongs to, concatenates each group in chunk order, and writes one
 # translated chapter file under the source chapter's own name. The output is a
-# separate folder so ``chapters/`` (the source) and ``translated-chapters/`` (the
+# separate folder so ``01-chapters/`` (the source) and ``08-translated-chapters/`` (the
 # product) are never confused, and so a partial or resumed run can be inspected
 # without touching either the source or the per-chunk translations.
 # --------------------------------------------------------------------------- #
 
-#: Stage 8 writes next to ``translations/``, never over it.
-TRANSLATED_CHAPTERS_DIRNAME = "translated-chapters"
+#: Stage 8 writes next to ``07-translations/``, never over it.
+TRANSLATED_CHAPTERS_DIRNAME = "08-translated-chapters"
 ASSEMBLY_MANIFEST_FILENAME = "_translated_chapters_manifest.json"
 ASSEMBLY_TRACE_FILENAME = "_translated_chapters_trace.json"
+
+# --------------------------------------------------------------------------- #
+# Postprocess stage (stage 9)
+#
+# Stage 9 is a book-level *heading* pass over the assembled translated chapters.
+# It never reads a chapter's prose: the unit of work is the chapter's opening
+# (a handful of clipped lines), its heading records with short surrounding
+# context, and the book-level list of chapter titles. The agent decides a naming
+# policy for the whole book first, then a per-chapter plan (the chapter heading,
+# and keep/demote for every other heading), and a table-of-contents plan.
+#
+# The output is a new ``09-postprocessed-chapters/`` folder: the translated chapter
+# files are never edited in place, exactly as stages 1-8 never edit their input.
+# --------------------------------------------------------------------------- #
+
+#: Stage 9 writes next to ``08-translated-chapters/``, never over it.
+POSTPROCESSED_CHAPTERS_DIRNAME = "09-postprocessed-chapters"
+POSTPROCESS_MANIFEST_FILENAME = "_postprocess_manifest.json"
+POSTPROCESS_TRACE_FILENAME = "_postprocess_trace.json"
+#: The final, single-document concatenation of the postprocessed chapters.
+#: Stage 10 writes one file, not a folder, but it carries its number too so it sorts
+#: after every stage folder.
+TRANSLATED_BOOK_FILENAME = "10-translated-book.md"
+BIND_MANIFEST_FILENAME = "_bind_manifest.json"
+BIND_TRACE_FILENAME = "_bind_trace.json"
+
+#: A table of contents created when the book has none. ``00-`` sorts it after
+#: ``00-front-matter.md`` (``f`` < ``t``) and before ``01-…``.
+TOC_FILENAME = "00-table-of-contents.md"
+DEFAULT_TOC_HEADING = "Sadržaj"
+
+#: Only this many lines at the start of a chapter may be inspected by the
+#: postprocessing agent. The opening is where a chapter title lives.
+MAX_POSTPROCESS_OPENING_LINES = 8
+#: Characters of the opening a tool may return in one call.
+MAX_POSTPROCESS_OPENING_CHARS = 2_400
+#: A chapter title may be no longer than this.
+MAX_POSTPROCESS_TITLE_CHARS = 160
+#: The title candidate is searched in the first N lines of a chapter.
+MAX_TITLE_SCAN_LINES = 24
+#: Headings returned per chapter (the inventory is metadata, not prose).
+MAX_POSTPROCESS_HEADINGS = 80
+#: Lines of context (on each side) around a heading accepted by the inspector.
+MAX_POSTPROCESS_CONTEXT_LINES = 2
+#: Characters of the front/back matter a tool may return per block.
+MAX_POSTPROCESS_MATTER_CHARS = 4_000
+#: Lines of the front/back matter a tool may return per block.
+MAX_POSTPROCESS_MATTER_LINES = 40
+#: A TOC with more entries than this is truncated (a book does not have 300).
+MAX_TOC_ENTRIES = 200
+#: Default target-heading level for a normalized chapter title.
+DEFAULT_CHAPTER_TITLE_LEVEL = 1
+#: Default number of model turns per book plan / per chapter.
+DEFAULT_POSTPROCESS_ATTEMPTS = 4
+
+#: Title actions accepted by a chapter plan.
+TITLE_ACTIONS: tuple[str, ...] = ("keep", "set", "insert")
+#: Heading decisions accepted by a chapter plan. ``demote`` removes the ``#``
+#: markup and keeps the text, which is exactly "remove the heading, leave the
+#: sentence"; there is deliberately no delete operation.
+HEADING_DECISIONS: tuple[str, ...] = ("keep", "demote")
+#: Naming policies accepted by a book plan.
+NAMING_MODES: tuple[str, ...] = ("keep", "normalize")
+#: TOC actions accepted by a book plan.
+TOC_ACTIONS: tuple[str, ...] = ("create", "update", "keep")
+#: TOC entry styles accepted by a book plan.
+TOC_STYLES: tuple[str, ...] = ("numbered", "bullets")
+
+# --------------------------------------------------------------------------- #
+# Conversion stage (stage 0)
+#
+# Stage 0 turns a source book into the Markdown every later stage reads. EPUB and
+# PDF go through docling; a plain-text file is copied (the content is unchanged,
+# only the extension becomes ``.md``). An image-based PDF is *rejected* rather
+# than OCR'd: this pipeline is built for sources that already carry a text layer,
+# and OCR would invent a different book. The preflight below samples pages of the
+# PDF and asks how many of them carry real characters, so that decision is made
+# before docling loads a layout model.
+# --------------------------------------------------------------------------- #
+
+#: Stage 0 writes next to the stage folders, so it sorts before ``01-chapters/``.
+MARKDOWN_DIRNAME = "00-markdown"
+CONVERT_MANIFEST_FILENAME = "_convert_manifest.json"
+#: PDF pages sampled for the text-layer preflight (all of them in a short PDF).
+PDF_TEXT_SAMPLE_PAGES = 12
+#: Characters that make a sampled page "text-bearing" rather than a page number.
+PDF_MIN_TEXT_CHARS_PER_PAGE = 24
+#: Share of the sampled pages that must carry text for the PDF to be text-based.
+PDF_MIN_TEXT_PAGE_RATIO = 0.5
+#: A conversion that produces less than this is treated as a failure, not a book.
+MIN_CONVERTED_MARKDOWN_CHARS = 32
 
 # --------------------------------------------------------------------------- #
 # Output names
@@ -411,8 +546,9 @@ FRONT_MATTER_FILENAME = "00-front-matter.md"
 MANIFEST_FILENAME = "_manifest.json"
 TRACE_FILENAME = "_agent_trace.json"
 
-#: Stage 2 (preprocessing) writes next to stage 1, never over it.
-CHAPTERS_DIRNAME = "chapters"
-PREPROCESSED_DIRNAME = "preprocessed"
+#: Stage 1 (splitting) writes the source chapters; stage 2 (preprocessing) writes
+#: next to it, never over it. Both names carry the stage number.
+CHAPTERS_DIRNAME = "01-chapters"
+PREPROCESSED_DIRNAME = "02-preprocessed"
 PREPROCESS_MANIFEST_FILENAME = "_preprocess_manifest.json"
 PREPROCESS_TRACE_FILENAME = "_preprocess_trace.json"

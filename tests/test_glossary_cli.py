@@ -82,7 +82,7 @@ def test_an_empty_chapters_folder_is_a_setup_error_not_a_traceback(tmp_path, cap
 
 def test_the_run_reaches_the_model_and_writes_the_artifacts(tmp_path, offline_model, capsys):
     folder = make_book(tmp_path)
-    out = tmp_path / "book" / "glossary"
+    out = tmp_path / "book" / "04-glossary"
     code = cli.main(["glossary", str(folder), "--glossary-out", str(out)])
 
     assert code == 0
@@ -98,7 +98,7 @@ def test_the_run_reaches_the_model_and_writes_the_artifacts(tmp_path, offline_mo
 
 def test_the_total_token_count_is_printed(tmp_path, offline_model, capsys):
     folder = make_book(tmp_path)
-    cli.main(["glossary", str(folder), "--glossary-out", str(tmp_path / "book" / "glossary")])
+    cli.main(["glossary", str(folder), "--glossary-out", str(tmp_path / "book" / "04-glossary")])
     printed = capsys.readouterr().out
     assert "tokens used     : 2,200 total (2,000 in, 200 out) over 2 chapter(s), 2 call(s)" in printed
 
@@ -110,7 +110,7 @@ def test_json_output_is_the_machine_readable_run(tmp_path, offline_model, capsys
             "glossary",
             str(folder),
             "--glossary-out",
-            str(tmp_path / "book" / "glossary"),
+            str(tmp_path / "book" / "04-glossary"),
             "--json",
             "--quiet",
         ]
@@ -127,7 +127,7 @@ def test_json_output_is_the_machine_readable_run(tmp_path, offline_model, capsys
 
 def test_quiet_drops_the_transcript_but_keeps_the_summary(tmp_path, offline_model, capsys):
     folder = make_book(tmp_path)
-    out = tmp_path / "book" / "glossary"
+    out = tmp_path / "book" / "04-glossary"
     cli.main(["glossary", str(folder), "--glossary-out", str(out), "--quiet"])
     printed = capsys.readouterr().out
     # The header and the per-chapter progress lines are gone...
@@ -140,7 +140,7 @@ def test_quiet_drops_the_transcript_but_keeps_the_summary(tmp_path, offline_mode
 
 def test_dry_run_writes_nothing(tmp_path, offline_model, capsys):
     folder = make_book(tmp_path)
-    out = tmp_path / "book" / "glossary"
+    out = tmp_path / "book" / "04-glossary"
     code = cli.main(["glossary", str(folder), "--glossary-out", str(out), "--dry-run"])
     assert code == 0
     assert "DRY RUN" in capsys.readouterr().out
@@ -154,7 +154,7 @@ def test_a_limit_prints_the_partial_dictionary(tmp_path, offline_model, capsys):
             "glossary",
             str(folder),
             "--glossary-out",
-            str(tmp_path / "book" / "glossary"),
+            str(tmp_path / "book" / "04-glossary"),
             "--limit",
             "2",
             "--max-context-entries",
@@ -180,7 +180,7 @@ def test_a_failed_chapter_exits_non_zero(tmp_path, monkeypatch, capsys):
     )
     folder = make_book(tmp_path)
     code = cli.main(
-        ["glossary", str(folder), "--glossary-out", str(tmp_path / "book" / "glossary")]
+        ["glossary", str(folder), "--glossary-out", str(tmp_path / "book" / "04-glossary")]
     )
     assert code == 1
     printed = capsys.readouterr()

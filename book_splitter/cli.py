@@ -4,6 +4,12 @@ Documents live in dedicated folders: sources are read from ``data/input/`` and
 every generated artifact is written under ``data/output/<book>/``. Both can be
 overridden with ``--in-dir`` / ``--out``.
 
+Stage 0 (`convert`) turns an EPUB, a text-based PDF or a TXT into the Markdown
+the rest of the pipeline reads: docling does EPUB/PDF (an image-based PDF is
+rejected instead of OCR'd), and a TXT is copied unchanged under a ``.md`` name.
+It writes to ``00-markdown/``. `inspect` and `split` run it automatically when
+the source is not Markdown, so every later stage keeps reading plain Markdown.
+
 Stage 1 turns the book into chapter files; stage 2 cleans each chapter, one
 chapter at a time; stage 3 reduces each chapter to the raw sentences that carry a
 named entity and then to the sentences that introduce a noun; stage 4 is the LLM
@@ -14,15 +20,24 @@ translation-sized chunks without breaking paragraphs or sentences, with the
 chapter and order of every chunk recorded so the text can be concatenated back;
 stage 6 runs NER over every chunk first, then fuzzy-matches each extracted term
 against the glossary and writes the relevant terms per chunk under the chunk's
-own name; stage 7 translates the chunks in reading order, sends each one the
-glossary terms it mentions, validates a Pydantic translation answer (retrying a
-failed call), writes the translated chunk under the chunk's own name and keeps the
-whole prompt of every call in a separate debug folder; stage 8 concatenates the
-translated chunks back into one file per chapter under ``translated-chapters/``,
-using stage 5's chapter membership and chunk order.
+own name; stage 6b (`matter`) is a separate LangGraph agent that localizes front
+and back matter before translation — it uses no dictionary, searches the web for
+an existing translated title, omits original-edition imprint material, credits
+BleBel and formats the result as published front/back matter; stage 7 translates
+the body chunks in reading order, sends each one the glossary terms it mentions,
+validates a Pydantic translation answer (retrying a failed call), writes the
+translated chunk under the chunk's own name and keeps the whole prompt of every
+call in a separate debug folder; stage 8 concatenates the translated chunks back
+into one file per chapter under ``08-translated-chapters/``, using stage 5's chapter
+membership and chunk order; stage 9 postprocesses those translated chapters'
+headings and table of contents, one chapter at a time and without reading their
+prose, into ``09-postprocessed-chapters/``; stage 10 concatenates that folder into
+one ``10-translated-book.md``.
 
-Every stage after splitting accepts ``--first-chapters N``: it runs over the
-first N body chapters only. Splitting itself always runs over the whole book, because
+The body stages after splitting accept ``--first-chapters N``: they run over the
+first N body chapters only. The front/back matter localizer (``matter``) always
+works on the whole matter set, because it is not a chapter window. Splitting
+itself always runs over the whole book, because
 its chapter boundaries are the coordinate system every later stage reads. When a
 stage's unit is a chunk (``chunk-glossary``, ``translate``), N is translated into
 the matching chunk prefix through stage 5's manifest, so a chapter window never
@@ -32,37 +47,46 @@ chapters.
 
 Examples::
 
+    python -m book_splitter convert mybook.epub            # -> data/output/mybook/00-markdown/
+    python -m book_splitter convert scan.pdf --dry-run     # text-layer check, no writes
     python -m book_splitter inspect                       # report on the only book in data/input
     python -m book_splitter inspect mybook.md --candidates
-    python -m book_splitter split mybook.md               # -> data/output/mybook/chapters/
+    python -m book_splitter split mybook.md               # -> data/output/mybook/01-chapters/
     python -m book_splitter split mybook.md --out /tmp/out
     python -m book_splitter split mybook.md --dry-run
     python -m book_splitter split mybook.md --skip-if-present   # reuse existing chapters
     python -m book_splitter split mybook.md --map my-map.json   # no LLM, no network
-    python -m book_splitter preprocess mybook              # -> data/output/mybook/preprocessed/
+    python -m book_splitter preprocess mybook              # -> data/output/mybook/02-preprocessed/
     python -m book_splitter preprocess mybook --dry-run
     python -m book_splitter scan mybook                    # damage profile, no LLM, no writes
-    python -m book_splitter dictionary mybook              # -> reduced/ and reduced-unique/
+    python -m book_splitter dictionary mybook              # -> 03-reduced/ and 03-reduced-unique/
     python -m book_splitter dictionary mybook --language sr --gpu 1
     python -m book_splitter dictionary mybook --skip-if-present --first-chapters 3
     python -m book_splitter dictionary mybook --unique-only     # only the first mentions
-    python -m book_splitter glossary mybook                # -> glossary/ (en -> sr)
+    python -m book_splitter glossary mybook                # -> 04-glossary/ (en -> sr)
     python -m book_splitter glossary mybook -s sr -t en    # the other direction
     python -m book_splitter glossary mybook --first-chapters 2 --dry-run  # price it first
     python -m book_splitter glossary mybook --resume       # continue where it stopped
-    python -m book_splitter chunk mybook                   # -> chunks/ (1000-token default)
+    python -m book_splitter chunk mybook                   # -> 05-chunks/ (1000-token default)
     python -m book_splitter chunk mybook --chunk-size 700  # smaller translation units
     python -m book_splitter chunk mybook --dry-run         # verify the cuts, write nothing
-    python -m book_splitter chunk-glossary mybook          # -> chunk-glossary/ (per chunk)
+    python -m book_splitter chunk-glossary mybook          # -> 06-chunk-glossary/ (per chunk)
     python -m book_splitter chunk-glossary mybook --match-threshold 90
     python -m book_splitter chunk-glossary mybook --first-chapters 3 --resume
-    python -m book_splitter translate mybook              # -> translations/ (en -> sr)
+    python -m book_splitter matter mybook                  # -> 06b-matter/ + localized chunks
+    python -m book_splitter matter mybook -t sr --limit 3  # first three matter chunks
+    python -m book_splitter translate mybook              # -> 07-translations/ (body chunks)
     python -m book_splitter translate mybook -s sr -t en  # the other direction
     python -m book_splitter translate mybook --first-chapters 3  # first three chapters
     python -m book_splitter translate mybook --limit 3    # translate three chunks first
     python -m book_splitter translate mybook --resume     # continue where it stopped
-    python -m book_splitter concatenate mybook            # -> translated-chapters/
+    python -m book_splitter translate mybook --translator lmstudio  # local model, stage 7 only
+    python -m book_splitter concatenate mybook            # -> 08-translated-chapters/
     python -m book_splitter concatenate mybook --first-chapters 3 --resume
+    python -m book_splitter postprocess mybook             # -> 09-postprocessed-chapters/
+    python -m book_splitter postprocess mybook --first-chapters 3 --resume
+    python -m book_splitter bind mybook                  # -> 10-translated-book.md
+    python -m book_splitter bind mybook --dry-run
     python -m book_splitter tools --stage preprocess       # list the toolset per stage
 """
 
@@ -79,6 +103,7 @@ from .analysis.candidates import extract_candidates
 from .analysis.headers import assess_headers
 from .analysis.toc import detect_toc_block
 from .assembly import run_assembly
+from .conversion import is_markdown_source, run_conversion
 from .core.constants import (
     CHAPTERS_DIRNAME,
     CHUNK_GLOSSARY_SCORERS,
@@ -93,10 +118,12 @@ from .core.constants import (
     DEFAULT_GLOSSARY_CHUNK_CHARS,
     DEFAULT_GPU_INDEX,
     DEFAULT_KEEP_ENTITY_TYPES,
+    DEFAULT_MATTER_ATTEMPTS,
     DEFAULT_MAX_CANDIDATES,
     DEFAULT_MAX_HEADERS,
     DEFAULT_MIN_CHAPTERS,
     DEFAULT_MIN_SENTENCE_WORDS,
+    DEFAULT_POSTPROCESS_ATTEMPTS,
     DEFAULT_RECURSION_LIMIT,
     DEFAULT_SOURCE_LANGUAGE,
     DEFAULT_TARGET_LANGUAGE,
@@ -104,12 +131,14 @@ from .core.constants import (
     DEFAULT_TRANSLATION_CONTEXT_CHARS,
     DEFAULT_TRANSLATION_MAX_TOKENS,
     MAX_FEEDBACK_LOOPS,
+    POSTPROCESSED_CHAPTERS_DIRNAME,
     TOC_SCAN_LINES,
+    TRANSLATED_CHAPTERS_DIRNAME,
     TRANSLATION_GLOSSARY_SCOPES,
     TRANSLATION_METHODS,
 )
 from .core.errors import ConfigError, MissingDependencyError, ToolError
-from .core.settings import PROVIDERS
+from .core.settings import PROVIDERS, TRANSLATION_CHOICES
 from .documents.chapters import (
     chapters_dir,
     chunk_glossary_dir,
@@ -118,9 +147,15 @@ from .documents.chapters import (
     glossary_dir,
     has_chapter_files,
     has_chunk_files,
+    has_postprocessed_chapter_files,
+    has_translated_chapter_files,
     has_translation_files,
     load_split_manifest,
+    matter_dir,
+    matter_prompts_dir,
+    postprocessed_chapters_dir,
     reduced_dir,
+    translated_book_path,
     translated_chapters_dir,
     translation_prompts_dir,
     translations_dir,
@@ -159,6 +194,59 @@ def _resolve_chapters_dir(book: str | None, in_dir: str | None, out: str | None)
     return resolve_output_dir(source, None)
 
 
+def _ensure_markdown_source(source: Path, out: str | Path | None = None) -> Path:
+    """Run stage 0 when the source is not Markdown and return what stage 1 reads.
+
+    A Markdown source is returned untouched: stage 0 only exists to make the
+    other formats readable by the line-based stages.
+    """
+    if is_markdown_source(source):
+        return source
+    result = run_conversion(source, out)
+    for line in result.log:
+        print(f"  · {line}", file=sys.stderr)
+    if result.markdown_path:
+        print(f"converted: {result.source} -> {result.markdown_path}", file=sys.stderr)
+    return Path(result.markdown_path)
+
+
+def cmd_convert(args: argparse.Namespace) -> int:
+    """Stage 0: EPUB/PDF/TXT -> Markdown under ``00-markdown/``."""
+    source = _resolve_book(args)
+    result = run_conversion(
+        source,
+        args.out,
+        dry_run=args.dry_run,
+        force=args.force,
+    )
+
+    if args.json:
+        _print_json(result.to_dict())
+        return 0
+
+    if not args.quiet:
+        for line in result.log:
+            print(f"  · {line}")
+        print()
+        print(f"source          : {result.source}")
+        print(f"kind            : {result.source_kind}")
+        if result.pages is not None:
+            print(
+                f"pdf pages       : {result.pages} "
+                f"({result.text_pages}/{result.sampled_pages} sampled page(s) with text)"
+            )
+        print(f"method          : {result.method}")
+        print(f"markdown        : {result.markdown_path}")
+        if result.reused:
+            print("reused          : existing Markdown still matches the source hash")
+        print(
+            "written         : no (dry run — nothing written)"
+            if args.dry_run
+            else f"written         : {'yes' if result.written else 'no'}"
+        )
+    return 0
+
+
 def cmd_tools(args: argparse.Namespace) -> int:
     from .agent.tools import grouped_tools
 
@@ -182,10 +270,14 @@ def cmd_tools(args: argparse.Namespace) -> int:
 
 
 def cmd_inspect(args: argparse.Namespace) -> int:
-    """Deterministic pre-flight: no LLM, no API key, no writes."""
+    """Deterministic pre-flight: no LLM, no API key.
+
+    Stage 0 runs first when the source is EPUB/PDF/TXT, so the report exists for
+    every supported format; a Markdown source is read as-is.
+    """
     from .agent.tools import scan_markdown_headers
 
-    source = _resolve_book(args)
+    source = _ensure_markdown_source(_resolve_book(args))
     lines = load_lines(source)
     headers = scan_markdown_headers(str(source))["headers"]
     toc = detect_toc_block(lines, scan_lines=args.toc_scan_lines)
@@ -269,7 +361,7 @@ def cmd_preprocess(args: argparse.Namespace) -> int:
 
     if not args.quiet:
         print(f"chapters={chapters_dir.expanduser().resolve()}")
-        print(f"output={out_dir or 'data/output/<book>/preprocessed/'}")
+        print(f"output={out_dir or 'data/output/<book>/02-preprocessed/'}")
     window = chapter_window_limit_for_path(
         chapters_dir, getattr(args, "first_chapters", None), args.limit
     )
@@ -367,7 +459,7 @@ def cmd_dictionary(args: argparse.Namespace) -> int:
 
     # Accept either the chapters folder or the book folder that holds it, exactly
     # like `scan` and `preprocess` do: `--out data/output/<book>` is a natural
-    # thing to type, and `discover_chapters` resolves the nested `chapters/`
+    # thing to type, and `discover_chapters` resolves the nested `01-chapters/`
     # anyway, so the pre-flight check must agree with it.
     chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
     if not has_chapter_files(chapters_path):
@@ -1030,10 +1122,231 @@ class _TranslationBar:
                 print(self._line(), flush=True)
 
 
+def cmd_matter(args: argparse.Namespace) -> int:
+    """Stage 6b: localize front/back matter with its own agent, before translation."""
+    from .chunk_glossary.runner import resolve_chunks_dir
+    from .core.settings import resolve_settings
+    from .matter_agent import run_matter
+
+    if args.chapters_in:
+        chapters_path = chapters_dir(Path(args.chapters_in).expanduser())
+    else:
+        chapters_path = chapters_dir(
+            _resolve_chapters_dir(args.book, args.in_dir, args.out)
+        )
+    chunks_path = (
+        resolve_chunks_dir(Path(args.chunks_in).expanduser())
+        if args.chunks_in
+        else chunks_dir(chapters_path)
+    )
+    if not has_chunk_files(chunks_path):
+        print(
+            f"no chunk files in {chunks_path.expanduser().resolve()} — run `chunk` first",
+            file=sys.stderr,
+        )
+        return 2
+    translations_out = (
+        Path(args.translations_out).expanduser()
+        if args.translations_out
+        else translations_dir(chunks_path)
+    )
+    matter_out = (
+        Path(args.matter_out).expanduser()
+        if args.matter_out
+        else matter_dir(chunks_path)
+    )
+    prompts_out = (
+        Path(args.prompts_out).expanduser()
+        if args.prompts_out
+        else matter_prompts_dir(chunks_path)
+    )
+
+    if args.limit is not None and int(args.limit) < 0:
+        print("error: --limit cannot be negative", file=sys.stderr)
+        return 2
+    if int(args.max_attempts) <= 0:
+        print("error: --max-attempts must be greater than 0", file=sys.stderr)
+        return 2
+
+    def factory():
+        return resolve_settings(
+            provider=args.provider,
+            model=args.model,
+            base_url=args.base_url,
+            api_key=args.api_key,
+            temperature=args.temperature,
+        )
+
+    # A fully resumed run needs no key, so a missing configuration is carried
+    # until a pending chunk actually needs the model.
+    settings = None
+    config_error: ConfigError | None = None
+    try:
+        settings = factory()
+    except ConfigError as exc:
+        config_error = exc
+
+    if not args.quiet:
+        where = (
+            f"{settings.provider}/{settings.model}"
+            if settings is not None
+            else "no model resolved"
+        )
+        print(f"chapters={chapters_path.expanduser().resolve()}")
+        print(f"chunks={chunks_path.expanduser().resolve()}")
+        print(f"translations={translations_out.expanduser().resolve()}")
+        print(f"matter={matter_out.expanduser().resolve()}")
+        if not args.no_prompts:
+            print(f"prompts={prompts_out.expanduser().resolve()}")
+        print(
+            f"language={args.source_language} -> {args.target_language}  "
+            f"model={where}  attempts<={args.max_attempts}  no dictionary"
+        )
+        print(
+            "policy      : web-search the published title, credit BleBel, omit the "
+            "original edition's imprint material, format as published front/back matter"
+        )
+        if args.limit:
+            print(f"limit       : first {args.limit} matter chunk(s)")
+        if args.resume:
+            print("resume      : matter chunks already localized and unchanged are reused")
+
+    try:
+        result = run_matter(
+            str(chapters_path),
+            str(chunks_path),
+            str(translations_out),
+            prompts_dir=None if args.no_prompts else str(prompts_out),
+            matter_path=str(matter_out),
+            source_language=args.source_language,
+            target_language=args.target_language,
+            book_title=args.book_title or "",
+            settings=settings,
+            settings_factory=None if settings is not None else factory,
+            max_attempts=args.max_attempts,
+            recursion_limit=args.recursion_limit,
+            dry_run=args.dry_run,
+            resume=args.resume,
+            limit=args.limit,
+            write_manifest=not args.no_manifest,
+            write_prompts=not args.no_prompts,
+            progress=None if args.quiet or args.json else _matter_progress,
+        )
+    except ConfigError as exc:
+        print(f"error: {config_error or exc}", file=sys.stderr)
+        return 2
+    except ToolError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        _print_json(result.to_dict())
+        return 0 if result.ok else 1
+    _print_matter_summary(result, dry_run=args.dry_run)
+    return 0 if result.ok else 1
+
+
+def _matter_progress(chunk: dict, done: int, total: int) -> None:
+    """One durable line per localized (or omitted) matter chunk."""
+    if chunk.get("reused"):
+        flag = "reuse"
+    elif chunk.get("omitted"):
+        flag = "omit "
+    elif chunk.get("ok"):
+        flag = "ok   "
+    else:
+        flag = "FAIL "
+    usage = chunk.get("usage") or {}
+    print(
+        f"  [{done:>3}/{total}] {flag} {str(chunk.get('filename') or '?'):<46} "
+        f"{str(chunk.get('section_kind') or '?'):<5} "
+        f"{int(chunk.get('source_chars') or 0):>6,} -> "
+        f"{int(chunk.get('translation_chars') or 0):>6,} chars · "
+        f"{int(usage.get('total_tokens') or 0):>7,} tok · "
+        f"{int(chunk.get('attempts') or 0)} attempt(s)"
+        + (f" · {chunk.get('omit_reason')}" if chunk.get("omitted") else "")
+    )
+
+
+def _print_matter_summary(result, dry_run: bool = False) -> None:
+    plan = result.book_plan or {}
+    validation = result.validation or {}
+    totals = result.totals or {}
+    tokens = result.tokens or {}
+    timing = result.timing or {}
+    print()
+    print(
+        f"title           : {plan.get('translated_title') or '—'}"
+        + (
+            f"  (original: {plan.get('original_title')!r})"
+            if plan.get("original_title")
+            else ""
+        )
+    )
+    print(
+        f"credit          : {plan.get('translation_credit') or 'Translated by BleBel'}"
+    )
+    if plan.get("title_evidence"):
+        print(f"title evidence  : {plan['title_evidence']}")
+    print(
+        f"sections        : {result.section_count} front/back matter file(s), "
+        f"{int(totals.get('matter_chunks') or 0):,} chunk(s)"
+    )
+    print(
+        f"chunks          : {result.ok_count}/{result.chunk_count} localized"
+        + (f"  reused: {result.reused_count:,}" if result.reused_count else "")
+        + (f"  omitted: {int(totals.get('omitted') or 0)}" if totals.get("omitted") else "")
+    )
+    omitted = plan.get("omit") or []
+    if omitted:
+        print(f"omitted source  : {len(omitted)} phrase(s); the first few:")
+        for phrase in omitted[:5]:
+            print(f"    - {phrase}")
+        if len(omitted) > 5:
+            print(f"    … and {len(omitted) - 5} more (see the plan)")
+    if validation.get("warnings"):
+        for warning in validation["warnings"][:5]:
+            print(f"  warning       : {warning}")
+    print(
+        f"tokens used     : {int(tokens.get('total_tokens') or 0):,} total "
+        f"({int(tokens.get('input_tokens') or 0):,} in, "
+        f"{int(tokens.get('output_tokens') or 0):,} out) over "
+        f"{int(tokens.get('llm_calls') or 0):,} call(s)"
+    )
+    if timing:
+        print(
+            f"time            : {_human_seconds(float(timing.get('run_seconds', 0.0)))}"
+            f"  {float(timing.get('seconds_per_chunk', 0.0)):.1f} s/chunk"
+        )
+    print(f"output dir      : {result.output_dir}")
+    if not dry_run and result.prompts_dir:
+        print(f"prompts         : {result.prompts_dir}")
+    print(f"plan dir        : {result.matter_path}")
+    if result.manifest_path:
+        print(f"manifest        : {result.manifest_path}")
+    if result.trace_path:
+        print(f"trace           : {result.trace_path}")
+    if result.skipped:
+        print("\nOK — no front/back matter chunks to localize.")
+        return
+    if not result.ok:
+        print("\nFAILED matter chunks:", file=sys.stderr)
+        for error in result.errors:
+            print(f"  - {error}", file=sys.stderr)
+        return
+    if dry_run:
+        print("\nDRY RUN — every matter chunk was localized, nothing was written.")
+        return
+    print(
+        "\nOK — front/back matter localized without a dictionary; the translated chunks "
+        "are in 07-translations/ and stage 8 will assemble them with the body."
+    )
+
+
 def cmd_translate(args: argparse.Namespace) -> int:
     """Stage 7: translate each chunk in reading order, with its glossary rows."""
     from .chunk_glossary.runner import resolve_chunks_dir
-    from .core.settings import resolve_settings
+    from .core.settings import resolve_translation_settings
     from .translation import run_translation
     from .translation.runner import resolve_chunk_glossary_dir
 
@@ -1093,8 +1406,8 @@ def cmd_translate(args: argparse.Namespace) -> int:
     settings = None
     config_error: ConfigError | None = None
     try:
-        settings = resolve_settings(
-            provider=args.provider,
+        settings = resolve_translation_settings(
+            provider=args.translator,
             model=args.model,
             base_url=args.base_url,
             api_key=args.api_key,
@@ -1149,6 +1462,7 @@ def cmd_translate(args: argparse.Namespace) -> int:
             dry_run=args.dry_run,
             limit=limit,
             chapter_files=chapter_files,
+            include_matter=args.include_matter,
             resume=args.resume,
             write_manifest=not args.no_manifest,
             write_prompts=not args.no_prompts,
@@ -1251,7 +1565,7 @@ def _print_translation_summary(result, dry_run: bool = False) -> None:
         return
     print(
         f"\nOK — {int(totals.get('translated_chunks') or 0):,} chunk(s) translated; "
-        "concatenate translations/ in filename order to rebuild the translated book."
+        "concatenate 07-translations/ in filename order to rebuild the translated book."
     )
 
 
@@ -1381,6 +1695,227 @@ def _print_assembly_summary(result, dry_run: bool = False) -> None:
         "\nOK — translated chapters written to a separate folder; "
         "the source chapters were not touched."
     )
+
+
+def cmd_postprocess(args: argparse.Namespace) -> int:
+    """Stage 9: postprocess the translated chapters' headings and table of contents."""
+    from .core.settings import resolve_settings
+    from .postprocess_agent import run_postprocess
+    from .translation.runner import resolve_chunks_dir as _resolve_chunks
+
+    if args.translated_chapters_in:
+        source_path = Path(args.translated_chapters_in).expanduser()
+        if source_path.is_file():
+            source_path = source_path.parent
+        if (source_path / TRANSLATED_CHAPTERS_DIRNAME).is_dir():
+            source_path = source_path / TRANSLATED_CHAPTERS_DIRNAME
+    elif args.chunks_in:
+        source_path = translated_chapters_dir(
+            _resolve_chunks(Path(args.chunks_in).expanduser())
+        )
+    else:
+        chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
+        source_path = translated_chapters_dir(chapters_path)
+    if not has_translated_chapter_files(source_path):
+        print(
+            f"no translated chapter files in {source_path.expanduser().resolve()} — "
+            "run `concatenate` first",
+            file=sys.stderr,
+        )
+        return 2
+    out_dir = (
+        Path(args.postprocessed_out).expanduser()
+        if args.postprocessed_out
+        else postprocessed_chapters_dir(source_path)
+    )
+    if int(args.max_attempts) <= 0:
+        print("error: --max-attempts must be greater than 0", file=sys.stderr)
+        return 2
+    # Stage 9 counts body chapters directly (front matter is always included and
+    # does not consume one of the N), so its limit is the user's N, not a file count.
+    limit = args.first_chapters if args.first_chapters is not None else args.limit
+    if limit is not None:
+        limit = int(limit)
+
+    try:
+        settings = resolve_settings(
+            provider=args.provider,
+            model=args.model,
+            base_url=args.base_url,
+            api_key=args.api_key,
+            temperature=args.temperature,
+        )
+    except ConfigError as exc:
+        print(f"configuration error: {exc}", file=sys.stderr)
+        return 2
+
+    if not args.quiet:
+        print(f"provider={settings.provider} model={settings.model} base_url={settings.base_url}")
+        print(f"translated-chapters={source_path.expanduser().resolve()}")
+        print(f"postprocessed-chapters={out_dir.expanduser().resolve()}")
+        print(
+            f"budget      : max {args.max_attempts} model turn(s) per book plan and per chapter; "
+            "headings/opening only, no chapter prose"
+        )
+        label = _window_label(args, limit)
+        if label is not None:
+            print(f"window      : {label}")
+        if args.skip_if_present:
+            print("resume      : chapters whose source hash and title still match are reused")
+
+    try:
+        result = run_postprocess(
+            str(source_path),
+            str(out_dir),
+            settings=settings,
+            max_attempts=args.max_attempts,
+            dry_run=args.dry_run,
+            recursion_limit=args.recursion_limit,
+            limit=limit,
+            skip_if_present=args.skip_if_present,
+            write_manifest=not args.no_manifest,
+        )
+    except ToolError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if not args.quiet:
+        for chapter in result.chapters:
+            for line in chapter.get("log") or []:
+                print(f"  · {chapter['filename']} {line}")
+
+    if args.json:
+        _print_json(result.to_dict())
+        return 0 if result.ok else 1
+    _print_postprocess_summary(result, dry_run=args.dry_run)
+    return 0 if result.ok else 1
+
+
+def _print_postprocess_summary(result, dry_run: bool = False) -> None:
+    validation = result.validation or {}
+    totals = result.totals or {}
+    toc = result.toc or {}
+    print()
+    print(
+        f"book plan       : "
+        f"{(result.book_plan.get('naming') or {}).get('mode', '—')} "
+        f"label={(result.book_plan.get('naming') or {}).get('label', '—')!r} "
+        f"· toc {(result.book_plan.get('toc') or {}).get('action', '—')}"
+    )
+    print(
+        f"chapters        : {result.ok_count}/{result.chapter_count} postprocessed"
+        + (f"  reused: {result.reused_count}" if result.reused_count else "")
+    )
+    print(
+        f"headings        : {int(totals.get('demoted_headings') or 0)} demoted · "
+        f"{int(totals.get('merged_subtitles') or 0)} subtitle(s) folded into a title"
+    )
+    print(
+        f"titles          : {int(totals.get('title_set') or 0)} set · "
+        f"{int(totals.get('title_inserted') or 0)} inserted"
+    )
+    web = result.web or {}
+    print(
+        f"web search      : {len(web.get('searches') or [])} lookup(s) · "
+        + ("attempted" if web.get("attempted") else "NOT attempted")
+        + f" · source {(result.book_plan.get('title_source') or '—')}"
+    )
+    evidence = str(result.book_plan.get("title_evidence") or "").strip()
+    if evidence:
+        print(f"title evidence  : {evidence[:200]}")
+    if toc:
+        print(
+            f"table of contents: {toc.get('action') or '—'} "
+            f"({int(totals.get('toc_entries') or 0)} entries)"
+            + (f" · {toc.get('filename')}" if toc.get("filename") else "")
+            + (" · dry run" if dry_run else "")
+        )
+    if validation.get("warnings"):
+        for warning in validation["warnings"][:5]:
+            print(f"  warning       : {warning}")
+    print(f"output dir      : {result.output_dir}")
+    if result.manifest_path:
+        print(f"manifest        : {result.manifest_path}")
+    if result.trace_path:
+        print(f"trace           : {result.trace_path}")
+    if not result.ok:
+        print("\nFAILED chapters:", file=sys.stderr)
+        for error in result.errors:
+            print(f"  - {error}", file=sys.stderr)
+        return
+    if dry_run:
+        print("\nDRY RUN — every plan was validated, nothing was written.")
+        return
+    print(
+        "\nOK — postprocessed chapters written to a separate folder; the translated "
+        "chapters were not touched."
+    )
+
+
+def cmd_bind(args: argparse.Namespace) -> int:
+    """Stage 10: concatenate the postprocessed chapters into one Markdown book."""
+    from .binding import run_bind
+
+    if args.postprocessed_in:
+        source_path = Path(args.postprocessed_in).expanduser()
+        if source_path.is_file():
+            source_path = source_path.parent
+        if (source_path / POSTPROCESSED_CHAPTERS_DIRNAME).is_dir():
+            source_path = source_path / POSTPROCESSED_CHAPTERS_DIRNAME
+    else:
+        chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
+        source_path = postprocessed_chapters_dir(chapters_path)
+    if not has_postprocessed_chapter_files(source_path):
+        print(
+            f"no postprocessed chapter files in {source_path.expanduser().resolve()} — "
+            "run `postprocess` first",
+            file=sys.stderr,
+        )
+        return 2
+    output_path = (
+        Path(args.book_out).expanduser()
+        if args.book_out
+        else translated_book_path(source_path)
+    )
+    if not args.quiet:
+        print(f"postprocessed-chapters={source_path.expanduser().resolve()}")
+        print(f"book={output_path.expanduser().resolve()}")
+    try:
+        result = run_bind(
+            str(source_path),
+            str(output_path),
+            dry_run=args.dry_run,
+            write_manifest=not args.no_manifest,
+        )
+    except ToolError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        _print_json(result.to_dict())
+        return 0 if result.ok else 1
+    _print_bind_summary(result, dry_run=args.dry_run)
+    return 0 if result.ok else 1
+
+
+def _print_bind_summary(result, dry_run: bool = False) -> None:
+    print()
+    print(f"files           : {result.chapter_count}")
+    print(f"table of contents: {'included' if result.toc_included else 'not found'}")
+    print(f"size            : {result.chars:,} characters · {result.lines:,} lines")
+    print(f"output          : {result.output_path}")
+    if result.manifest_path:
+        print(f"manifest        : {result.manifest_path}")
+    if result.trace_path:
+        print(f"trace           : {result.trace_path}")
+    if not result.ok:
+        print("\nFAILED:", file=sys.stderr)
+        for error in result.errors:
+            print(f"  - {error}", file=sys.stderr)
+        return
+    if dry_run:
+        print("\nDRY RUN — the book was assembled and verified, nothing was written.")
+        return
+    print("\nOK — the postprocessed chapters were concatenated into one Markdown book.")
 
 
 def cmd_glossary(args: argparse.Namespace) -> int:
@@ -1594,6 +2129,10 @@ def cmd_split(args: argparse.Namespace) -> int:
             print(f"output={out_dir.expanduser().resolve()}")
         return _report_split(result_from_existing_chapters(out_dir), args)
 
+    # Stage 0: the splitter only ever reads Markdown. A TXT is copied and an
+    # EPUB/text-based PDF is converted before anything tries to count lines.
+    source = _ensure_markdown_source(source)
+
     if getattr(args, "map", None):
         # A supplied map needs no provider, no key and no network.
         try:
@@ -1703,18 +2242,27 @@ def _print_summary(result, dry_run: bool = False) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="book_splitter",
-        description="Two LangGraph agents, a dictionary funnel, a glossary pass, a "
-        "reversible chunker, a per-chunk glossary matcher and a chunk translator turn "
-        "a Markdown book into a consistent translation: `split` cuts it into chapters "
-        "without reading the body, `preprocess` repairs each chapter's headers and "
-        "conversion damage one chapter at a time, `dictionary` reduces each chapter to "
-        "the sentences that carry a named entity, `glossary` locks one rendering per "
-        "term, `chunk` cuts each chapter into sentence-safe chunks that concatenate back "
-        "exactly, `chunk-glossary` tags every chunk and attaches the glossary terms it "
-        "mentions, `translate` translates the chunks in reading order with those "
-        "terms, keeping each call's whole prompt for debugging, and `concatenate` "
-        "glues the translated chunks back into one file per chapter. Sources come from "
-        "data/input/, output goes to data/output/<book>/.",
+        description="Stage 0 `convert` turns an EPUB, a text-based PDF or a TXT into "
+        "Markdown (docling, no OCR for image-based PDFs), then four LangGraph agents, a "
+        "dictionary funnel, a glossary pass, a reversible chunker, a per-chunk glossary "
+        "matcher, a front/back matter localizer, a chunk translator, a heading "
+        "postprocessor and a binder turn that Markdown book into a consistent translation: "
+        "`split` cuts it into chapters "
+        "without reading the body, "
+        "`preprocess` repairs each chapter's headers and conversion damage one chapter "
+        "at a time, `dictionary` reduces each chapter to the sentences that carry a "
+        "named entity, `glossary` locks one rendering per term, `chunk` cuts each "
+        "chapter into sentence-safe chunks that concatenate back exactly, "
+        "`chunk-glossary` tags every chunk and attaches the glossary terms it mentions, "
+        "`matter` localizes the front/back matter before translation (no dictionary, "
+        "web-searched title, BleBel credit, original-edition material omitted), "
+        "`translate` translates the body chunks in reading order with those terms, "
+        "keeping each call's whole prompt for debugging, `concatenate` glues the "
+        "translated chunks back into one file per chapter, `postprocess` makes the "
+        "translated chapter titles, other headings and table of contents consistent "
+        "without reading the prose, and `bind` concatenates the postprocessed chapters "
+        "into one Markdown book. Sources come from data/input/, output goes to "
+        "data/output/<book>/.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -1741,17 +2289,46 @@ def build_parser() -> argparse.ArgumentParser:
         parser_.add_argument("--json", action="store_true", help="machine-readable result")
         parser_.add_argument("--quiet", "-q", action="store_true")
 
+    p_convert = sub.add_parser(
+        "convert",
+        help="stage 0: convert an EPUB, a text-based PDF or a TXT to Markdown "
+        "(docling; image-based PDFs are rejected instead of OCR'd)",
+    )
+    add_book(p_convert, required=False)
+    p_convert.add_argument(
+        "--out",
+        "-o",
+        default=None,
+        help="folder for the converted Markdown (default: data/output/<book>/00-markdown)",
+    )
+    p_convert.add_argument(
+        "--force",
+        action="store_true",
+        help="convert again even when the existing Markdown still matches the source hash",
+    )
+    p_convert.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="validate the source (including a PDF's text layer) and report what would "
+        "happen; run no docling conversion and write nothing",
+    )
+    p_convert.add_argument("--json", action="store_true", help="machine-readable result")
+    p_convert.add_argument("--quiet", "-q", action="store_true")
+    p_convert.set_defaults(func=cmd_convert)
+
     p_tools = sub.add_parser("tools", help="list the tools, grouped by pipeline stage")
     p_tools.add_argument(
         "--stage",
-        choices=["shared", "split", "preprocess"],
+        choices=["shared", "split", "preprocess", "matter", "postprocess"],
         default=None,
         help="show only one stage group (shared lists the generic tools)",
     )
     p_tools.set_defaults(func=cmd_tools)
 
     p_inspect = sub.add_parser(
-        "inspect", help="deterministic structural report (no LLM, no writes)"
+        "inspect",
+        help="deterministic structural report (no LLM; runs stage 0 for a "
+        "non-Markdown source)",
     )
     add_book(p_inspect, required=False)
     p_inspect.add_argument("--max-headers", type=int, default=DEFAULT_MAX_HEADERS)
@@ -1770,7 +2347,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-o",
         default=None,
         help="output folder for chapter files "
-        f"(default: {default_output_dir()}/<book>/chapters)",
+        f"(default: {default_output_dir()}/<book>/{CHAPTERS_DIRNAME})",
     )
     p_split.add_argument(
         "--map",
@@ -1832,7 +2409,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/chapters)",
+        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters)",
     )
     p_scan.add_argument(
         "--headers", action="store_true", help="print the full header record per chapter"
@@ -1861,12 +2438,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/chapters)",
+        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters)",
     )
     p_pre.add_argument(
         "--preprocessed-out",
         default=None,
-        help="where to write cleaned chapters (default: data/output/<book>/preprocessed)",
+        help="where to write cleaned chapters (default: data/output/<book>/02-preprocessed)",
     )
     add_model_flags(p_pre)
     p_pre.add_argument(
@@ -1926,19 +2503,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/chapters); "
-        "point it at data/output/<book>/preprocessed to reduce the cleaned text instead",
+        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters); "
+        "point it at data/output/<book>/02-preprocessed to reduce the cleaned text instead",
     )
     p_dict.add_argument(
         "--reduced-out",
         default=None,
-        help="where to write the reduced chapters (default: data/output/<book>/reduced)",
+        help="where to write the reduced chapters (default: data/output/<book>/03-reduced)",
     )
     p_dict.add_argument(
         "--unique-out",
         default=None,
         help="where to write the first-mention chapters "
-        "(default: a sibling of the reduced folder, data/output/<book>/reduced-unique)",
+        "(default: a sibling of the reduced folder, data/output/<book>/03-reduced-unique)",
     )
     p_dict.add_argument(
         "--language",
@@ -2040,14 +2617,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/chapters); "
-        "point it at data/output/<book>/preprocessed to chunk the cleaned text instead",
+        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters); "
+        "point it at data/output/<book>/02-preprocessed to chunk the cleaned text instead",
     )
     p_chunk.add_argument(
         "--chunks-out",
         default=None,
         help="where to write the chunk files "
-        "(default: data/output/<book>/chunks, a sibling of the input folder)",
+        "(default: data/output/<book>/05-chunks, a sibling of the input folder)",
     )
     p_chunk.add_argument(
         "--chunk-size",
@@ -2109,26 +2686,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/chapters); "
+        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters); "
         "the chunks and glossary folders are derived from the book folder",
     )
     p_cg.add_argument(
         "--chunks-in",
         default=None,
-        help="the chunks folder from stage 5 (default: data/output/<book>/chunks); "
+        help="the chunks folder from stage 5 (default: data/output/<book>/05-chunks); "
         "a book folder or the _chunk_manifest.json is also accepted",
     )
     p_cg.add_argument(
         "--glossary-in",
         default=None,
         help="the glossary folder or glossary.json from stage 4 "
-        "(default: data/output/<book>/glossary/glossary.json)",
+        "(default: data/output/<book>/04-glossary/glossary.json)",
     )
     p_cg.add_argument(
         "--chunk-glossary-out",
         default=None,
         help="where the per-chunk JSON files land "
-        "(default: data/output/<book>/chunk-glossary)",
+        "(default: data/output/<book>/06-chunk-glossary)",
     )
     p_cg.add_argument(
         "--language",
@@ -2223,37 +2800,139 @@ def build_parser() -> argparse.ArgumentParser:
     p_cg.add_argument("--quiet", "-q", action="store_true")
     p_cg.set_defaults(func=cmd_chunk_glossary)
 
+    p_matter = sub.add_parser(
+        "matter",
+        help="stage 6b: localize the front/back matter before translation with its "
+        "own LangGraph agent — no dictionary, a web-searched published title, the "
+        "BleBel credit, original-edition material omitted, published formatting",
+    )
+    add_book(p_matter, required=False)
+    p_matter.add_argument(
+        "--out",
+        "-o",
+        default=None,
+        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters); "
+        "the chunks, translations and matter folders are derived from the book folder",
+    )
+    p_matter.add_argument(
+        "--chapters-in",
+        default=None,
+        help="the chapter folder the chunks were cut from (default: derived from the "
+        "book); point it at 02-preprocessed/ when that is what was chunked",
+    )
+    p_matter.add_argument(
+        "--chunks-in",
+        default=None,
+        help="the chunks folder from stage 5 (default: data/output/<book>/05-chunks); "
+        "a book folder or _chunk_manifest.json is also accepted",
+    )
+    p_matter.add_argument(
+        "--translations-out",
+        default=None,
+        help="where the localized matter chunks land; this is the same folder stage 7 "
+        "writes, so stage 8 assembles them with the body "
+        "(default: data/output/<book>/07-translations)",
+    )
+    p_matter.add_argument(
+        "--matter-out",
+        default=None,
+        help="where the book plan, manifest and trace land "
+        "(default: data/output/<book>/06b-matter)",
+    )
+    p_matter.add_argument(
+        "--prompts-out",
+        default=None,
+        help="where the whole agent input of each matter chunk lands "
+        "(default: data/output/<book>/06b-matter-prompts)",
+    )
+    p_matter.add_argument(
+        "--source-language",
+        "-s",
+        default=DEFAULT_SOURCE_LANGUAGE,
+        help=f"the language the book is written in (default: {DEFAULT_SOURCE_LANGUAGE})",
+    )
+    p_matter.add_argument(
+        "--target-language",
+        "-t",
+        default=DEFAULT_TARGET_LANGUAGE,
+        help=f"the language of the translated edition (default: {DEFAULT_TARGET_LANGUAGE})",
+    )
+    p_matter.add_argument(
+        "--book-title",
+        default=None,
+        help="the source title hint (default: the front matter's title or the filename)",
+    )
+    add_model_flags(p_matter)
+    p_matter.add_argument(
+        "--max-attempts",
+        type=int,
+        default=DEFAULT_MATTER_ATTEMPTS,
+        help="model turns allowed for the book plan and for each matter chunk "
+        f"(default: {DEFAULT_MATTER_ATTEMPTS})",
+    )
+    p_matter.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="localize only the first N matter chunks (a cheap look before the run)",
+    )
+    p_matter.add_argument(
+        "--resume",
+        "--skip-if-present",
+        dest="resume",
+        action="store_true",
+        help="reuse a matter chunk whose source hash and language pair still match the "
+        "manifest, and continue with the first pending chunk",
+    )
+    p_matter.add_argument(
+        "--no-prompts",
+        action="store_true",
+        help="do not write the per-chunk agent input records",
+    )
+    p_matter.add_argument(
+        "--no-manifest",
+        action="store_true",
+        help="do not write _matter_manifest.json / _matter_trace.json",
+    )
+    p_matter.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="ask the agent for every matter chunk but write no translation, prompt, "
+        "manifest or plan file",
+    )
+    p_matter.set_defaults(func=cmd_matter)
+
     p_tr = sub.add_parser(
         "translate",
         help="stage 7: translate every chunk in reading order, with the glossary "
-        "rows it mentions, into translations/ (English -> Serbian by default) and "
-        "keep the whole prompt of each call in translation-prompts/",
+        "rows it mentions, into 07-translations/ (English -> Serbian by default) and "
+        "keep the whole prompt of each call in 07-translation-prompts/",
     )
     add_book(p_tr, required=False)
     p_tr.add_argument(
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/chapters); "
+        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters); "
         "the chunks, glossary and translation folders are derived from the book folder",
     )
     p_tr.add_argument(
         "--chunks-in",
         default=None,
-        help="the chunks folder from stage 5 (default: data/output/<book>/chunks); "
+        help="the chunks folder from stage 5 (default: data/output/<book>/05-chunks); "
         "a book folder or _chunk_manifest.json is also accepted",
     )
     p_tr.add_argument(
         "--chunk-glossary-in",
         default=None,
         help="stage 6's per-chunk glossary folder "
-        "(default: data/output/<book>/chunk-glossary)",
+        "(default: data/output/<book>/06-chunk-glossary)",
     )
     p_tr.add_argument(
         "--glossary-in",
         default=None,
         help="stage 4's glossary folder or glossary.json, used when --glossary-scope "
-        "is book (default: data/output/<book>/glossary/glossary.json)",
+        "is book (default: data/output/<book>/04-glossary/glossary.json)",
     )
     p_tr.add_argument(
         "--glossary-scope",
@@ -2265,13 +2944,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_tr.add_argument(
         "--translations-out",
         default=None,
-        help="where the translated chunks land (default: data/output/<book>/translations)",
+        help="where the translated chunks land (default: data/output/<book>/07-translations)",
     )
     p_tr.add_argument(
         "--prompts-out",
         default=None,
         help="where the per-chunk prompt/input records land "
-        "(default: data/output/<book>/translation-prompts)",
+        "(default: data/output/<book>/07-translation-prompts)",
     )
     p_tr.add_argument(
         "--source-language",
@@ -2349,6 +3028,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="do not write the per-chunk prompt/input records",
     )
     p_tr.add_argument(
+        "--include-matter",
+        action="store_true",
+        help="also translate the front/back matter chunks, with this stage's prompt "
+        "(the old behaviour; stage 6b normally localizes them first)",
+    )
+    p_tr.add_argument(
         "--no-manifest",
         action="store_true",
         help="do not write _translation_manifest.json / _translation_trace.json",
@@ -2359,8 +3044,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="ask the model for every chunk but write no translation, prompt, "
         "manifest or trace",
     )
-    p_tr.add_argument("--provider", choices=sorted(PROVIDERS), default=None)
-    p_tr.add_argument("--model", default=None)
+    p_tr.add_argument(
+        "--translator",
+        "--provider",
+        dest="translator",
+        choices=sorted(TRANSLATION_CHOICES),
+        default=None,
+        help="model that translates the body chunks: 'deepseek' (the cloud default) "
+        "or 'lmstudio' (your local OpenAI-compatible server, "
+        "http://127.0.0.1:1234/v1 by default; the loaded model is auto-detected). "
+        "This choice affects stage 7 only — front/back matter and the other stages "
+        "keep the shared SPLITTER_* settings",
+    )
+    p_tr.add_argument("--model", default=None, help="the model id (e.g. the id LM Studio shows)")
     p_tr.add_argument("--base-url", default=None)
     p_tr.add_argument("--api-key", default=None)
     p_tr.add_argument("--temperature", type=float, default=0.0)
@@ -2372,32 +3068,32 @@ def build_parser() -> argparse.ArgumentParser:
         "concatenate",
         aliases=["assemble"],
         help="stage 8: concatenate the translated chunks back into one file per "
-        "chapter, in a separate translated-chapters/ folder",
+        "chapter, in a separate 08-translated-chapters/ folder",
     )
     add_book(p_concat, required=False)
     p_concat.add_argument(
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/chapters); "
+        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters); "
         "used to locate the chunks, translations and book folder",
     )
     p_concat.add_argument(
         "--chunks-in",
         default=None,
-        help="the chunks folder from stage 5 (default: data/output/<book>/chunks); "
+        help="the chunks folder from stage 5 (default: data/output/<book>/05-chunks); "
         "a book folder or _chunk_manifest.json is also accepted",
     )
     p_concat.add_argument(
         "--translations-in",
         default=None,
-        help="the translated chunks from stage 7 (default: a sibling of chunks/)",
+        help="the translated chunks from stage 7 (default: a sibling of 05-chunks/)",
     )
     p_concat.add_argument(
         "--chapters-out",
         default=None,
         help="where the translated chapter files go "
-        "(default: data/output/<book>/translated-chapters)",
+        "(default: data/output/<book>/08-translated-chapters)",
     )
     p_concat.add_argument(
         "--first-chapters",
@@ -2429,6 +3125,117 @@ def build_parser() -> argparse.ArgumentParser:
     p_concat.add_argument("--quiet", "-q", action="store_true")
     p_concat.set_defaults(func=cmd_concatenate)
 
+    p_post = sub.add_parser(
+        "postprocess",
+        help="stage 9: postprocess the translated chapters' headings and table of "
+        "contents in a separate folder, without reading chapter prose",
+    )
+    add_book(p_post, required=False)
+    p_post.add_argument(
+        "--out",
+        "-o",
+        default=None,
+        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters); "
+        "the translated-chapters and postprocessed-chapters folders are derived from it",
+    )
+    p_post.add_argument(
+        "--translated-chapters-in",
+        default=None,
+        help="stage 8's output folder (default: data/output/<book>/08-translated-chapters)",
+    )
+    p_post.add_argument(
+        "--chunks-in",
+        default=None,
+        help="alternative way to locate the book: stage 5's chunks folder; its sibling "
+        "08-translated-chapters/ is used as input",
+    )
+    p_post.add_argument(
+        "--postprocessed-out",
+        default=None,
+        help="where the postprocessed chapters go "
+        "(default: data/output/<book>/09-postprocessed-chapters)",
+    )
+    add_model_flags(p_post)
+    p_post.add_argument(
+        "--max-attempts",
+        type=int,
+        default=DEFAULT_POSTPROCESS_ATTEMPTS,
+        help="model turns allowed for the book plan and for each chapter "
+        f"(default: {DEFAULT_POSTPROCESS_ATTEMPTS})",
+    )
+    p_post.add_argument(
+        "--first-chapters",
+        "--chapters",
+        dest="first_chapters",
+        type=int,
+        default=None,
+        help="postprocess only front matter plus the first N body chapters "
+        "(the whole translated book when omitted)",
+    )
+    p_post.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="process only the first N body chapters (kept as a unit-limit alias)",
+    )
+    p_post.add_argument(
+        "--skip-if-present",
+        "--resume",
+        dest="skip_if_present",
+        action="store_true",
+        help="reuse a postprocessed chapter whose source hash and canonical title still "
+        "match the manifest, and start with the first chapter that is missing",
+    )
+    p_post.add_argument(
+        "--no-manifest",
+        action="store_true",
+        help="do not write _postprocess_manifest.json / _postprocess_trace.json",
+    )
+    p_post.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="validate the book plan and every chapter plan, and compute the TOC, "
+        "but write nothing",
+    )
+    p_post.set_defaults(func=cmd_postprocess)
+
+    p_bind = sub.add_parser(
+        "bind",
+        aliases=["full-book", "compile"],
+        help="stage 10: concatenate the postprocessed chapters into one Markdown book",
+    )
+    add_book(p_bind, required=False)
+    p_bind.add_argument(
+        "--out",
+        "-o",
+        default=None,
+        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters)",
+    )
+    p_bind.add_argument(
+        "--postprocessed-in",
+        default=None,
+        help="stage 9's output folder (default: data/output/<book>/09-postprocessed-chapters)",
+    )
+    p_bind.add_argument(
+        "--book-out",
+        default=None,
+        help="where the single Markdown book goes "
+        "(default: data/output/<book>/10-translated-book.md)",
+    )
+    p_bind.add_argument(
+        "--no-manifest",
+        action="store_true",
+        help="do not write _bind_manifest.json / _bind_trace.json",
+    )
+    p_bind.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="assemble and verify the book in memory but write no file",
+    )
+    p_bind.add_argument("--json", action="store_true", help="machine-readable result")
+    p_bind.add_argument("--quiet", "-q", action="store_true")
+    p_bind.set_defaults(func=cmd_bind)
+
     p_gloss = sub.add_parser(
         "glossary",
         help="stage 4: walk the reduced chapters first to last and build one "
@@ -2440,7 +3247,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/chapters)",
+        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters)",
     )
     p_gloss.add_argument(
         "--sentences",
@@ -2458,7 +3265,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--glossary-out",
         default=None,
         help="where to write glossary.json / glossary.md "
-        "(default: data/output/<book>/glossary)",
+        "(default: data/output/<book>/04-glossary)",
     )
     p_gloss.add_argument(
         "--source-language",
@@ -2568,6 +3375,11 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     try:
         return int(args.func(args))
+    except ToolError as exc:
+        # Stage 0's unsupported/image-based source and the other deterministic
+        # stages report one actionable line instead of a traceback.
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     except OSError as exc:
         # Includes FileNotFoundError: any disk-level problem (a read-only cache, a
         # missing folder on a computed path) is one actionable line, not a traceback.

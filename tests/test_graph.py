@@ -156,6 +156,45 @@ def test_graph_gives_up_when_the_model_never_submits(plain, tmp_path):
     assert not list(tmp_path.glob("*.md"))
 
 
+def test_the_last_turn_is_reserved_for_submitting_the_map(plain, tmp_path):
+    """The failure this guards against: the model spends every turn inspecting.
+
+    A run of *We Need to Talk About Kevin* used all six turns on `find_lines_matching`,
+    `inspect_line_window`, `web_search` and `inspect_book_tail`, then gave up with
+    nothing written. On the final allowed turn the agent is now told that only a
+    submission is useful, while earlier turns are left un-nagged.
+    """
+    model = ScriptedModel([
+        _tool_call("scan_markdown_headers", {"file_path": str(plain)}, f"c{i}")
+        for i in range(1, 4)
+    ])
+    final = _invoke_graph(model, plain, tmp_path, max_attempts=3)
+
+    assert final["attempts"] == 3
+    assert final["result"]["ok"] is False
+    first_turn = "\n".join(str(m.content) for m in model.seen_messages[0])
+    last_turn = "\n".join(str(m.content) for m in model.seen_messages[-1])
+    assert "FINAL TURN" not in first_turn
+    assert "FINAL TURN" in last_turn
+    assert "propose_split_map" in last_turn
+
+
+def test_a_map_submitted_on_the_final_turn_still_slices(plain, tmp_path, plan):
+    """The final-turn nudge must not close the door it is pointing at."""
+    mapping = plan([(12, "01-predgovor.md"), (18, "02-dolazak.md"), (28, "03-oluja.md")])
+    model = ScriptedModel([
+        _tool_call("scan_markdown_headers", {"file_path": str(plain)}, "c1"),
+        _tool_call("scan_markdown_headers", {"file_path": str(plain)}, "c2"),
+        _tool_call("propose_split_map", {"split_mapping": mapping, "strategy": "heuristics"}, "c3"),
+    ])
+    final = _invoke_graph(model, plain, tmp_path, max_attempts=3)
+
+    assert final["attempts"] == 3
+    assert final["validation"]["ok"], final["validation"]["issues"]
+    assert final["verification"]["ok"]
+    assert final["verification"]["reassembles_byte_for_byte"]
+
+
 def test_graph_dry_run_validates_but_writes_nothing(plain, tmp_path, plan):
     mapping = plan([(12, "01-a.md"), (18, "02-b.md"), (28, "03-c.md")])
     model = ScriptedModel([
@@ -222,6 +261,10 @@ def test_scout_report_lists_no_body_text(plain):
     assert "Ova knjiga je nastala iz niza razgovora" not in report
     assert "SCOUT REPORT" in report
     assert "printed_toc_block" in report
+    # The model is told its turn budget from the start, so the last turn is kept
+    # for the submission rather than for one more inspection.
+    assert "budget:" in report
+    assert "propose_split_map" in report
 
 
 def test_a_failed_split_still_writes_its_trace(monkeypatch, tmp_path, plain):
@@ -238,7 +281,7 @@ def test_a_failed_split_still_writes_its_trace(monkeypatch, tmp_path, plain):
     real_build = runner.build_graph
     monkeypatch.setattr(runner, "build_graph", lambda settings=None: real_build(model=silent))
 
-    out_dir = tmp_path / "chapters"
+    out_dir = tmp_path / "01-chapters"
     result = runner.run_split(str(plain), str(out_dir), max_attempts=2, recursion_limit=30)
 
     assert not result.ok

@@ -33,15 +33,15 @@ CHAPTERS = {
 def _project(tmp_path: Path, *, chunk_size: int = 4) -> tuple[Path, Path, Path, Path]:
     """Chapters, chunks and one fake translation per chunk, in a book folder."""
     book = tmp_path / "book"
-    chapters = book / "chapters"
+    chapters = book / "01-chapters"
     chapters.mkdir(parents=True)
     for filename, text in CHAPTERS.items():
         (chapters / filename).write_text(text, encoding="utf-8")
     chunking = run_chunking(str(chapters), tokenizer="word", chunk_size=chunk_size)
     assert chunking.ok is True
 
-    chunks = book / "chunks"
-    translations = book / "translations"
+    chunks = book / "05-chunks"
+    translations = book / "07-translations"
     translations.mkdir()
     for entry in chunk_files(chunks):
         name = str(entry["filename"])
@@ -73,14 +73,14 @@ def test_each_chapter_is_the_concatenation_of_its_translated_chunks(tmp_path: Pa
     assert result.ok is True
     assert result.chapter_count == 3
     output = Path(result.output_dir)
-    assert output == book / "translated-chapters"
+    assert output == book / "08-translated-chapters"
     assert _chapter_files(output) == sorted(CHAPTERS)
     for filename in CHAPTERS:
         assert (output / filename).read_text(encoding="utf-8") == _expected_chapter(
             chunks, translations, filename
         )
     # The source chapters are untouched and the output is a separate folder.
-    assert (book / "chapters" / "01-one.md").read_text(encoding="utf-8") == CHAPTERS["01-one.md"]
+    assert (book / "01-chapters" / "01-one.md").read_text(encoding="utf-8") == CHAPTERS["01-one.md"]
     assert (output / "_translated_chapters_manifest.json").is_file()
     assert (output / "_translated_chapters_trace.json").is_file()
 
@@ -168,7 +168,7 @@ def test_the_concatenate_command_finds_the_book_folders(tmp_path: Path):
     )
 
     assert code == 0
-    output = book / "translated-chapters"
+    output = book / "08-translated-chapters"
     assert _chapter_files(output) == ["01-one.md", "02-two.md"]
     assert (output / "_translated_chapters_manifest.json").is_file()
 
@@ -180,7 +180,7 @@ def test_a_chapter_window_counts_body_chapters_not_front_matter(tmp_path: Path):
         is_body_chapter_name,
     )
 
-    chapters = tmp_path / "book" / "chapters"
+    chapters = tmp_path / "book" / "01-chapters"
     chapters.mkdir(parents=True)
     (chapters / "00-front-matter.md").write_text("Front matter.\n", encoding="utf-8")
     for name in ("01-one.md", "02-two.md", "03-three.md"):
@@ -200,16 +200,17 @@ def test_a_chapter_window_counts_body_chapters_not_front_matter(tmp_path: Path):
     assert chapter_window_limit_for_path(chapters, None, 2) == 2
 
 
-def test_assembly_first_chapters_skips_front_matter(tmp_path: Path):
+def test_assembly_first_chapters_keeps_front_and_back_matter(tmp_path: Path):
     book = tmp_path / "book"
-    chapters = book / "chapters"
+    chapters = book / "01-chapters"
     chapters.mkdir(parents=True)
     (chapters / "00-front-matter.md").write_text("Front matter.\n", encoding="utf-8")
     for name in ("01-one.md", "02-two.md"):
         (chapters / name).write_text(f"{name} text.\n", encoding="utf-8")
+    (chapters / "99-back-matter.md").write_text("Back matter.\n", encoding="utf-8")
     run_chunking(str(chapters), tokenizer="word", chunk_size=3)
-    chunks = book / "chunks"
-    translations = book / "translations"
+    chunks = book / "05-chunks"
+    translations = book / "07-translations"
     translations.mkdir()
     for entry in chunk_files(chunks):
         (translations / str(entry["filename"])).write_text(
@@ -218,9 +219,14 @@ def test_assembly_first_chapters_skips_front_matter(tmp_path: Path):
 
     windowed = run_assembly(str(chunks), str(translations), first_chapters=1)
     assert windowed.ok is True
-    assert _chapter_files(Path(windowed.output_dir)) == ["01-one.md"]
+    assert _chapter_files(Path(windowed.output_dir)) == [
+        "00-front-matter.md",
+        "01-one.md",
+        "99-back-matter.md",
+    ]
 
     whole = run_assembly(
         str(chunks), str(translations), output_dir=book / "all-chapters"
     )
     assert "00-front-matter.md" in _chapter_files(Path(whole.output_dir))
+    assert "99-back-matter.md" in _chapter_files(Path(whole.output_dir))

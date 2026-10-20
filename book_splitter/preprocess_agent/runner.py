@@ -33,7 +33,12 @@ from ..core.constants import (
     PREPROCESS_TRACE_FILENAME,
 )
 from ..core.settings import LLMSettings
-from ..documents.chapters import Chapter, discover_chapters, preprocessed_dir
+from ..documents.chapters import (
+    Chapter,
+    discover_chapters,
+    file_sha256,
+    preprocessed_dir,
+)
 from ..preprocess.corpus import scan_corpus_damage
 from .graph import build_preprocess_graph
 from .state import PreprocessState
@@ -118,9 +123,23 @@ def _reusable_chapter(
     out_dir: Path,
     previous: dict[str, dict[str, Any]],
 ) -> ChapterResult | None:
-    """A chapter this run can reuse instead of asking the model again."""
+    """A chapter this run can reuse instead of asking the model again.
+
+    Reuse is only safe when the source chapter and the cleaned file are both
+    still the ones the previous run produced: a re-split rewrites chapter files
+    under the same names, and a manual edit to ``02-preprocessed/`` must not be
+    mistaken for a finished cleaning. Newer manifests record both hashes; older
+    ones only carry the line counts, which is still enough to notice a re-split
+    that changed the chapter's size.
+    """
     entry = previous.get(chapter.filename)
     if not entry or not entry.get("verification_ok"):
+        return None
+    recorded_lines = entry.get("source_lines")
+    if recorded_lines is not None and int(recorded_lines) != chapter.line_count:
+        return None
+    recorded_source = str(entry.get("source_sha256") or "")
+    if recorded_source and chapter.sha256 and recorded_source != chapter.sha256:
         return None
     candidates = [
         Path(str(entry.get("path") or "")),
@@ -129,6 +148,9 @@ def _reusable_chapter(
     ]
     path = next((candidate for candidate in candidates if candidate.is_file()), None)
     if path is None:
+        return None
+    recorded_output = str(entry.get("sha256") or "")
+    if recorded_output and file_sha256(path) != recorded_output:
         return None
     return ChapterResult(
         chapter_id=chapter.chapter_id,
@@ -311,19 +333,33 @@ def summarise_chapter(chapter: Chapter, final: dict, dry_run: bool) -> ChapterRe
 
 
 def chapter_records(results: list[ChapterResult], chapters: list[Chapter]) -> list[dict[str, Any]]:
-    """Chapter records in the same shape stage 1 uses, so stage 3 can reuse readers."""
+    """Chapter records in the same shape stage 1 uses, so stage 3 can reuse readers.
+
+    The record carries the stage-1 title and source range, the cleaned file's
+    line/byte counts, and both hashes: ``source_sha256`` (the chapter it was
+    cleaned from, so a re-split invalidates reuse) and ``sha256`` (the cleaned
+    file, so a hand edit does too). ``load_split_manifest`` reads this file when a
+    folder has no stage-1 ``_manifest.json``, which is how ``02-preprocessed/``
+    keeps its chapter titles and order downstream.
+    """
     by_id = {c.chapter_id: c for c in chapters}
     records: list[dict[str, Any]] = []
     for result in results:
         source = by_id.get(result.chapter_id)
+        output = Path(result.output_path).expanduser() if result.output_path else None
+        written = output is not None and output.is_file()
         records.append(
             {
                 "filename": result.filename,
                 "chapter_id": result.chapter_id,
                 "path": result.output_path or result.source_path,
                 "source_path": result.source_path,
+                "title": source.title if source else "",
+                "source_sha256": source.sha256 if source else "",
                 "source_lines": result.source_lines,
                 "lines": result.output_lines,
+                "bytes": output.stat().st_size if written else 0,
+                "sha256": file_sha256(output) if written else "",
                 "start_line": source.start_line if source else None,
                 "end_line": source.end_line if source else None,
                 "operations": result.operations,
@@ -344,8 +380,9 @@ def write_preprocess_manifest(
     """Write the book-level stage-2 manifest next to the cleaned chapters.
 
     The record shape matches stage 1's ``_manifest.json`` (``filename``,
-    ``lines``, ``start_line``, ``end_line``), so the next stage can read both
-    folders with the same reader.
+    ``lines``, ``start_line``, ``end_line``, plus the title and both hashes), so
+    the next stage can read either folder with the same reader. Stage 1 has used
+    ``source_file`` and ``source_path`` over its lifetime, so both are carried.
     """
     path = Path(out_dir) / PREPROCESS_MANIFEST_FILENAME
     if results is None:
@@ -353,10 +390,17 @@ def write_preprocess_manifest(
     from ..documents.chapters import load_split_manifest
 
     stage_one = load_split_manifest(result.chapters_path)
+    source_file = (
+        result.corpus_scan.get("source_file")
+        or stage_one.get("source_file")
+        or stage_one.get("source_path")
+        or ""
+    )
     payload = {
         "stage": "preprocess",
         "chapters_path": result.chapters_path,
-        "source_file": result.corpus_scan.get("source_file") or stage_one.get("source_file", ""),
+        "source_file": source_file,
+        "source_path": source_file,
         "ok": result.ok,
         "dry_run": result.dry_run,
         "chapter_count": result.chapter_count,

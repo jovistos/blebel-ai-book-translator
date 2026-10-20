@@ -1,6 +1,6 @@
 """Stage-4 entry point: turn the reduced chapters into one book-wide glossary.
 
-Stage 3 left a folder of first mentions — ``reduced-unique/`` — one sentence per
+Stage 3 left a folder of first mentions — ``03-reduced-unique/`` — one sentence per
 noun, in reading order, and stopped there on purpose. This is the pass that folder
 was built for.
 
@@ -8,15 +8,15 @@ The run walks the **body** chapters from first to last, one model call per
 chapter, and grows a single dictionary:
 
 ```
-reduced-unique/01-chapter-1.md   -> call 1: the dictionary is empty, the model
+03-reduced-unique/01-chapter-1.md   -> call 1: the dictionary is empty, the model
                                     finds the entities and fixes a rendering
                                     for each
-reduced-unique/02-chapter-2.md   -> call 2: the prompt now carries the whole
+03-reduced-unique/02-chapter-2.md   -> call 2: the prompt now carries the whole
                                     dictionary so far, and the model is told
                                     only to add what is new
 ...
-reduced-unique/41-chapter-41.md  -> call 41
-                                 -> glossary/glossary.json + glossary.md
+03-reduced-unique/41-chapter-41.md  -> call 41
+                                 -> 04-glossary/glossary.json + glossary.md
 ```
 
 That order is the whole design. A dictionary built chapter by chapter *with the
@@ -508,7 +508,9 @@ def run_glossary(
     ``skip_if_present`` resumes: the dictionary and the cost of the chapters
     already recorded in ``_glossary_manifest.json`` are loaded, and the run starts
     at the first body chapter that is missing from it. That is what makes a run
-    that died on chapter 30 cost the price of chapters 30..N, not of the book.
+    that died on chapter 30 cost the price of chapters 30..N, not of the book. A
+    manifest that names a different chapter folder (raw ``01-chapters/`` vs cleaned
+    ``02-preprocessed/``) is not resumed: the filenames match but the text does not.
 
     ``dry_run`` still calls the model — the answer *is* the artifact, so there is
     nothing to validate without asking — but writes no file.
@@ -547,13 +549,24 @@ def run_glossary(
     }
 
     previous_manifest = _previous_manifest(out_dir) if skip_if_present else {}
+    # Resume is only valid for the same chapter folder: raw ``01-chapters/`` and
+    # cleaned ``02-preprocessed/`` share filenames but not text, so a dictionary
+    # built from one is not a partial version of the other. A changed source
+    # clears the previous manifest and rebuilds, while an older manifest without
+    # the field keeps the old resume behaviour.
+    previous_source = str(previous_manifest.get("chapters_path") or "").strip()
+    same_source = not previous_source or (
+        Path(previous_source).expanduser().resolve() == source_dir.resolve()
+    )
+    if not same_source:
+        previous_manifest = {}
     previous_files = {
         str(entry.get("filename")): entry
         for entry in previous_manifest.get("files") or []
         if isinstance(entry, dict) and entry.get("filename")
     }
     resumed = bool(previous_manifest)
-    resume_enabled = bool(skip_if_present and not dry_run)
+    resume_enabled = bool(skip_if_present and not dry_run and same_source)
     book, totals, previous_conflicts, done = _resume_state(
         out_dir, previous_manifest, enabled=resume_enabled
     )
@@ -728,9 +741,9 @@ def resolve_sentences_dir(
 ) -> Path:
     """Where the sentences to mine come from: explicit, or the sibling folder.
 
-    ``unique`` prefers ``reduced-unique/`` and falls back to ``reduced/`` when the
+    ``unique`` prefers ``03-reduced-unique/`` and falls back to ``03-reduced/`` when the
     first-mention folder was never written (a stage-3 run with
-    ``--no-save-unique``). ``reduced`` goes straight to ``reduced/``. Either way
+    ``--no-save-unique``). ``reduced`` goes straight to ``03-reduced/``. Either way
     the folder has to hold at least one chapter file, or the run says which folder
     it looked in instead of silently building an empty dictionary.
     """
