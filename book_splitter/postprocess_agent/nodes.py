@@ -17,7 +17,6 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from ..agent.tools.postprocess import apply_chapter_postprocess
 from ..documents.chapters import postprocessed_chapters_dir
 from ..postprocess.inspect import scan_book_structure, scan_chapter_structure
 from ..postprocess.plan import (
@@ -26,6 +25,8 @@ from ..postprocess.plan import (
     validate_chapter_plan,
     verify_chapter_plan,
 )
+from ..toolkit.context import ToolContext
+from ..toolkit.postprocess import apply_chapter_postprocess
 from .prompts import (
     BOOK_SYSTEM_PROMPT,
     CHAPTER_SYSTEM_PROMPT,
@@ -192,6 +193,7 @@ def make_apply_node():
                     "plan": plan,
                     "canonical_title": canonical,
                     "output_dir": out_dir,
+                    "ctx": ToolContext.from_state(state),
                 }
             )
             payload = json.loads(raw)

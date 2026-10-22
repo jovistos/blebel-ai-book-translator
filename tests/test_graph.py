@@ -312,7 +312,8 @@ class _ToolBinder:
 
 def test_the_splitter_binds_only_its_stage_toolset():
     from book_splitter.agent.llm import bind_tools
-    from book_splitter.agent.tools import PREPROCESS_TOOLS, SPLIT_TOOLS
+    from book_splitter.agent.tools import SPLIT_TOOLS
+    from book_splitter.toolkit.preprocess import PREPROCESS_TOOLS
 
     binder = _ToolBinder()
     bind_tools(binder)

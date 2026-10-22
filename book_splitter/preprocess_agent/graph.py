@@ -17,11 +17,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..agent.tools import PREPROCESS_TOOL_BY_NAME
 from ..agent.tools.registry import PREPROCESS_WRITE_TOOLS
 from ..core.constants import MAX_FEEDBACK_LOOPS
 from ..core.settings import LLMSettings, resolve_settings
 from ..stage_graph import StageSpec, TailStep, build_stage_graph
+from ..toolkit.preprocess import PREPROCESS_TOOL_BY_NAME
 from .llm import make_preprocess_llm
 from .nodes import (
     make_apply_node,

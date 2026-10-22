@@ -21,7 +21,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..agent.tools.postprocess import reset_chapter_scope, set_chapter_scope
 from ..core.artifacts import timestamp, write_manifest, write_trace
 from ..core.constants import (
     DEFAULT_POSTPROCESS_ATTEMPTS,
@@ -271,7 +270,6 @@ def run_postprocess(
         "feedback": [],
         "messages": [],
     }
-    book_scope = set_chapter_scope(source_dir)
     web: dict[str, Any] = {
         "required": require_web_search,
         "attempted": False,
@@ -294,8 +292,6 @@ def run_postprocess(
             out_dir.mkdir(parents=True, exist_ok=True)
             result.trace_path = str(write_postprocess_trace(out_dir, result))
         return result
-    finally:
-        reset_chapter_scope(book_scope)
     validation = book_final.get("validation") or {}
     plan = book_final.get("book_plan") or {}
     web = {
@@ -393,7 +389,6 @@ def run_postprocess(
             "feedback": [],
             "messages": [],
         }
-        scope = set_chapter_scope(source_dir)
         try:
             assert chapter_app is not None
             final = chapter_app.invoke(initial, config={"recursion_limit": recursion_limit})
@@ -410,8 +405,6 @@ def run_postprocess(
                 errors.append(f"{path.name}: {failed.error}")
             announce(failed)
             return failed
-        finally:
-            reset_chapter_scope(scope)
 
         result = summarise_chapter(path, final, canonical_title=title, dry_run=dry_run)
         with lock:

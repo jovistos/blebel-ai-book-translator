@@ -13,9 +13,9 @@ from typing import Any
 from pydantic import SecretStr
 
 from ..agent.llm import bind_tools
-from ..agent.tools.matter import BOOK_TOOL_NAMES, CHUNK_TOOL_NAMES
 from ..agent.tools.registry import tool_by_name
 from ..core.settings import LLMSettings
+from ..toolkit.matter import BOOK_TOOL_NAMES, CHUNK_TOOL_NAMES
 
 
 def _tools(names: tuple[str, ...]) -> list[Any]:

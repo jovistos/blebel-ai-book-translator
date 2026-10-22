@@ -27,12 +27,12 @@ tools through the same registry.
 
 from __future__ import annotations
 
-from contextvars import ContextVar
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from langchain_core.tools import tool
+from langchain_core.tools import InjectedToolArg, tool
 
+from ...agent.tools.registry import postprocess_stage
 from ...core.artifacts import write_text
 from ...core.constants import (
     DEFAULT_TOC_HEADING,
@@ -74,39 +74,28 @@ from ...postprocess.toc import (
     detect_toc,
     verify_toc,
 )
-from .registry import postprocess_stage
+from ..context import ToolContext
 
-#: The chapter folder a chapter graph is working in. Tool calls are resolved
-#: against it, so a model that repeats the bare filename it saw in a report still
-#: reaches the real file instead of failing four times.
-_CHAPTER_SCOPE: ContextVar[str | None] = ContextVar("postprocess_chapter_scope", default=None)
-
-
-def set_chapter_scope(chapters_path: str | Path) -> Any:
-    """Point the chapter tools at the folder the current chapter lives in."""
-    return _CHAPTER_SCOPE.set(str(Path(chapters_path).expanduser()))
+#: A tool call carries only what the model chose; the folder the graph is working
+#: in arrives explicitly as :class:`ToolContext`, so a model that repeats the bare
+#: filename it saw in a report still reaches the real file instead of failing.
 
 
-def reset_chapter_scope(token: Any) -> None:
-    """Restore the previous chapter scope (used by the runner around one chapter)."""
-    _CHAPTER_SCOPE.reset(token)
-
-
-def resolve_chapter_path(path: str | Path) -> Path:
+def resolve_chapter_path(path: str | Path, ctx: ToolContext) -> Path:
     """Resolve a chapter path, accepting a bare filename from the model.
 
     The prompt shows the absolute path and tells the model to use it. This is the
     safety net for the common failure mode: the model repeats the filename from
-    the report (``01-chapter-1.md``) or invents a prefix. The current chapter
+    the report (``01-chapter-1.md``) or invents a prefix. The context's chapter
     folder is authoritative; a path that does not exist is searched by basename
     there. A genuinely wrong chapter name still raises a clear error.
     """
     candidate = Path(str(path or "")).expanduser()
     if candidate.is_file():
         return candidate
-    base = _CHAPTER_SCOPE.get()
+    base = ctx.chapters_dir
     if base:
-        for option in (Path(base) / candidate.name, Path(base) / candidate):
+        for option in (base / candidate.name, base / candidate):
             if option.is_file():
                 return option
     where = f" (current chapter folder: {base})" if base else ""
@@ -145,7 +134,9 @@ CHAPTER_TOOL_NAMES = (
 
 @postprocess_stage
 @tool
-def list_chapter_titles(chapters_path: str) -> str:
+def list_chapter_titles(
+    chapters_path: str, *, ctx: Annotated[ToolContext, InjectedToolArg]
+) -> str:
     """THE FIRST STEP: list every chapter title in the book, in reading order.
 
     This is the cheap, book-level view the naming decision needs: one record per
@@ -159,9 +150,9 @@ def list_chapter_titles(chapters_path: str) -> str:
     """
     path = Path(str(chapters_path or "")).expanduser()
     if not path.is_dir():
-        base = _CHAPTER_SCOPE.get()
-        if base and (Path(base).parent / path.name).is_dir():
-            path = Path(base).parent / path.name
+        base = ctx.chapters_dir
+        if base and (base.parent / path.name).is_dir():
+            path = base.parent / path.name
     book = scan_book_structure(path)
     book.pop("structures", None)
     return jdump(book)
@@ -183,7 +174,9 @@ def inspect_matter_blocks(chapters_path: str) -> str:
 
 @postprocess_stage
 @tool
-def inspect_chapter_opening(chapter_path: str) -> str:
+def inspect_chapter_opening(
+    chapter_path: str, *, ctx: Annotated[ToolContext, InjectedToolArg]
+) -> str:
     """Look at only the first few lines of one chapter — where its title lives.
 
     Pass the exact `chapter_path` from the CHAPTER REPORT; a bare filename is
@@ -192,7 +185,7 @@ def inspect_chapter_opening(chapter_path: str) -> str:
     subtitle, and at most 8 clipped opening lines. This is the only chapter-text
     tool, and it is capped hard: never use it to read a chapter.
     """
-    path = resolve_chapter_path(chapter_path)
+    path = resolve_chapter_path(chapter_path, ctx)
     structure = scan_chapter_structure(path)
     return jdump(
         {
@@ -220,7 +213,9 @@ def inspect_chapter_opening(chapter_path: str) -> str:
 
 @postprocess_stage
 @tool
-def inspect_chapter_headings(chapter_path: str) -> str:
+def inspect_chapter_headings(
+    chapter_path: str, *, ctx: Annotated[ToolContext, InjectedToolArg]
+) -> str:
     """List every heading in one chapter with its short surrounding evidence.
 
     Each record has the line number, level, clipped heading text, a deterministic
@@ -234,7 +229,7 @@ def inspect_chapter_headings(chapter_path: str) -> str:
     heading. It never returns a paragraph. Pass the exact `chapter_path` from the
     CHAPTER REPORT, never a bare filename.
     """
-    path = resolve_chapter_path(chapter_path)
+    path = resolve_chapter_path(chapter_path, ctx)
     structure = scan_chapter_structure(path)
     return jdump(
         {
@@ -264,14 +259,20 @@ def inspect_chapter_headings(chapter_path: str) -> str:
 
 @postprocess_stage
 @tool
-def inspect_heading_context(chapter_path: str, line_number: int, context: int = 1) -> str:
+def inspect_heading_context(
+    chapter_path: str,
+    line_number: int,
+    context: int = 1,
+    *,
+    ctx: Annotated[ToolContext, InjectedToolArg],
+) -> str:
     """Look at one heading and its immediate neighbourhood (clipped).
 
     Use this when `inspect_chapter_headings` leaves a heading ambiguous. Returns
     the heading, its deterministic suggestion and evidence, and at most two
     clipped non-blank lines before and after. It is not a way to read a chapter.
     """
-    path = resolve_chapter_path(chapter_path)
+    path = resolve_chapter_path(chapter_path, ctx)
     return jdump(inspect_heading_context_fn(path, line_number, context_lines=context))
 
 
@@ -360,6 +361,8 @@ def validate_chapter_postprocess(
     chapter_path: str,
     plan: dict,
     canonical_title: str = "",
+    *,
+    ctx: Annotated[ToolContext, InjectedToolArg],
 ) -> str:
     """Dry-run one chapter's title/heading plan against the real file.
 
@@ -368,7 +371,7 @@ def validate_chapter_postprocess(
     actual Markdown header or a plain ALL-CAPS heading candidate. Issues are
     actionable; warnings flag suspicious headings the plan leaves untouched.
     """
-    path = resolve_chapter_path(chapter_path)
+    path = resolve_chapter_path(chapter_path, ctx)
     return jdump(
         validate_chapter_plan(
             path,
@@ -440,6 +443,8 @@ def apply_chapter_postprocess(
     plan: dict,
     canonical_title: str = "",
     output_dir: str = "",
+    *,
+    ctx: Annotated[ToolContext, InjectedToolArg],
 ) -> str:
     """Write one postprocessed chapter into the output folder.
 
@@ -449,7 +454,7 @@ def apply_chapter_postprocess(
     only the declared lines changed. The graph blocks it until the plan passed
     validation for this chapter.
     """
-    path = resolve_chapter_path(chapter_path)
+    path = resolve_chapter_path(chapter_path, ctx)
     out_dir = Path(output_dir).expanduser() if output_dir else postprocessed_chapters_dir(path)
     out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / path.name
@@ -561,23 +566,25 @@ def verify_postprocessed_chapters(
 
 def book_tools() -> list[Any]:
     """The tools the book-plan graph binds (definition order)."""
-    from . import TOOL_BY_NAME
+    from ...agent.tools.registry import tool_by_name
 
-    return [TOOL_BY_NAME[name] for name in BOOK_TOOL_NAMES if name in TOOL_BY_NAME]
+    return [
+        tool for name in BOOK_TOOL_NAMES if (tool := tool_by_name(name)) is not None
+    ]
 
 
 def chapter_tools() -> list[Any]:
     """The tools the chapter-plan graph binds (definition order)."""
-    from . import TOOL_BY_NAME
+    from ...agent.tools.registry import tool_by_name
 
-    return [TOOL_BY_NAME[name] for name in CHAPTER_TOOL_NAMES if name in TOOL_BY_NAME]
+    return [
+        tool for name in CHAPTER_TOOL_NAMES if (tool := tool_by_name(name)) is not None
+    ]
 
 
 __all__ = [
     "BOOK_TOOL_NAMES",
-    "reset_chapter_scope",
     "resolve_chapter_path",
-    "set_chapter_scope",
     "CHAPTER_TOOL_NAMES",
     "apply_book_toc",
     "apply_chapter_postprocess",

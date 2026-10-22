@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..agent.tools import MATTER_TOOL_BY_NAME
-from ..agent.tools.matter import BOOK_TOOL_NAMES, CHUNK_TOOL_NAMES
+from ..toolkit.matter import BOOK_TOOL_NAMES, CHUNK_TOOL_NAMES, MATTER_TOOL_BY_NAME
 
 #: Tool whose accepted result *is* the book plan.
 BOOK_PLAN_TOOL = "report_matter_plan"

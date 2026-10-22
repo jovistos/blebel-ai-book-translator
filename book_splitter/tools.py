@@ -1,9 +1,12 @@
-"""Deprecated import path — the tools now live in :mod:`book_splitter.agent.tools`.
+"""Deprecated import path — the tools now live with the stage that owns them.
 
 This module keeps the old ``book_splitter.tools`` namespace working: it exposes
 the LangChain tools plus the deterministic functions they wrap, so existing
-imports and tests continue to work. New code should import from the subpackage
-that owns the function (:mod:`book_splitter.analysis`,
+imports and tests continue to work. New code should import from the package that
+owns the function: :mod:`book_splitter.agent.tools` (stage 1 and the shared
+tools), :mod:`book_splitter.toolkit.preprocess`,
+:mod:`book_splitter.toolkit.postprocess` and :mod:`book_splitter.toolkit.matter`,
+or the deterministic layer (:mod:`book_splitter.analysis`,
 :mod:`book_splitter.slicing`, :mod:`book_splitter.documents`).
 """
 
@@ -12,14 +15,11 @@ from __future__ import annotations
 # --- registry and tools ----------------------------------------------------- #
 from .agent.tools import (
     BLOCKED_MESSAGE,
-    PREPROCESS_TOOLS,
     SPLIT_TOOLS,
     TOOL_BY_NAME,
     TOOLS,
     WRITE_TOOLS,
     all_tools,
-    apply_chapter_cleaning,
-    collect_chapter_headers,
     detect_native_toc,
     extract_front_matter,
     extract_heuristic_candidates,
@@ -30,13 +30,10 @@ from .agent.tools import (
     list_chapter_files,
     locate_toc_titles_in_file,
     propose_split_map,
-    report_chapter_cleaning,
     scan_corpus_damage_tool,
     scan_markdown_headers,
     slice_book_by_line_numbers,
-    validate_chapter_cleaning,
     validate_split_map_tool,
-    verify_preprocessed_chapters,
     verify_sliced_output,
 )
 
@@ -90,6 +87,14 @@ from .slicing.plan import (
 from .slicing.slice import preview_split, slice_book, write_manifest_file
 from .slicing.validation import validate_source, validate_split_map
 from .slicing.verify import source_digest_for_manifest, verify_output, verify_output_dir
+from .toolkit.preprocess import (
+    PREPROCESS_TOOLS,
+    apply_chapter_cleaning,
+    collect_chapter_headers,
+    report_chapter_cleaning,
+    validate_chapter_cleaning,
+    verify_preprocessed_chapters,
+)
 
 __all__ = [
     "BLOCKED_MESSAGE",

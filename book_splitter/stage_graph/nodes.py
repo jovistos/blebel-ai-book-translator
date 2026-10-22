@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from ..documents.text import jdump, short_args, summarise_payload
+from ..toolkit.context import ToolContext, wants_context
 
 if TYPE_CHECKING:  # the package imports this module while defining StageSpec
     from . import StageSpec
@@ -122,6 +123,10 @@ def make_tool_node(*, spec: StageSpec):
             out_messages: list[ToolMessage] = []
             updates: dict[str, Any] = {}
             log: list[str] = []
+            # The run, not the model, decides which folder/book/chunk a tool
+            # resolves against; the tools that need it declare an injected
+            # ``ctx`` argument.
+            ctx = ToolContext.from_state(state)
 
             for call in calls:
                 name = call.get("name", "")
@@ -190,8 +195,11 @@ def make_tool_node(*, spec: StageSpec):
                     )
                     continue
 
+                call_args = dict(args)
+                if wants_context(tool):
+                    call_args["ctx"] = ctx
                 try:
-                    payload = tool.invoke(args)
+                    payload = tool.invoke(call_args)
                     status = "success"
                 except Exception as exc:  # bad args, missing file, ...
                     payload = jdump(

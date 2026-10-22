@@ -29,6 +29,7 @@ from typing import Any
 
 from langchain_core.tools import tool
 
+from ...agent.tools.registry import preprocess_stage
 from ...core.artifacts import write_text
 from ...core.constants import (
     DEFAULT_MAX_HEADERS,
@@ -51,7 +52,6 @@ from ...preprocess.transform import (
     validate_cleaning_plan,
     verify_cleaning_plan,
 )
-from .registry import preprocess_stage
 
 
 def _line_number_of(entry: dict[str, Any]) -> int | None:

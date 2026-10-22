@@ -23,12 +23,12 @@ not a model tool: the graph writes the accepted translation after validation.
 
 from __future__ import annotations
 
-from contextvars import ContextVar
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from langchain_core.tools import tool
+from langchain_core.tools import InjectedToolArg, tool
 
+from ...agent.tools.registry import matter_stage
 from ...core.constants import (
     DEFAULT_MATTER_CREDIT,
     MATTER_TRANSLATOR_NAME,
@@ -40,7 +40,6 @@ from ...matter.inspect import (
     MatterBook,
     MatterSection,
     body_chapter_titles,
-    build_matter_book,
     read_section_text,
 )
 from ...matter.plan import (
@@ -49,89 +48,46 @@ from ...matter.plan import (
 from ...matter.plan import (
     validate_matter_translation as validate_matter_translation_fn,
 )
-from .registry import matter_stage
+from ..context import ToolContext
 
-#: The folders, section, chunk and book plan the current graph is working on.
-#: A tool call is resolved against this instead of trusting a path the model
-#: invented; the runner gives each chunk graph a fresh scope.
-_SCOPE: ContextVar[dict[str, Any] | None] = ContextVar("matter_scope", default=None)
-
-
-def set_matter_scope(
-    chapters_path: str | Path | None = None,
-    chunks_path: str | Path | None = None,
-    *,
-    book: MatterBook | None = None,
-    section: MatterSection | None = None,
-    chunk: Any = None,
-    plan: dict[str, Any] | None = None,
-    is_first_front_chunk: bool = False,
-    is_first_section_chunk: bool = False,
-) -> Any:
-    """Point the matter tools at the book/section/chunk being worked on."""
-    if book is None and chapters_path is not None:
-        book = build_matter_book(chapters_path, chunks_path)
-    current = dict(_SCOPE.get() or {})
-    current.update(
-        {
-            "book": book,
-            "section": section,
-            "chunk": chunk,
-            "plan": plan,
-            "is_first_front_chunk": bool(is_first_front_chunk),
-            "is_first_section_chunk": bool(is_first_section_chunk),
-        }
-    )
-    return _SCOPE.set(current)
+#: A tool call carries only what the model chose. The book, section and chunk the
+#: graph is working on arrive explicitly as :class:`ToolContext`, so a call is
+#: resolved against the run instead of against a process-global scope.
 
 
-def reset_matter_scope(token: Any) -> None:
-    """Restore the previous scope (used around one chunk graph)."""
-    _SCOPE.reset(token)
-
-
-def _scope() -> dict[str, Any]:
-    current = _SCOPE.get()
-    if not current:
-        raise ToolError("the matter tools are not bound to a book yet")
-    return current
-
-
-def _book() -> MatterBook:
-    book = _scope().get("book")
+def _book(ctx: ToolContext) -> MatterBook:
+    book = ctx.book
     if not isinstance(book, MatterBook):
         raise ToolError("the matter tools have no book inventory")
     return book
 
 
-def _section(filename: str = "") -> MatterSection:
-    current = _scope()
-    section = current.get("section")
+def _section(ctx: ToolContext, filename: str = "") -> MatterSection:
+    section = ctx.section
     wanted = Path(str(filename or "")).name
     if wanted and wanted != getattr(section, "filename", ""):
-        found = _book().section(wanted)
+        found = _book(ctx).section(wanted)
         if found is None:
             raise ToolError(
                 f"unknown front/back matter file {wanted!r}; known: "
-                + ", ".join(section.filename for section in _book().sections)
+                + ", ".join(section.filename for section in _book(ctx).sections)
             )
         return found
     if isinstance(section, MatterSection):
         return section
     if wanted:
-        found = _book().section(wanted)
+        found = _book(ctx).section(wanted)
         if found is not None:
             return found
     raise ToolError("no current matter section; pass the filename from the plan report")
 
 
-def _chunk_text(filename: str = "") -> dict[str, Any]:
+def _chunk_text(ctx: ToolContext, filename: str = "") -> dict[str, Any]:
     """The current chunk's exact text, or another matter chunk by filename."""
-    current = _scope()
-    chunk = current.get("chunk")
+    chunk = ctx.chunk
     wanted = Path(str(filename or "")).name
     if wanted and wanted != getattr(chunk, "filename", ""):
-        book = _book()
+        book = _book(ctx)
         folder = Path(book.chunks_path)
         path = folder / wanted
         if not path.is_file():
@@ -166,7 +122,7 @@ def _chunk_text(filename: str = "") -> dict[str, Any]:
 # --------------------------------------------------------------------------- #
 @matter_stage
 @tool
-def list_matter_sections() -> str:
+def list_matter_sections(*, ctx: Annotated[ToolContext, InjectedToolArg]) -> str:
     """List the book's front and back matter files, in reading order.
 
     Call this first. It returns every matter file with its `kind` (`front` or
@@ -174,7 +130,7 @@ def list_matter_sections() -> str:
     from it, plus the body chapter titles a localized table of contents may
     need. It never returns prose; use `read_matter_section` for that.
     """
-    book = _book()
+    book = _book(ctx)
     return jdump(
         {
             "chapters_path": book.chapters_path,
@@ -191,7 +147,12 @@ def list_matter_sections() -> str:
 
 @matter_stage
 @tool
-def read_matter_section(filename: str, max_chars: int = MAX_MATTER_READ_CHARS) -> str:
+def read_matter_section(
+    filename: str,
+    max_chars: int = MAX_MATTER_READ_CHARS,
+    *,
+    ctx: Annotated[ToolContext, InjectedToolArg],
+) -> str:
     """Read one front/back matter file as text.
 
     `filename` is a name from `list_matter_sections` (e.g. `00-front-matter.md`
@@ -199,7 +160,7 @@ def read_matter_section(filename: str, max_chars: int = MAX_MATTER_READ_CHARS) -
     result says `truncated: true` when the cap was hit. Unlike the splitter and
     postprocessor, this stage is allowed to read the text: it has to localize it.
     """
-    section = _section(filename)
+    section = _section(ctx, filename)
     report = read_section_text(section, max_chars=max_chars)
     report["note"] = (
         "The text of one front/back matter section. Translate/localize it; never "
@@ -210,14 +171,16 @@ def read_matter_section(filename: str, max_chars: int = MAX_MATTER_READ_CHARS) -
 
 @matter_stage
 @tool
-def read_matter_chunk(filename: str = "") -> str:
+def read_matter_chunk(
+    filename: str = "", *, ctx: Annotated[ToolContext, InjectedToolArg]
+) -> str:
     """Read one matter chunk's exact source text (and its neighbours by name).
 
     Called with no `filename`, it returns the chunk this graph is localizing.
     Pass a filename from `list_matter_sections`/the prompt to read an adjacent
     chunk for continuity. The result includes the chunk's chapter and index.
     """
-    report = _chunk_text(filename)
+    report = _chunk_text(ctx, filename)
     if not report:
         raise ToolError("this graph has no current chunk")
     report["note"] = (
@@ -229,13 +192,13 @@ def read_matter_chunk(filename: str = "") -> str:
 
 @matter_stage
 @tool
-def list_book_chapters() -> str:
+def list_book_chapters(*, ctx: Annotated[ToolContext, InjectedToolArg]) -> str:
     """The body chapters' titles, for localizing a printed table of contents.
 
     Returns `[{filename, title, chapter_index, start_line}]` in reading order.
     Only titles and positions: never chapter prose.
     """
-    book = _book()
+    book = _book(ctx)
     titles = body_chapter_titles(book.chapters_path) or list(book.body_chapters)
     return jdump({"chapters_path": book.chapters_path, "chapters": titles})
 
@@ -245,7 +208,9 @@ def list_book_chapters() -> str:
 # --------------------------------------------------------------------------- #
 @matter_stage
 @tool
-def validate_matter_plan_tool(plan: dict[str, Any]) -> str:
+def validate_matter_plan_tool(
+    plan: dict[str, Any], *, ctx: Annotated[ToolContext, InjectedToolArg]
+) -> str:
     """Dry-run the book-level localization plan and return every issue.
 
     Use it before `report_matter_plan`. The plan has these fields:
@@ -268,7 +233,7 @@ def validate_matter_plan_tool(plan: dict[str, Any]) -> str:
 
     Returns `{"ok", "issues", "warnings", "plan"}`. Fix every issue.
     """
-    book = _book()
+    book = _book(ctx)
     validation = validate_matter_plan_fn(
         book, plan, target_language=book.target_language
     )
@@ -277,14 +242,16 @@ def validate_matter_plan_tool(plan: dict[str, Any]) -> str:
 
 @matter_stage
 @tool
-def report_matter_plan(plan: dict[str, Any]) -> str:
+def report_matter_plan(
+    plan: dict[str, Any], *, ctx: Annotated[ToolContext, InjectedToolArg]
+) -> str:
     """Submit the book-level localization plan. This ends the planning phase.
 
     The plan is validated first. If it is accepted, the graph carries it to every
     matter chunk; if not, the issues are returned and you must correct and call
     this tool again. Do not write a plan as prose in the conversation.
     """
-    book = _book()
+    book = _book(ctx)
     validation = validate_matter_plan_fn(
         book, plan, target_language=book.target_language
     )
@@ -309,6 +276,8 @@ def validate_matter_localization(
     translation: str = "",
     omitted: bool = False,
     omit_reason: str = "",
+    *,
+    ctx: Annotated[ToolContext, InjectedToolArg],
 ) -> str:
     """Dry-run one matter chunk's localization before submitting it.
 
@@ -322,9 +291,8 @@ def validate_matter_localization(
     Returns `{"ok", "issues", "warnings", "text"}` where `text` is exactly what
     would be written.
     """
-    current = _scope()
-    section = _section()
-    chunk = current.get("chunk")
+    section = _section(ctx)
+    chunk = ctx.chunk
     if chunk is None:
         raise ToolError("this graph has no current chunk")
     source = (
@@ -337,12 +305,12 @@ def validate_matter_localization(
         section_kind=section.kind,
         section_filename=section.filename,
         section_title=section.title,
-        plan=current.get("plan") or {},
+        plan=dict(ctx.plan or {}),
         translation=translation,
         omitted=bool(omitted),
         omit_reason=omit_reason,
-        is_first_front_chunk=bool(current.get("is_first_front_chunk")),
-        is_first_section_chunk=bool(current.get("is_first_section_chunk")),
+        is_first_front_chunk=bool(ctx.is_first_front_chunk),
+        is_first_section_chunk=bool(ctx.is_first_section_chunk),
     )
     return jdump(validation)
 
@@ -355,6 +323,8 @@ def report_matter_localization(
     omit_reason: str = "",
     notes: str = "",
     title_used: str = "",
+    *,
+    ctx: Annotated[ToolContext, InjectedToolArg],
 ) -> str:
     """Submit one front/back matter chunk's finished localization.
 
@@ -368,9 +338,8 @@ def report_matter_localization(
     `{"accepted": false, "validation": {"issues": [...]}}`. On rejection, fix the
     named issues and call this tool again.
     """
-    current = _scope()
-    section = _section()
-    chunk = current.get("chunk")
+    section = _section(ctx)
+    chunk = ctx.chunk
     if chunk is None:
         raise ToolError("this graph has no current chunk")
     source = (
@@ -383,12 +352,12 @@ def report_matter_localization(
         section_kind=section.kind,
         section_filename=section.filename,
         section_title=section.title,
-        plan=current.get("plan") or {},
+        plan=dict(ctx.plan or {}),
         translation=translation,
         omitted=bool(omitted),
         omit_reason=omit_reason,
-        is_first_front_chunk=bool(current.get("is_first_front_chunk")),
-        is_first_section_chunk=bool(current.get("is_first_section_chunk")),
+        is_first_front_chunk=bool(ctx.is_first_front_chunk),
+        is_first_section_chunk=bool(ctx.is_first_section_chunk),
     )
     if not validation.get("ok"):
         return jdump({"accepted": False, "validation": validation})
@@ -401,7 +370,8 @@ def report_matter_localization(
             "omitted": bool(omitted),
             "omit_reason": omit_reason,
             "notes": notes,
-            "title_used": title_used or str((current.get("plan") or {}).get("translated_title") or ""),
+            "title_used": title_used
+            or str((ctx.plan or {}).get("translated_title") or ""),
             "text": validation["text"],
             "warnings": validation.get("warnings") or [],
         }
@@ -449,8 +419,6 @@ __all__ = [
     "read_matter_section",
     "report_matter_localization",
     "report_matter_plan",
-    "reset_matter_scope",
-    "set_matter_scope",
     "validate_matter_localization",
     "validate_matter_plan_tool",
 ]

@@ -14,8 +14,8 @@ from typing import Any
 from pydantic import SecretStr
 
 from ..agent.llm import bind_tools
-from ..agent.tools.postprocess import book_tools, chapter_tools
 from ..core.settings import LLMSettings
+from ..toolkit.postprocess import book_tools, chapter_tools
 
 
 def make_postprocess_llm(settings: LLMSettings, tools: list[Any] | None = None) -> Any:

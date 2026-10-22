@@ -15,14 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from book_splitter.agent.tools import (
-    MATTER_TOOLS,
-    POSTPROCESS_TOOLS,
-    PREPROCESS_TOOLS,
-    SPLIT_TOOLS,
-    stages_of,
-    tool_names,
-)
+from book_splitter.agent.tools import SPLIT_TOOLS, stages_of, tool_names
 from book_splitter.chunking import run_chunking
 from book_splitter.matter.inspect import (
     discover_matter_sections,
@@ -34,6 +27,9 @@ from book_splitter.matter.plan import (
 )
 from book_splitter.matter_agent import run_matter
 from book_splitter.matter_agent.prompts import BOOK_SYSTEM_PROMPT
+from book_splitter.toolkit.matter import MATTER_TOOLS
+from book_splitter.toolkit.postprocess import POSTPROCESS_TOOLS
+from book_splitter.toolkit.preprocess import PREPROCESS_TOOLS
 from book_splitter.translation import run_translation
 from book_splitter.translation.models import ChunkTranslationAnswer
 from book_splitter.translation.translator import TranslationOutcome

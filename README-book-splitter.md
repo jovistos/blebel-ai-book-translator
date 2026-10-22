@@ -2838,17 +2838,21 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_splitter/agent/tools/registry.py](book_splitter/agent/tools/registry.py) | tool registry with the `shared` / `split` / `preprocess` stage tags |
 | [book_splitter/agent/tools/shared.py](book_splitter/agent/tools/shared.py) | the generic tools both stages bind |
 | [book_splitter/agent/tools/](book_splitter/agent/tools/__init__.py) | stage 1 tools: `extract` / `toc` / `proposal` / `execution` |
-| [book_splitter/agent/tools/preprocess.py](book_splitter/agent/tools/preprocess.py) | stage 2 tools: header collection, damage, plan submission, apply |
+| [book_splitter/toolkit/preprocess/tools.py](book_splitter/toolkit/preprocess/tools.py) | stage 2 tools: header collection, damage, plan submission, apply |
+| [book_splitter/toolkit/postprocess/tools.py](book_splitter/toolkit/postprocess/tools.py) | stage 9 tools: title inventory, heading records, plan submission, apply/verify |
+| [book_splitter/toolkit/matter/tools.py](book_splitter/toolkit/matter/tools.py) | the front/back matter readers and localization tools |
+| [book_splitter/toolkit/context.py](book_splitter/toolkit/context.py) | `ToolContext`: the run's folder/book/section/chunk, passed to tools explicitly instead of through a `ContextVar` |
 | [book_splitter/agent/tools/openings.py](book_splitter/agent/tools/openings.py) | the chapter-opening audit tools shared by stages 2 and 9 (`audit_chapter_opening`, `audit_book_openings`) |
-| [book_splitter/agent/nodes/](book_splitter/agent/nodes/__init__.py) | `scout` / `agent` / `tools` / `validate` / `slice` / `verify` |
-| [book_splitter/stage_graph.py](book_splitter/stage_graph.py) | the shared scaffold every stage is compiled from: `AgentStateBase`, `StageSpec`, `build_stage_graph` and the three routers |
+| [book_splitter/agent/nodes/](book_splitter/agent/nodes/__init__.py) | `scout` / `validate` / `slice` / `verify`, plus the splitter's `give_up` override |
+| [book_splitter/stage_graph/](book_splitter/stage_graph/__init__.py) | the shared scaffold every stage is compiled from: `AgentStateBase`, `StageSpec`, `build_stage_graph` and the three routers |
+| [book_splitter/stage_graph/nodes.py](book_splitter/stage_graph/nodes.py) | the shared `agent` / `tools` / `give_up` node bodies, `absorb_plan` and `usage` |
 | [book_splitter/agent/graph.py](book_splitter/agent/graph.py) | stage 1 `StageSpec` (`scout` → `agent` ↔ `tools` → `validate` → `slice` → `verify`) and the dry-run router, compiled by the scaffold |
 | [book_splitter/agent/runner.py](book_splitter/agent/runner.py) | `run_split` and the trace writer |
 | [book_splitter/agent/state.py](book_splitter/agent/state.py) | stage 1 graph state (metadata only, never prose); the shared keys come from `AgentStateBase` |
 | [book_splitter/agent/result.py](book_splitter/agent/result.py) | the `SplitterResult` dataclass |
 | [book_splitter/preprocess_agent/prompts.py](book_splitter/preprocess_agent/prompts.py) | stage 2 system prompt and the decision vocabulary |
 | [book_splitter/preprocess_agent/llm.py](book_splitter/preprocess_agent/llm.py) | the model with *only* the preprocessing tools bound |
-| [book_splitter/preprocess_agent/nodes.py](book_splitter/preprocess_agent/nodes.py) | `collect` / `agent` / `tools` / `validate` / `apply` / `verify` |
+| [book_splitter/preprocess_agent/nodes.py](book_splitter/preprocess_agent/nodes.py) | `collect` / `validate` / `apply` / `verify` |
 | [book_splitter/preprocess_agent/graph.py](book_splitter/preprocess_agent/graph.py) | stage 2 `StageSpec` for **one chapter**, compiled by the scaffold |
 | [book_splitter/preprocess_agent/runner.py](book_splitter/preprocess_agent/runner.py) | `run_preprocess`: the sequential (or pooled) chapter loop |
 | [book_splitter/preprocess_agent/state.py](book_splitter/preprocess_agent/state.py) | stage 2 graph state (metadata only, never prose); the shared keys come from `AgentStateBase` |

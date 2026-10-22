@@ -25,21 +25,26 @@ stage's deterministic apply/verify pair and the final phase.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from langchain_core.tools import tool
+from langchain_core.tools import InjectedToolArg, tool
 
 from ...core.constants import MAX_OPENING_AUDIT_CHAPTERS
 from ...core.errors import ToolError
 from ...documents.text import jdump
 from ...openings import audit_openings, chapter_files_in, inspect_opening
+from ...toolkit.context import ToolContext
 from .registry import postprocess_stage, preprocess_stage
 
 
 @postprocess_stage
 @preprocess_stage
 @tool
-def audit_chapter_opening(chapter_path: str) -> str:
+def audit_chapter_opening(
+    chapter_path: str,
+    *,
+    ctx: Annotated[ToolContext | None, InjectedToolArg] = None,
+) -> str:
     """Audit ONE chapter's first lines: is the opening clean?
 
     Returns the title candidate (text, line, whether it is already a `#` heading,
@@ -58,9 +63,12 @@ def audit_chapter_opening(chapter_path: str) -> str:
     Pass the exact `chapter_path` from the CHAPTER REPORT. Never use this tool to
     read a chapter: it returns the opening only, capped hard.
     """
-    from .postprocess import resolve_chapter_path
+    from ...toolkit.postprocess import resolve_chapter_path
 
-    path = resolve_chapter_path(chapter_path)
+    fallback = ToolContext(
+        chapters_path=str(Path(chapter_path).expanduser().parent)
+    )
+    path = resolve_chapter_path(chapter_path, ctx or fallback)
     audit = inspect_opening(path)
     return jdump(
         {

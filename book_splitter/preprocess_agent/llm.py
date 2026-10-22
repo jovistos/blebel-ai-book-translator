@@ -13,8 +13,8 @@ from typing import Any
 from pydantic import SecretStr
 
 from ..agent.llm import bind_tools
-from ..agent.tools import PREPROCESS_TOOLS
 from ..core.settings import LLMSettings
+from ..toolkit.preprocess import PREPROCESS_TOOLS
 
 #: The tools the preprocessing agent may call.
 TOOLS = PREPROCESS_TOOLS

@@ -37,7 +37,6 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..agent.tools.matter import reset_matter_scope, set_matter_scope
 from ..core.artifacts import (
     sha256_text,
     timestamp,
@@ -544,7 +543,6 @@ def run_matter(
             settings,
             model=book_model if book_model is not None else model,
         )
-        scope = set_matter_scope(book.chapters_path, book.chunks_path, book=book)
         try:
             book_initial: MatterPlanState = {
                 "chapters_path": book.chapters_path,
@@ -575,8 +573,6 @@ def run_matter(
                 "log": [f"book plan failed: {type(exc).__name__}: {exc}"],
                 "usage": {},
             }
-        finally:
-            reset_matter_scope(scope)
 
         validation = dict(book_final.get("validation") or {})
         plan = dict(book_final.get("matter_plan") or validation.get("plan") or {})
@@ -722,16 +718,6 @@ def run_matter(
             continue
 
         started = clock()
-        scope = set_matter_scope(
-            book.chapters_path,
-            book.chunks_path,
-            book=book,
-            section=section,
-            chunk=chunk,
-            plan=plan,
-            is_first_front_chunk=first_front_flag,
-            is_first_section_chunk=first_section_flag,
-        )
         try:
             if chunk_app is None:  # pragma: no cover - guarded by pending
                 raise ConfigError("no matter chunk graph is available")
@@ -769,8 +755,6 @@ def run_matter(
                 with contextlib.suppress(Exception):
                     progress(record.to_dict(), completed, len(inputs))
             continue
-        finally:
-            reset_matter_scope(scope)
 
         record.elapsed_seconds = clock() - started
         record.attempts = int(final.get("attempts", 0) or 0)

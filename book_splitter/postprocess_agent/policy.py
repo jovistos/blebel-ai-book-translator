@@ -11,8 +11,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..agent.tools import POSTPROCESS_TOOL_BY_NAME
-from ..agent.tools.postprocess import BOOK_TOOL_NAMES, CHAPTER_TOOL_NAMES
+from ..toolkit.postprocess import (
+    BOOK_TOOL_NAMES,
+    CHAPTER_TOOL_NAMES,
+    POSTPROCESS_TOOL_BY_NAME,
+)
 
 #: Tool whose accepted result *is* the book plan.
 BOOK_PLAN_TOOL = "report_book_plan"
