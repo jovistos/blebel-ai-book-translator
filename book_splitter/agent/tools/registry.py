@@ -56,7 +56,10 @@ WRITE_TOOLS: frozenset[str] = frozenset(
 )
 
 #: Write tools belonging to each stage, used by that stage's write policy.
-SPLIT_WRITE_TOOLS: frozenset[str] = frozenset({"slice_book_by_line_numbers"})
+#: ``verify_sliced_output`` reads files the slicer wrote, so it is gated with it.
+SPLIT_WRITE_TOOLS: frozenset[str] = frozenset(
+    {"slice_book_by_line_numbers", "verify_sliced_output"}
+)
 PREPROCESS_WRITE_TOOLS: frozenset[str] = frozenset({"apply_chapter_cleaning"})
 POSTPROCESS_WRITE_TOOLS: frozenset[str] = frozenset(
     {

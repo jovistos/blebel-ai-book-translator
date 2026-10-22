@@ -45,7 +45,9 @@ from .nodes import (
     make_validate_node,
     make_verify_node,
 )
+from .prompts import FINAL_TURN_NUDGE, NUDGE_NO_PROPOSAL
 from .state import SplitterState
+from .tools import SPLIT_TOOL_BY_NAME, SPLIT_WRITE_TOOLS
 
 #: The node ``verify`` follows ``slice``.
 VERIFY = "verify"
@@ -71,6 +73,12 @@ SPLIT = StageSpec(
     give_up=make_give_up_node,
     plan_key="proposed_splits",
     attempts_default=MAX_FEEDBACK_LOOPS,
+    tool_table=SPLIT_TOOL_BY_NAME,
+    write_tools=SPLIT_WRITE_TOOLS,
+    plan_tool="propose_split_map",
+    nudge_no_plan=NUDGE_NO_PROPOSAL,
+    nudge_final_turn=FINAL_TURN_NUDGE,
+    final_turn_policy="no_plan",
     tail=(
         TailStep("slice", make_slice_node, after_slice),
         TailStep(VERIFY, make_verify_node),
@@ -86,7 +94,7 @@ def build_graph(settings: LLMSettings | None = None, model: Any | None = None):
     """
     if model is None:
         settings = settings or resolve_settings(stage="split")
-        model = make_llm(settings)
+        model = make_llm(settings, tools=list(SPLIT.tool_table.values()))
     return build_stage_graph(SPLIT, model)
 
 

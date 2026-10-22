@@ -15,7 +15,7 @@ from ..core.settings import LLMSettings
 from .tools import SPLIT_TOOLS
 
 
-def make_llm(settings: LLMSettings) -> Any:
+def make_llm(settings: LLMSettings, tools: list[Any] | None = None) -> Any:
     """A ``ChatOpenAI`` client with the splitter toolset bound to it.
 
     Only stage 1's tools are bound. The preprocessing, matter and postprocessing
@@ -32,7 +32,7 @@ def make_llm(settings: LLMSettings) -> Any:
         timeout=settings.timeout,
         max_retries=settings.max_retries,
     )
-    return bind_tools(llm)
+    return bind_tools(llm, SPLIT_TOOLS if tools is None else tools)
 
 
 def bind_tools(llm: Any, tools: list[Any] | None = None) -> Any:

@@ -18,11 +18,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..agent.tools.registry import POSTPROCESS_WRITE_TOOLS
 from ..core.constants import DEFAULT_POSTPROCESS_ATTEMPTS
 from ..core.settings import LLMSettings, resolve_settings
 from ..stage_graph import StageSpec, TailStep, build_stage_graph
 from .llm import make_book_llm, make_chapter_llm
 from .nodes import (
+    BOOK_PLAN_TOOL,
+    BOOK_TOOL_BY_NAME,
+    CHAPTER_PLAN_TOOL,
+    CHAPTER_TOOL_BY_NAME,
     make_apply_node,
     make_book_agent_node,
     make_book_give_up_node,
@@ -36,6 +41,12 @@ from .nodes import (
     make_survey_node,
     make_verify_node,
 )
+from .prompts import (
+    NUDGE_BOOK_FINAL_TURN,
+    NUDGE_BOOK_NO_PLAN,
+    NUDGE_CHAPTER_FINAL_TURN,
+    NUDGE_CHAPTER_NO_PLAN,
+)
 from .state import BookPlanState, ChapterPostprocessState
 
 #: One run per book: name the chapters and decide the table of contents.
@@ -48,6 +59,12 @@ BOOK = StageSpec(
     give_up=make_book_give_up_node,
     plan_key="book_plan",
     attempts_default=DEFAULT_POSTPROCESS_ATTEMPTS,
+    tool_table=BOOK_TOOL_BY_NAME,
+    write_tools=POSTPROCESS_WRITE_TOOLS,
+    plan_tool=BOOK_PLAN_TOOL,
+    nudge_no_plan=NUDGE_BOOK_NO_PLAN,
+    nudge_final_turn=NUDGE_BOOK_FINAL_TURN,
+    final_turn_policy="unvalidated",
 )
 
 #: One run per chapter: place the title, then write and verify the result.
@@ -60,6 +77,12 @@ CHAPTER = StageSpec(
     give_up=make_chapter_give_up_node,
     plan_key="chapter_plan",
     attempts_default=DEFAULT_POSTPROCESS_ATTEMPTS,
+    tool_table=CHAPTER_TOOL_BY_NAME,
+    write_tools=POSTPROCESS_WRITE_TOOLS,
+    plan_tool=CHAPTER_PLAN_TOOL,
+    nudge_no_plan=NUDGE_CHAPTER_NO_PLAN,
+    nudge_final_turn=NUDGE_CHAPTER_FINAL_TURN,
+    final_turn_policy="unvalidated",
     tail=(TailStep("apply", make_apply_node), TailStep("verify", make_verify_node)),
 )
 

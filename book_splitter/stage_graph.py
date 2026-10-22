@@ -29,8 +29,8 @@ it, it depends on nobody.
 from __future__ import annotations
 
 import operator
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
 from functools import partial
 from typing import Annotated, Any, TypedDict
 
@@ -130,6 +130,24 @@ class StageSpec:
     plan_key: str
     #: ``max_attempts`` fallback when the runner did not set one.
     attempts_default: int
+    #: Name -> tool, the dispatch table the tool executor may call. It is the
+    #: stage's *whole* toolset (its own plus the shared tools), because the model
+    #: was bound from the same table.
+    tool_table: Mapping[str, Any] = field(default_factory=dict)
+    #: Tools that must not run before the plan has passed validation. Enforced
+    #: by the tool executor, not by the prompt.
+    write_tools: frozenset[str] = frozenset()
+    #: The tool whose accepted result *is* the plan. The executor absorbs such a
+    #: result into the state and never lets the model replay it.
+    plan_tool: str | None = None
+    #: Reminder appended when the model answers without submitting a plan.
+    nudge_no_plan: str = ""
+    #: Reminder appended on the last allowed turn.
+    nudge_final_turn: str = ""
+    #: When the final-turn reminder applies. ``no_plan`` means "no plan submitted
+    #: yet", ``unvalidated`` means "the submitted plan has not passed validation",
+    #: and ``never`` disables it.
+    final_turn_policy: str = "never"
     #: Deterministic nodes to run after a valid plan, in order.
     tail: tuple[TailStep, ...] = ()
 

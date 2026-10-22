@@ -234,6 +234,17 @@ def test_the_spec_names_its_own_plan_key(spec):
     }
 
 
+@every_spec
+def test_the_spec_carries_its_tool_policy(spec):
+    """The tool table, plan tool and write set live on the spec, not in a node."""
+    assert spec.tool_table, "the executor needs the stage's dispatch table"
+    assert spec.plan_tool in spec.tool_table
+    assert isinstance(spec.write_tools, frozenset)
+    assert spec.final_turn_policy in {"no_plan", "unvalidated", "never"}
+    if spec.nudge_final_turn:
+        assert spec.final_turn_policy != "never"
+
+
 # --------------------------------------------------------------------------
 # the one stage-specific router
 # --------------------------------------------------------------------------

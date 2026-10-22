@@ -17,11 +17,14 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..agent.tools import PREPROCESS_TOOL_BY_NAME
+from ..agent.tools.registry import PREPROCESS_WRITE_TOOLS
 from ..core.constants import MAX_FEEDBACK_LOOPS
 from ..core.settings import LLMSettings, resolve_settings
 from ..stage_graph import StageSpec, TailStep, build_stage_graph
 from .llm import make_preprocess_llm
 from .nodes import (
+    PLAN_TOOL,
     make_agent_node,
     make_apply_node,
     make_collect_node,
@@ -30,6 +33,7 @@ from .nodes import (
     make_validate_node,
     make_verify_node,
 )
+from .prompts import NUDGE_NO_PROPOSAL
 from .state import PreprocessState
 
 #: One chapter's cleaning run.
@@ -45,6 +49,10 @@ PREPROCESS = StageSpec(
     # Kept as-is so the refactor changes no behaviour; giving it a
     # DEFAULT_PREPROCESS_ATTEMPTS constant of its own is a separate decision.
     attempts_default=MAX_FEEDBACK_LOOPS,
+    tool_table=PREPROCESS_TOOL_BY_NAME,
+    write_tools=PREPROCESS_WRITE_TOOLS,
+    plan_tool=PLAN_TOOL,
+    nudge_no_plan=NUDGE_NO_PROPOSAL,
     tail=(TailStep("apply", make_apply_node), TailStep("verify", make_verify_node)),
 )
 

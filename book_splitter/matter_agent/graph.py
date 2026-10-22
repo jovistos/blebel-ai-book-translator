@@ -17,11 +17,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..agent.tools.registry import MATTER_WRITE_TOOLS
 from ..core.constants import DEFAULT_MATTER_ATTEMPTS
 from ..core.settings import LLMSettings, resolve_settings
 from ..stage_graph import StageSpec, TailStep, build_stage_graph
 from .llm import make_book_llm, make_chunk_llm
 from .nodes import (
+    BOOK_PLAN_TOOL,
+    BOOK_TOOL_BY_NAME,
+    CHUNK_REPORT_TOOL,
+    CHUNK_TOOL_BY_NAME,
     make_apply_node,
     make_book_agent_node,
     make_book_give_up_node,
@@ -35,6 +40,7 @@ from .nodes import (
     make_survey_node,
     make_verify_node,
 )
+from .prompts import NUDGE_BOOK_NO_PLAN, NUDGE_CHUNK_NO_TRANSLATION
 from .state import MatterChunkState, MatterPlanState
 
 #: One run per book: survey the matter, then bind a localization plan.
@@ -47,6 +53,10 @@ BOOK = StageSpec(
     give_up=make_book_give_up_node,
     plan_key="matter_plan",
     attempts_default=DEFAULT_MATTER_ATTEMPTS,
+    tool_table=BOOK_TOOL_BY_NAME,
+    write_tools=MATTER_WRITE_TOOLS,
+    plan_tool=BOOK_PLAN_TOOL,
+    nudge_no_plan=NUDGE_BOOK_NO_PLAN,
 )
 
 #: One run per matter chunk: localize it, then write and verify the result.
@@ -59,6 +69,10 @@ CHUNK = StageSpec(
     give_up=make_chunk_give_up_node,
     plan_key="chunk_plan",
     attempts_default=DEFAULT_MATTER_ATTEMPTS,
+    tool_table=CHUNK_TOOL_BY_NAME,
+    write_tools=MATTER_WRITE_TOOLS,
+    plan_tool=CHUNK_REPORT_TOOL,
+    nudge_no_plan=NUDGE_CHUNK_NO_TRANSLATION,
     tail=(TailStep("apply", make_apply_node), TailStep("verify", make_verify_node)),
 )
 
