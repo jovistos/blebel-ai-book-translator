@@ -21,6 +21,7 @@ from book_splitter.documents.markdown import (
     page_number_of,
     strip_emphasis,
 )
+from book_splitter.preprocess.apply import apply_cleaning_plan, text_of
 from book_splitter.preprocess.damage import (
     INLINE_PAGE_NUMBER,
     PAGE_NUMBER_IN_WORD,
@@ -43,13 +44,11 @@ from book_splitter.preprocess.inspect import (
     REMOVE,
     inspect_chapter,
 )
-from book_splitter.preprocess.transform import (
-    apply_cleaning_plan,
-    text_of,
+from book_splitter.preprocess.plan import (
     validate_cleaning_plan,
     validate_text_fixes,
-    verify_cleaning_plan,
 )
+from book_splitter.preprocess.verify import verify_cleaning_plan
 
 # --------------------------------------------------------------------------- #
 # line shapes

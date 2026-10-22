@@ -12,12 +12,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from book_splitter.preprocess.transform import (
-    apply_cleaning_plan,
-    text_of,
-    validate_cleaning_plan,
-    verify_cleaning_plan,
-)
+from book_splitter.preprocess.apply import apply_cleaning_plan, text_of
+from book_splitter.preprocess.plan import validate_cleaning_plan
+from book_splitter.preprocess.verify import verify_cleaning_plan
 
 LONG_LEFT = "x" * 200 + " i rije"
 
@@ -143,3 +140,25 @@ def test_the_verify_result_key_order_is_stable(tmp_path: Path) -> None:
     assert verification["text_fixes"]["checked"] == [
         {"line_number": 15, "fix": "split_word", "joined_with": 16, "word": "rije"}
     ]
+
+
+def test_the_transform_facade_still_exposes_the_old_surface() -> None:
+    from book_splitter.preprocess import apply, plan, transform, verify
+
+    owners = {
+        "ApplyResult": apply.ApplyResult,
+        "LineEdit": apply.LineEdit,
+        "apply_cleaning_plan": apply.apply_cleaning_plan,
+        "looks_like_caption": plan.looks_like_caption,
+        "looks_like_page_artefact": plan.looks_like_page_artefact,
+        "next_content_line": plan.next_content_line,
+        "strip_leading_page_number": plan.strip_leading_page_number,
+        "text_of": apply.text_of,
+        "validate_cleaning_plan": plan.validate_cleaning_plan,
+        "validate_text_fixes": plan.validate_text_fixes,
+        "verify_cleaning_plan": verify.verify_cleaning_plan,
+        "verify_text_fixes": verify.verify_text_fixes,
+    }
+    assert transform.__all__ == list(owners)
+    for name, value in owners.items():
+        assert getattr(transform, name) is value

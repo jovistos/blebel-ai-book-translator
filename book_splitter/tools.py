@@ -57,6 +57,7 @@ from .documents.chapters import discover_chapters, load_split_manifest
 from .documents.io import clear_line_cache, load_lines, read_line_range
 from .documents.markdown import header_of, is_standalone_line, looks_like_title
 from .documents.text import excerpt, jdump, norm, normalize_filename, similarity, slugify
+from .preprocess.apply import apply_cleaning_plan
 
 # --- stage 2: preprocessing ------------------------------------------------- #
 from .preprocess.corpus import sample_text, scan_corpus_damage
@@ -67,11 +68,8 @@ from .preprocess.damage import (
     scan_chapter_damage,
 )
 from .preprocess.inspect import inspect_chapter
-from .preprocess.transform import (
-    apply_cleaning_plan,
-    validate_cleaning_plan,
-    verify_cleaning_plan,
-)
+from .preprocess.plan import validate_cleaning_plan
+from .preprocess.verify import verify_cleaning_plan
 
 #: Historical name: the slicer/verifier hash helper.
 from .slicing.hashing import sha256_file

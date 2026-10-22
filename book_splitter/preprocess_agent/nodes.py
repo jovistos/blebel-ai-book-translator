@@ -23,16 +23,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from ..core.artifacts import write_text
 from ..documents.chapters import preprocessed_dir
+from ..preprocess.apply import apply_cleaning_plan, text_of
 from ..preprocess.corpus import DAMAGE_PATTERNS
 from ..preprocess.damage import damage_digest, scan_chapter_damage
 from ..preprocess.inspect import chapter_digest, inspect_chapter
-from ..preprocess.transform import (
-    apply_cleaning_plan,
-    text_of,
-    validate_cleaning_plan,
-    validate_text_fixes,
-    verify_cleaning_plan,
-)
+from ..preprocess.plan import validate_cleaning_plan, validate_text_fixes
+from ..preprocess.verify import verify_cleaning_plan
 from .prompts import SYSTEM_PROMPT, build_report
 from .state import PreprocessState
 

@@ -43,15 +43,12 @@ from ...documents.chapters import (
 )
 from ...documents.io import load_lines
 from ...documents.text import excerpt, jdump
+from ...preprocess.apply import apply_cleaning_plan, text_of
 from ...preprocess.corpus import scan_corpus_damage
 from ...preprocess.damage import damage_digest, scan_chapter_damage
 from ...preprocess.inspect import inspect_chapter
-from ...preprocess.transform import (
-    apply_cleaning_plan,
-    text_of,
-    validate_cleaning_plan,
-    verify_cleaning_plan,
-)
+from ...preprocess.plan import validate_cleaning_plan
+from ...preprocess.verify import verify_cleaning_plan
 
 
 def _line_number_of(entry: dict[str, Any]) -> int | None:

@@ -12,6 +12,7 @@ The package is deliberately layered, and each layer is usable on its own:
     a plan → validation, application and provenance (no writes)
 """
 
+from .apply import ApplyResult, LineEdit, apply_cleaning_plan, text_of
 from .corpus import (
     DAMAGE_PATTERNS,
     SAMPLE_HEADERS,
@@ -53,17 +54,12 @@ from .inspect import (
     classify_header,
     inspect_chapter,
 )
-from .transform import (
-    ApplyResult,
-    LineEdit,
-    apply_cleaning_plan,
+from .plan import (
     looks_like_page_artefact,
-    text_of,
     validate_cleaning_plan,
     validate_text_fixes,
-    verify_cleaning_plan,
-    verify_text_fixes,
 )
+from .verify import verify_cleaning_plan, verify_text_fixes
 
 __all__ = [
     "ApplyResult",
