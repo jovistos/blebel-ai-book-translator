@@ -12,9 +12,10 @@ executor, ``validate`` scores the submitted plan deterministically, and the
 optional ``tail`` holds the deterministic nodes that act on a validated plan
 (write it, then prove the write).
 
-Only the node bodies and a handful of scalars differ between stages, so the
-wiring lives here once and each stage declares a :class:`StageSpec` in its own
-``graph.py``. Two properties follow from that:
+Only the recon/validate/apply/verify stations vary between stages: the ``agent``,
+``tools`` and ``give_up`` bodies live once in :mod:`.nodes`, the wiring lives
+here, and each stage declares a :class:`StageSpec` in its own ``graph.py``. Two
+properties follow from that:
 
 * **The write gate is structural.** Tail nodes are reachable only from
   ``validate`` on ``ok``, so no stage can be wired to write before its plan has
@@ -22,8 +23,8 @@ wiring lives here once and each stage declares a :class:`StageSpec` in its own
 * **The loop is tested once.** The routing functions below are pure functions of
   the state and the spec, so one parametrised suite covers every stage.
 
-Nothing here imports a stage, which keeps this module a leaf: stages depend on
-it, it depends on nobody.
+Nothing here imports a stage, which keeps this package a leaf: stages depend on
+it, it depends on no stage.
 """
 
 from __future__ import annotations
@@ -36,6 +37,14 @@ from typing import Annotated, Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
+
+from .nodes import (
+    absorb_plan,
+    make_agent_node,
+    make_give_up_node,
+    make_tool_node,
+    usage,
+)
 
 #: Node names shared by every stage. Each stage compiles its own graph, so the
 #: names never collide between stages.
@@ -112,20 +121,20 @@ class TailStep:
 
 @dataclass(frozen=True)
 class StageSpec:
-    """Everything that differs between the stages, and nothing that doesn't."""
+    """Everything that differs between the stages, and nothing that doesn't.
+
+    ``agent``, ``tools`` and ``give_up`` default to the shared factories in
+    :mod:`book_splitter.stage_graph.nodes`; a stage overrides one only when its
+    behaviour is genuinely different (the splitter's give-up reports the
+    validator's issues). Everything else is data the shared nodes read.
+    """
 
     #: The stage's state class, a TypedDict inheriting :class:`AgentStateBase`.
     state: type
     #: ``(name, factory)`` for the deterministic recon node (scout/survey/collect).
     recon: tuple[str, NodeFactory]
-    #: The agent node, which needs the chat model.
-    agent: ModelNodeFactory
-    #: The policy-enforcing tool executor.
-    tools: NodeFactory
     #: Deterministic scoring of the submitted plan.
     validate: NodeFactory
-    #: How a run ends without a result.
-    give_up: NodeFactory
     #: The state key whose presence means "a plan was submitted".
     plan_key: str
     #: ``max_attempts`` fallback when the runner did not set one.
@@ -140,6 +149,33 @@ class StageSpec:
     #: The tool whose accepted result *is* the plan. The executor absorbs such a
     #: result into the state and never lets the model replay it.
     plan_tool: str | None = None
+    #: Payload adapter: parsed plan payload -> state updates. ``None`` means the
+    #: common ``{"plan": ...}`` shape, stored under :attr:`plan_key`.
+    plan_extract: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+    #: Error template for a write tool called before validation.
+    write_block_message: str = "{name} is blocked until the plan passes validation"
+    #: Optional hint returned beside that error.
+    write_block_hint: str = ""
+    #: True when this stage never lets the model write (the book planner).
+    writes_always_blocked: bool = False
+    #: True when a second plan submission after validation must be refused.
+    refuse_duplicate_plan: bool = False
+    #: Error text for that refusal.
+    duplicate_plan_message: str = "a plan has already been accepted"
+    #: Tool names that must have run before the plan is accepted.
+    required_before_plan: tuple[str, ...] = ()
+    #: State key that switches the requirement on/off; absent means "on".
+    required_toggle: str = ""
+    #: State key that records the required call (e.g. ``web_search_attempted``).
+    required_flag: str = ""
+    #: Error text when the required call has not happened yet.
+    required_message: str = ""
+    #: Hint returned beside that error.
+    required_hint: str = ""
+    #: Per-call hook returning extra state updates (e.g. web-search evidence).
+    after_tool: (
+        Callable[[dict[str, Any], str, dict[str, Any], str], dict[str, Any]] | None
+    ) = None
     #: Reminder appended when the model answers without submitting a plan.
     nudge_no_plan: str = ""
     #: Reminder appended on the last allowed turn.
@@ -148,6 +184,22 @@ class StageSpec:
     #: yet", ``unvalidated`` means "the submitted plan has not passed validation",
     #: and ``never`` disables it.
     final_turn_policy: str = "never"
+    #: Prefix of the agent node's log line.
+    log_prefix: str = "agent"
+    #: Prefix of the tool executor's log line.
+    tool_log_prefix: str = "tools"
+    #: Qualifier used by the unknown-tool error (``unknown {label} tool``).
+    unknown_tool_label: str = ""
+    #: Error text of the give-up result.
+    give_up_error: str = "no valid plan after the allowed number of attempts"
+    #: Log line of the give-up node.
+    give_up_log: str = "give_up: no valid plan"
+    #: Agent node override; ``None`` means the shared factory.
+    agent: ModelNodeFactory | None = None
+    #: Tool executor override; ``None`` means the shared factory.
+    tools: NodeFactory | None = None
+    #: Give-up node override; ``None`` means the shared factory.
+    give_up: NodeFactory | None = None
     #: Deterministic nodes to run after a valid plan, in order.
     tail: tuple[TailStep, ...] = ()
 
@@ -197,11 +249,15 @@ def build_stage_graph(spec: StageSpec, model: Any):
     graph: StateGraph = StateGraph(spec.state)
     recon_name, recon_factory = spec.recon
 
+    agent_factory = spec.agent or make_agent_node(spec=spec)
+    tools_factory = spec.tools or make_tool_node(spec=spec)
+    give_up_factory = spec.give_up or make_give_up_node(spec=spec)
+
     graph.add_node(recon_name, recon_factory())
-    graph.add_node(AGENT, spec.agent(model))
-    graph.add_node(TOOLS, spec.tools())
+    graph.add_node(AGENT, agent_factory(model))
+    graph.add_node(TOOLS, tools_factory())
     graph.add_node(VALIDATE, spec.validate())
-    graph.add_node(GIVE_UP, spec.give_up())
+    graph.add_node(GIVE_UP, give_up_factory())
     for step in spec.tail:
         graph.add_node(step.name, step.factory())
 
@@ -257,10 +313,15 @@ __all__ = [
     "AgentStateBase",
     "StageSpec",
     "TailStep",
+    "absorb_plan",
     "attempts_exhausted",
     "build_stage_graph",
+    "make_agent_node",
+    "make_give_up_node",
+    "make_tool_node",
     "merge_usage",
     "route_after_agent",
     "route_after_tools",
     "route_after_validate",
+    "usage",
 ]

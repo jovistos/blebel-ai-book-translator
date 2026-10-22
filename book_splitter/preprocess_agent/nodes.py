@@ -1,15 +1,12 @@
-"""The stage-2 graph nodes: recon, one LLM turn, the tool executor, planning.
+"""The stage-2 graph's own nodes: recon, validation and the write tail.
 
-Every node is small and has one job, exactly as in stage 1:
+The shared ``agent`` and ``tools`` bodies, and the ``give_up`` result, come from
+:mod:`book_splitter.stage_graph.nodes`. What is left here is what actually
+differs from every other stage:
 
 ``collect``
     deterministic recon: the chapter's headers, their evidence and the damage
     report. No LLM, no writes, no prose.
-``agent``
-    one LLM turn, which either calls tools or finishes.
-``tools``
-    the executor: dispatches tool calls, enforces the write policy for this
-    chapter, and absorbs a submitted cleaning plan.
 ``validate``
     deterministically check the plan against the real chapter.
 ``apply``
@@ -20,16 +17,12 @@ Every node is small and has one job, exactly as in stage 1:
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
-from ..agent.tools import PREPROCESS_TOOL_BY_NAME
-from ..agent.tools.registry import PREPROCESS_WRITE_TOOLS
 from ..core.artifacts import write_text
 from ..documents.chapters import preprocessed_dir
-from ..documents.text import jdump, short_args, summarise_payload
 from ..preprocess.corpus import DAMAGE_PATTERNS
 from ..preprocess.damage import damage_digest, scan_chapter_damage
 from ..preprocess.inspect import chapter_digest, inspect_chapter
@@ -40,11 +33,8 @@ from ..preprocess.transform import (
     validate_text_fixes,
     verify_cleaning_plan,
 )
-from .prompts import NUDGE_NO_PROPOSAL, SYSTEM_PROMPT, build_report
+from .prompts import SYSTEM_PROMPT, build_report
 from .state import PreprocessState
-
-#: Name of the tool whose result *is* the plan.
-PLAN_TOOL = "report_chapter_cleaning"
 
 
 def make_collect_node():
@@ -83,158 +73,6 @@ def make_collect_node():
         }
 
     return collect
-
-
-def make_agent_node(model: Any):
-    """Build the ``agent`` node around an already tool-bound chat model."""
-
-    def agent(state: PreprocessState) -> dict[str, Any]:
-        messages = list(state["messages"])
-        feedback = list(state.get("feedback") or [])
-        if feedback:
-            messages.append(HumanMessage(content="\n\n".join(feedback)))
-        else:
-            last = messages[-1] if messages else None
-            if isinstance(last, AIMessage) and not last.tool_calls and not state.get("operations"):
-                messages.append(HumanMessage(content=NUDGE_NO_PROPOSAL))
-
-        attempts = int(state.get("attempts", 0)) + 1
-        response = model.invoke(messages)
-        usage = dict(getattr(response, "usage_metadata", None) or {})
-        calls = [c["name"] for c in (getattr(response, "tool_calls", None) or [])]
-        return {
-            "messages": [response],
-            "attempts": attempts,
-            "feedback": [],
-            "usage": {
-                "input_tokens": int(usage.get("input_tokens", 0)),
-                "output_tokens": int(usage.get("output_tokens", 0)),
-                "total_tokens": int(usage.get("total_tokens", 0)),
-                "llm_calls": 1,
-            },
-            "log": [f"agent[{attempts}]: tool_calls={calls or 'none'}"],
-        }
-
-    return agent
-
-
-def make_tool_node():
-    """Build the ``tools`` node.
-
-    Stage 2's write policy is per chapter: ``apply_chapter_cleaning`` may only be
-    called from the executor when *this* chapter's plan has already been
-    validated, which is why the plan is absorbed here and never handed to the
-    model as something it can replay.
-    """
-
-    def tools_node(state: PreprocessState) -> dict[str, Any]:
-        last = state["messages"][-1]
-        calls = list(getattr(last, "tool_calls", None) or [])
-        validation = state.get("validation") or {}
-        plan_ok = bool(validation.get("ok"))
-        out_messages: list[ToolMessage] = []
-        updates: dict[str, Any] = {}
-        log: list[str] = []
-
-        for call in calls:
-            name = call.get("name", "")
-            args = dict(call.get("args") or {})
-            call_id = call.get("id") or f"call_{len(out_messages)}"
-
-            if plan_ok and (state.get("operations") or state.get("text_fixes")):
-                # Hygiene: the plan is already known; a second submission is a stall.
-                if name == PLAN_TOOL:
-                    out_messages.append(
-                        ToolMessage(
-                            content=jdump(
-                                {
-                                    "accepted": False,
-                                    "error": "a plan for this chapter has already been accepted",
-                                }
-                            ),
-                            tool_call_id=call_id,
-                            name=name,
-                            status="error",
-                        )
-                    )
-                    log.append(f"tools: {name} ignored (plan already accepted)")
-                    continue
-            elif name in PREPROCESS_WRITE_TOOLS:
-                out_messages.append(
-                    ToolMessage(
-                        content=jdump(
-                            {
-                                "error": f"{name} is blocked until this chapter's plan is validated",
-                                "hint": "call report_chapter_cleaning, then the graph applies it",
-                            }
-                        ),
-                        tool_call_id=call_id,
-                        name=name,
-                        status="error",
-                    )
-                )
-                log.append(f"tools: BLOCKED {name} (no validated plan for this chapter)")
-                continue
-
-            tool = PREPROCESS_TOOL_BY_NAME.get(name)
-            if tool is None:
-                out_messages.append(
-                    ToolMessage(
-                        content=jdump(
-                            {
-                                "error": f"unknown tool {name!r}",
-                                "available": list(PREPROCESS_TOOL_BY_NAME),
-                            }
-                        ),
-                        tool_call_id=call_id,
-                        name=name or "unknown",
-                        status="error",
-                    )
-                )
-                log.append(f"tools: unknown tool {name}")
-                continue
-
-            try:
-                payload = tool.invoke(args)
-                status = "success"
-            except Exception as exc:  # bad args, missing file, ...
-                payload = jdump(
-                    {
-                        "error": f"{type(exc).__name__}: {exc}",
-                        "hint": "check the argument names and types, then retry",
-                    }
-                )
-                status = "error"
-
-            out_messages.append(
-                ToolMessage(content=payload, tool_call_id=call_id, name=name, status=status)
-            )
-            log.append(f"tools: {name}({short_args(args)}) -> {summarise_payload(payload)}")
-            if name == PLAN_TOOL and status == "success":
-                updates.update(absorb_plan(payload))
-
-        return {**updates, "messages": out_messages, "log": log}
-
-    return tools_node
-
-
-def absorb_plan(payload: str) -> dict[str, Any]:
-    """Read an accepted ``report_chapter_cleaning`` result into state updates."""
-    try:
-        data = json.loads(payload)
-    except (TypeError, ValueError):
-        return {}
-    if not isinstance(data, dict) or not data.get("accepted"):
-        return {}
-    return {
-        "operations": data.get("operations") or [],
-        "text_fixes": [
-            {"line_number": f["line_number"], "fix": f.get("fix"), "note": f.get("note", "")}
-            for f in (data.get("text_fixes") or [])
-            if isinstance(f, dict) and f.get("fix")
-        ],
-        "proposal_notes": data.get("notes", ""),
-    }
 
 
 def make_validate_node():
@@ -337,29 +175,9 @@ def make_verify_node():
     return verify
 
 
-def make_give_up_node():
-    """Build the ``give_up`` node: stop without writing anything."""
-
-    def give_up(state: PreprocessState) -> dict[str, Any]:
-        return {
-            "result": {
-                "error": "no valid cleaning plan after the allowed number of attempts",
-                "attempts": int(state.get("attempts", 0)),
-            },
-            "log": ["give_up: no valid plan"],
-        }
-
-    return give_up
-
-
 __all__ = [
-    "PLAN_TOOL",
-    "absorb_plan",
-    "make_agent_node",
     "make_apply_node",
     "make_collect_node",
-    "make_give_up_node",
-    "make_tool_node",
     "make_validate_node",
     "make_verify_node",
 ]

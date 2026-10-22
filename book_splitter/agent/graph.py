@@ -37,17 +37,16 @@ from ..core.settings import LLMSettings, resolve_settings
 from ..stage_graph import END_KEY, StageSpec, TailStep, build_stage_graph
 from .llm import make_llm
 from .nodes import (
-    make_agent_node,
     make_give_up_node,
     make_scout_node,
     make_slice_node,
-    make_tool_node,
     make_validate_node,
     make_verify_node,
 )
+from .policy import extract_split_plan
 from .prompts import FINAL_TURN_NUDGE, NUDGE_NO_PROPOSAL
 from .state import SplitterState
-from .tools import SPLIT_TOOL_BY_NAME, SPLIT_WRITE_TOOLS
+from .tools import BLOCKED_MESSAGE, SPLIT_TOOL_BY_NAME, SPLIT_WRITE_TOOLS
 
 #: The node ``verify`` follows ``slice``.
 VERIFY = "verify"
@@ -67,8 +66,6 @@ def after_slice(state: dict[str, Any]) -> str:
 SPLIT = StageSpec(
     state=SplitterState,
     recon=("scout", make_scout_node),
-    agent=make_agent_node,
-    tools=make_tool_node,
     validate=make_validate_node,
     give_up=make_give_up_node,
     plan_key="proposed_splits",
@@ -76,6 +73,8 @@ SPLIT = StageSpec(
     tool_table=SPLIT_TOOL_BY_NAME,
     write_tools=SPLIT_WRITE_TOOLS,
     plan_tool="propose_split_map",
+    plan_extract=extract_split_plan,
+    write_block_message=BLOCKED_MESSAGE,
     nudge_no_plan=NUDGE_NO_PROPOSAL,
     nudge_final_turn=FINAL_TURN_NUDGE,
     final_turn_policy="no_plan",
@@ -94,7 +93,7 @@ def build_graph(settings: LLMSettings | None = None, model: Any | None = None):
     """
     if model is None:
         settings = settings or resolve_settings(stage="split")
-        model = make_llm(settings, tools=list(SPLIT.tool_table.values()))
+        model = make_llm(settings)
     return build_stage_graph(SPLIT, model)
 
 

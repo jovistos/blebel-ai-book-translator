@@ -495,7 +495,8 @@ def test_chapter_agent_is_told_to_resubmit_on_its_last_turn(tmp_path: Path):
     was spent on `validate_chapter_postprocess` — which passed, but never replaced the
     plan in the state, so the chapter was written nowhere.
     """
-    from book_splitter.postprocess_agent.nodes import make_chapter_agent_node
+    from book_splitter.postprocess_agent.graph import CHAPTER
+    from book_splitter.stage_graph import make_agent_node
 
     source = tmp_path / "08-translated-chapters"
     source.mkdir()
@@ -503,7 +504,7 @@ def test_chapter_agent_is_told_to_resubmit_on_its_last_turn(tmp_path: Path):
     chapter.write_text("Poglavlje 2\n\nDruga rečenica.\n", encoding="utf-8")
 
     model = ScriptedModel([AIMessage(content="done")])
-    node = make_chapter_agent_node(model)
+    node = make_agent_node(spec=CHAPTER)(model)
     state = {
         "chapter_path": str(chapter),
         "messages": [HumanMessage(content="report the chapter plan")],

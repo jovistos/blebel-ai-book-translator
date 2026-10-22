@@ -326,7 +326,8 @@ def test_the_splitter_binds_only_its_stage_toolset():
 
 
 def test_the_splitter_tool_node_dispatches_only_its_stage_table():
-    from book_splitter.agent.nodes.tools import make_tool_node
+    from book_splitter.agent.graph import SPLIT
+    from book_splitter.stage_graph import make_tool_node
 
     state = {
         "messages": [
@@ -344,7 +345,7 @@ def test_the_splitter_tool_node_dispatches_only_its_stage_table():
         ],
         "validation": {},
     }
-    out = make_tool_node()(state)
+    out = make_tool_node(spec=SPLIT)()(state)
     message = out["messages"][0]
     assert message.status == "error"
     assert "unknown tool" in message.content

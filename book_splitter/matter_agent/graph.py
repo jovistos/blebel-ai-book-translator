@@ -23,22 +23,20 @@ from ..core.settings import LLMSettings, resolve_settings
 from ..stage_graph import StageSpec, TailStep, build_stage_graph
 from .llm import make_book_llm, make_chunk_llm
 from .nodes import (
-    BOOK_PLAN_TOOL,
-    BOOK_TOOL_BY_NAME,
-    CHUNK_REPORT_TOOL,
-    CHUNK_TOOL_BY_NAME,
     make_apply_node,
-    make_book_agent_node,
-    make_book_give_up_node,
-    make_book_tool_node,
     make_book_validate_node,
-    make_chunk_agent_node,
-    make_chunk_give_up_node,
-    make_chunk_tool_node,
     make_chunk_validate_node,
     make_collect_node,
     make_survey_node,
     make_verify_node,
+)
+from .policy import (
+    BOOK_PLAN_TOOL,
+    BOOK_TOOL_BY_NAME,
+    CHUNK_REPORT_TOOL,
+    CHUNK_TOOL_BY_NAME,
+    extract_chunk_localization,
+    extract_matter_plan,
 )
 from .prompts import NUDGE_BOOK_NO_PLAN, NUDGE_CHUNK_NO_TRANSLATION
 from .state import MatterChunkState, MatterPlanState
@@ -47,32 +45,39 @@ from .state import MatterChunkState, MatterPlanState
 BOOK = StageSpec(
     state=MatterPlanState,
     recon=("survey", make_survey_node),
-    agent=make_book_agent_node,
-    tools=make_book_tool_node,
     validate=make_book_validate_node,
-    give_up=make_book_give_up_node,
     plan_key="matter_plan",
     attempts_default=DEFAULT_MATTER_ATTEMPTS,
     tool_table=BOOK_TOOL_BY_NAME,
     write_tools=MATTER_WRITE_TOOLS,
     plan_tool=BOOK_PLAN_TOOL,
+    plan_extract=extract_matter_plan,
+    write_block_message="{name} is blocked at the matter-plan stage",
     nudge_no_plan=NUDGE_BOOK_NO_PLAN,
+    log_prefix="book_agent",
+    tool_log_prefix="book_tools",
+    unknown_tool_label="matter-plan",
+    give_up_error="no valid localization plan after the allowed number of attempts",
+    give_up_log="book_give_up: no valid plan",
 )
 
 #: One run per matter chunk: localize it, then write and verify the result.
 CHUNK = StageSpec(
     state=MatterChunkState,
     recon=("collect", make_collect_node),
-    agent=make_chunk_agent_node,
-    tools=make_chunk_tool_node,
     validate=make_chunk_validate_node,
-    give_up=make_chunk_give_up_node,
     plan_key="chunk_plan",
     attempts_default=DEFAULT_MATTER_ATTEMPTS,
     tool_table=CHUNK_TOOL_BY_NAME,
     write_tools=MATTER_WRITE_TOOLS,
     plan_tool=CHUNK_REPORT_TOOL,
+    plan_extract=extract_chunk_localization,
     nudge_no_plan=NUDGE_CHUNK_NO_TRANSLATION,
+    log_prefix="chunk_agent",
+    tool_log_prefix="chunk_tools",
+    unknown_tool_label="matter localization",
+    give_up_error="no valid localization after the allowed number of attempts",
+    give_up_log="chunk_give_up: no valid localization",
     tail=(TailStep("apply", make_apply_node), TailStep("verify", make_verify_node)),
 )
 

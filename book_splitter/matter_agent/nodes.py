@@ -1,27 +1,23 @@
-"""Nodes for the front/back matter graphs.
+"""The matter graphs' own nodes.
 
-Book graph: ``survey`` -> ``book_agent`` -> ``book_tools`` -> ``book_validate``.
+Book graph: ``survey`` -> (shared agent/tools) -> ``book_validate``.
 
-Chunk graph: ``collect`` -> ``chunk_agent`` -> ``chunk_tools`` ->
-``chunk_validate`` -> ``apply`` -> ``verify``.
+Chunk graph: ``collect`` -> (shared agent/tools) -> ``chunk_validate`` ->
+``apply`` -> ``verify``.
 
-The tools node is the only place a tool runs. It absorbs the plan/translation a
-report tool accepted into the graph state; the apply node is the only writer, and
-it writes exactly the text the validator approved.
+The shared ``agent``, ``tools`` and ``give_up`` bodies come from
+:mod:`book_splitter.stage_graph.nodes`. The apply node is the only writer, and it
+writes exactly the text the validator approved.
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
-from ..agent.tools import MATTER_TOOL_BY_NAME
-from ..agent.tools.matter import BOOK_TOOL_NAMES, CHUNK_TOOL_NAMES
 from ..core.artifacts import write_text
-from ..documents.text import jdump, short_args, summarise_payload
 from ..matter.plan import (
     preserve_trailing_newlines,
 )
@@ -34,36 +30,12 @@ from ..matter.plan import (
 from .prompts import (
     BOOK_SYSTEM_PROMPT,
     CHUNK_SYSTEM_PROMPT,
-    NUDGE_BOOK_NO_PLAN,
-    NUDGE_CHUNK_NO_TRANSLATION,
     book_validation_feedback,
     build_book_report,
     build_chunk_report,
     chunk_validation_feedback,
 )
 from .state import MatterChunkState, MatterPlanState
-
-#: Tool whose accepted result *is* the book plan.
-BOOK_PLAN_TOOL = "report_matter_plan"
-#: Tool whose accepted result *is* one chunk's localization.
-CHUNK_REPORT_TOOL = "report_matter_localization"
-
-BOOK_TOOL_BY_NAME = {name: MATTER_TOOL_BY_NAME[name] for name in BOOK_TOOL_NAMES}
-CHUNK_TOOL_BY_NAME = {name: MATTER_TOOL_BY_NAME[name] for name in CHUNK_TOOL_NAMES}
-
-
-def _usage(response: Any) -> dict[str, int]:
-    usage = dict(getattr(response, "usage_metadata", None) or {})
-    return {
-        "input_tokens": int(usage.get("input_tokens", 0)),
-        "output_tokens": int(usage.get("output_tokens", 0)),
-        "total_tokens": int(usage.get("total_tokens", 0)),
-        "llm_calls": 1,
-    }
-
-
-def _tool_calls(response: Any) -> list[str]:
-    return [call["name"] for call in (getattr(response, "tool_calls", None) or [])]
 
 
 # --------------------------------------------------------------------------- #
@@ -100,104 +72,6 @@ def make_survey_node():
     return survey
 
 
-def make_book_agent_node(model: Any):
-    """Build ``book_agent``: one LLM turn for the localization plan."""
-
-    def book_agent(state: MatterPlanState) -> dict[str, Any]:
-        messages = list(state["messages"])
-        feedback = list(state.get("feedback") or [])
-        if feedback:
-            messages.append(HumanMessage(content="\n\n".join(feedback)))
-        else:
-            last = messages[-1] if messages else None
-            if isinstance(last, AIMessage) and not last.tool_calls and not state.get(
-                "matter_plan"
-            ):
-                messages.append(HumanMessage(content=NUDGE_BOOK_NO_PLAN))
-        attempts = int(state.get("attempts", 0)) + 1
-        response = model.invoke(messages)
-        return {
-            "messages": [response],
-            "attempts": attempts,
-            "feedback": [],
-            "usage": _usage(response),
-            "log": [f"book_agent[{attempts}]: tool_calls={_tool_calls(response) or 'none'}"],
-        }
-
-    return book_agent
-
-
-def make_book_tool_node():
-    """Build ``book_tools``: the plan executor."""
-
-    def book_tools(state: MatterPlanState) -> dict[str, Any]:
-        last = state["messages"][-1]
-        calls = list(getattr(last, "tool_calls", None) or [])
-        out_messages: list[ToolMessage] = []
-        updates: dict[str, Any] = {}
-        log: list[str] = []
-
-        for call in calls:
-            name = call.get("name", "")
-            args = call.get("args") or {}
-            call_id = call.get("id") or f"call_{len(out_messages)}"
-            tool = BOOK_TOOL_BY_NAME.get(name)
-            if tool is None:
-                out_messages.append(
-                    ToolMessage(
-                        content=jdump(
-                            {
-                                "error": f"unknown matter-plan tool {name!r}",
-                                "available": list(BOOK_TOOL_BY_NAME),
-                            }
-                        ),
-                        tool_call_id=call_id,
-                        name=name or "unknown",
-                        status="error",
-                    )
-                )
-                log.append(f"book_tools: unknown tool {name}")
-                continue
-            try:
-                payload = tool.invoke(args)
-                status = "success"
-            except Exception as exc:
-                payload = jdump(
-                    {
-                        "error": f"{type(exc).__name__}: {exc}",
-                        "hint": "check the argument names and types, then retry",
-                    }
-                )
-                status = "error"
-            out_messages.append(
-                ToolMessage(content=payload, tool_call_id=call_id, name=name, status=status)
-            )
-            log.append(f"book_tools: {name}({short_args(args)}) -> {summarise_payload(payload)}")
-            if name == BOOK_PLAN_TOOL and status == "success":
-                updates.update(absorb_book_plan(payload))
-        return {**updates, "messages": out_messages, "log": log}
-
-    return book_tools
-
-
-def absorb_book_plan(payload: str) -> dict[str, Any]:
-    """Read an accepted ``report_matter_plan`` result into state updates."""
-    try:
-        data = json.loads(payload)
-    except (TypeError, ValueError):
-        return {}
-    if not isinstance(data, dict) or not data.get("accepted"):
-        return {}
-    plan = data.get("plan")
-    if not isinstance(plan, dict):
-        return {}
-    validation = data.get("validation")
-    return {
-        "matter_plan": plan,
-        "validation": validation if isinstance(validation, dict) else {},
-    }
-
-
 def make_book_validate_node():
     """Build ``book_validate``: deterministic plan validation."""
 
@@ -224,21 +98,6 @@ def make_book_validate_node():
         }
 
     return book_validate
-
-
-def make_book_give_up_node():
-    """Build ``book_give_up``: stop without writing a translation."""
-
-    def book_give_up(state: MatterPlanState) -> dict[str, Any]:
-        return {
-            "result": {
-                "error": "no valid localization plan after the allowed number of attempts",
-                "attempts": int(state.get("attempts", 0)),
-            },
-            "log": ["book_give_up: no valid plan"],
-        }
-
-    return book_give_up
 
 
 # --------------------------------------------------------------------------- #
@@ -280,107 +139,6 @@ def make_collect_node():
         }
 
     return collect
-
-
-def make_chunk_agent_node(model: Any):
-    """Build ``chunk_agent``: one LLM turn for one matter chunk."""
-
-    def chunk_agent(state: MatterChunkState) -> dict[str, Any]:
-        messages = list(state["messages"])
-        feedback = list(state.get("feedback") or [])
-        if feedback:
-            messages.append(HumanMessage(content="\n\n".join(feedback)))
-        else:
-            last = messages[-1] if messages else None
-            if isinstance(last, AIMessage) and not last.tool_calls and not state.get(
-                "chunk_plan"
-            ):
-                messages.append(HumanMessage(content=NUDGE_CHUNK_NO_TRANSLATION))
-        attempts = int(state.get("attempts", 0)) + 1
-        response = model.invoke(messages)
-        return {
-            "messages": [response],
-            "attempts": attempts,
-            "feedback": [],
-            "usage": _usage(response),
-            "log": [f"chunk_agent[{attempts}]: tool_calls={_tool_calls(response) or 'none'}"],
-        }
-
-    return chunk_agent
-
-
-def make_chunk_tool_node():
-    """Build ``chunk_tools``: the per-chunk localization executor."""
-
-    def chunk_tools(state: MatterChunkState) -> dict[str, Any]:
-        last = state["messages"][-1]
-        calls = list(getattr(last, "tool_calls", None) or [])
-        out_messages: list[ToolMessage] = []
-        updates: dict[str, Any] = {}
-        log: list[str] = []
-
-        for call in calls:
-            name = call.get("name", "")
-            args = call.get("args") or {}
-            call_id = call.get("id") or f"call_{len(out_messages)}"
-            tool = CHUNK_TOOL_BY_NAME.get(name)
-            if tool is None:
-                out_messages.append(
-                    ToolMessage(
-                        content=jdump(
-                            {
-                                "error": f"unknown matter localization tool {name!r}",
-                                "available": list(CHUNK_TOOL_BY_NAME),
-                            }
-                        ),
-                        tool_call_id=call_id,
-                        name=name or "unknown",
-                        status="error",
-                    )
-                )
-                log.append(f"chunk_tools: unknown tool {name}")
-                continue
-            try:
-                payload = tool.invoke(args)
-                status = "success"
-            except Exception as exc:
-                payload = jdump(
-                    {
-                        "error": f"{type(exc).__name__}: {exc}",
-                        "hint": "check the argument names and types, then retry",
-                    }
-                )
-                status = "error"
-            out_messages.append(
-                ToolMessage(content=payload, tool_call_id=call_id, name=name, status=status)
-            )
-            log.append(f"chunk_tools: {name}({short_args(args)}) -> {summarise_payload(payload)}")
-            if name == CHUNK_REPORT_TOOL and status == "success":
-                updates.update(absorb_chunk_plan(payload))
-        return {**updates, "messages": out_messages, "log": log}
-
-    return chunk_tools
-
-
-def absorb_chunk_plan(payload: str) -> dict[str, Any]:
-    """Read an accepted ``report_matter_localization`` result into state updates."""
-    try:
-        data = json.loads(payload)
-    except (TypeError, ValueError):
-        return {}
-    if not isinstance(data, dict) or not data.get("accepted"):
-        return {}
-    text = str(data.get("text") or "")
-    return {
-        "chunk_plan": {
-            "translation": text,
-            "text": text,
-            "omitted": bool(data.get("omitted")),
-            "omit_reason": str(data.get("omit_reason") or ""),
-            "notes": str(data.get("notes") or ""),
-            "title_used": str(data.get("title_used") or ""),
-        }
-    }
 
 
 def make_chunk_validate_node():
@@ -516,36 +274,9 @@ def make_verify_node():
     return verify
 
 
-def make_chunk_give_up_node():
-    """Build ``chunk_give_up``: stop this chunk without writing it."""
-
-    def chunk_give_up(state: MatterChunkState) -> dict[str, Any]:
-        return {
-            "result": {
-                "error": "no valid localization after the allowed number of attempts",
-                "attempts": int(state.get("attempts", 0)),
-            },
-            "log": ["chunk_give_up: no valid localization"],
-        }
-
-    return chunk_give_up
-
-
 __all__ = [
-    "BOOK_PLAN_TOOL",
-    "BOOK_TOOL_BY_NAME",
-    "CHUNK_REPORT_TOOL",
-    "CHUNK_TOOL_BY_NAME",
-    "absorb_book_plan",
-    "absorb_chunk_plan",
     "make_apply_node",
-    "make_book_agent_node",
-    "make_book_give_up_node",
-    "make_book_tool_node",
     "make_book_validate_node",
-    "make_chunk_agent_node",
-    "make_chunk_give_up_node",
-    "make_chunk_tool_node",
     "make_chunk_validate_node",
     "make_collect_node",
     "make_survey_node",

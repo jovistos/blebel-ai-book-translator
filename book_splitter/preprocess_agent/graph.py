@@ -24,15 +24,12 @@ from ..core.settings import LLMSettings, resolve_settings
 from ..stage_graph import StageSpec, TailStep, build_stage_graph
 from .llm import make_preprocess_llm
 from .nodes import (
-    PLAN_TOOL,
-    make_agent_node,
     make_apply_node,
     make_collect_node,
-    make_give_up_node,
-    make_tool_node,
     make_validate_node,
     make_verify_node,
 )
+from .policy import PLAN_TOOL, extract_cleaning_plan
 from .prompts import NUDGE_NO_PROPOSAL
 from .state import PreprocessState
 
@@ -40,10 +37,7 @@ from .state import PreprocessState
 PREPROCESS = StageSpec(
     state=PreprocessState,
     recon=("collect", make_collect_node),
-    agent=make_agent_node,
-    tools=make_tool_node,
     validate=make_validate_node,
-    give_up=make_give_up_node,
     plan_key="operations",
     # NB: this stage inherited stage 1's budget rather than declaring its own.
     # Kept as-is so the refactor changes no behaviour; giving it a
@@ -52,7 +46,14 @@ PREPROCESS = StageSpec(
     tool_table=PREPROCESS_TOOL_BY_NAME,
     write_tools=PREPROCESS_WRITE_TOOLS,
     plan_tool=PLAN_TOOL,
+    plan_extract=extract_cleaning_plan,
+    write_block_message="{name} is blocked until this chapter's plan is validated",
+    write_block_hint="call report_chapter_cleaning, then the graph applies it",
+    refuse_duplicate_plan=True,
+    duplicate_plan_message="a plan for this chapter has already been accepted",
     nudge_no_plan=NUDGE_NO_PROPOSAL,
+    give_up_error="no valid cleaning plan after the allowed number of attempts",
+    give_up_log="give_up: no valid plan",
     tail=(TailStep("apply", make_apply_node), TailStep("verify", make_verify_node)),
 )
 
