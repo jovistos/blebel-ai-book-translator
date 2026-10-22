@@ -4,6 +4,11 @@ Every check returns a sentence, never an exception: the package is written even
 when something is wrong, and the caller reports what is wrong with it. The
 package is read once into memory (text entries only), so a truncated or corrupt
 zip is a problem in the list, not a traceback in the reader's face.
+
+The checks are grouped exactly as the EPUB specification groups them, and
+:func:`verify` is only the orchestrator: the mimetype entry, the container, the
+package document, the navigation document, every spine document and the cover
+are each verified by their own function, in that order.
 """
 
 from __future__ import annotations
@@ -24,6 +29,27 @@ _NS_CONTAINER = "{urn:oasis:names:tc:opendocument:xmlns:container}"
 _NS_DC = "{http://purl.org/dc/elements/1.1/}"
 #: Self-contained pictures never travel into the package.
 _REMOTE_PREFIXES = ("http://", "https://", "data:", "//")
+#: The only entries whose XML this stage inspects; pictures are not checks.
+_TEXT_SUFFIXES = (".opf", ".xhtml", ".xml")
+
+
+def _read_entries(
+    package: bytes,
+) -> tuple[list[zipfile.ZipInfo], list[str], dict[str, bytes]]:
+    """Read the package's text entries once, into memory."""
+    with zipfile.ZipFile(io.BytesIO(package)) as archive:
+        infos = archive.infolist()
+        names = [info.filename for info in infos]
+        contents = {
+            name: archive.read(name)
+            for name in names
+            if name == "mimetype" or name.endswith(_TEXT_SUFFIXES)
+        }
+    return infos, names, contents
+
+
+def _in_package(base: str, href: str) -> str:
+    return posixpath.join(base, href) if base != "." else href
 
 
 def verify(
@@ -49,22 +75,46 @@ def verify(
         "image_links_ok": 0,
     }
     try:
-        with zipfile.ZipFile(io.BytesIO(package)) as archive:
-            infos = archive.infolist()
-            names = [info.filename for info in infos]
-            contents = {
-                name: archive.read(name)
-                for name in names
-                # Text entries only: a picture book's images are not checks.
-                if name == "mimetype" or name.endswith((".opf", ".xhtml", ".xml"))
-            }
+        infos, names, contents = _read_entries(package)
     except (zipfile.BadZipFile, OSError, EOFError, KeyError) as exc:
         return ([f"the package is not a readable zip file: {exc}"], report)
     report["entries"] = len(names)
 
     # 1. the mandatory first, uncompressed mimetype entry
+    check_mimetype(infos, contents, problems, report)
+
+    # 2. the container points at a package document that exists
+    opf_path = check_container(contents, names, problems, report)
+    base = posixpath.dirname(opf_path) or "."
+
+    if opf_path and opf_path in names:
+        check_opf(contents, names, opf_path, base, problems, report)
+
+    # 3. the navigation document lists every document and links to real targets
+    nav_path = _in_package(base, "nav.xhtml")
+    if nav_path in names:
+        check_nav(contents, names, nav_path, problems, report)
+    else:
+        problems.append("the navigation document is missing")
+
+    # 4. every text document is well-formed and links to pictures that exist
+    check_documents(documents, contents, names, base, problems, report)
+
+    # 5. the cover page, when there is one, points at the cover picture
+    check_cover(cover, names, base, problems)
+
+    return problems, report
+
+
+def check_mimetype(
+    infos: list[zipfile.ZipInfo],
+    contents: dict[str, bytes],
+    problems: list[str],
+    report: dict[str, Any],
+) -> None:
+    """The first entry is a stored, exact ``application/epub+zip`` mimetype."""
     mimetype_ok = True
-    if not names or names[0] != "mimetype":
+    if not infos or infos[0].filename != "mimetype":
         problems.append("the mimetype entry is not the first entry of the package")
         mimetype_ok = False
     else:
@@ -76,7 +126,14 @@ def verify(
             mimetype_ok = False
     report["mimetype_first"] = mimetype_ok
 
-    # 2. the container points at a package document that exists
+
+def check_container(
+    contents: dict[str, bytes],
+    names: list[str],
+    problems: list[str],
+    report: dict[str, Any],
+) -> str:
+    """Return the package document's path, or ``""`` when it is unusable."""
     opf_path = ""
     try:
         container = ET.fromstring(contents.get("META-INF/container.xml") or b"")
@@ -90,25 +147,20 @@ def verify(
         problems.append(f"the package document is missing: {opf_path}")
     else:
         report["container_ok"] = True
+    return opf_path
 
-    base = posixpath.dirname(opf_path) or "."
 
-    def in_package(href: str) -> str:
-        return posixpath.join(base, href) if base != "." else href
-
-    if opf_path and opf_path in names:
-        check_opf(contents, names, opf_path, base, problems, report)
-
-    # 3. the navigation document lists every document and links to real targets
-    nav_path = in_package("nav.xhtml")
-    if nav_path in names:
-        check_nav(contents, names, nav_path, problems, report)
-    else:
-        problems.append("the navigation document is missing")
-
-    # 4. every text document is well-formed and links to pictures that exist
+def check_documents(
+    documents: list[SpineDocument],
+    contents: dict[str, bytes],
+    names: list[str],
+    base: str,
+    problems: list[str],
+    report: dict[str, Any],
+) -> None:
+    """Every spine document is well-formed, titled and points at real pictures."""
     for document in documents:
-        path = in_package(document.href)
+        path = _in_package(base, document.href)
         if path not in names:
             problems.append(f"spine document missing from the package: {document.href}")
             continue
@@ -127,14 +179,21 @@ def verify(
         else:
             report["image_links_ok"] += 1
 
-    # 5. the cover page, when there is one, points at the cover picture
-    if cover is not None:
-        if in_package(COVER_HREF) not in names:
-            problems.append("the cover page is missing from the package")
-        if in_package(cover.href) not in names:
-            problems.append(f"the cover picture is missing: {cover.href}")
 
-    return problems, report
+def check_cover(
+    cover: ImageAsset | None,
+    names: list[str],
+    base: str,
+    problems: list[str],
+) -> None:
+    """When a cover was supplied, both its page and its picture must be packed."""
+    if cover is None:
+        return
+    if _in_package(base, COVER_HREF) not in names:
+        problems.append("the cover page is missing from the package")
+    if _in_package(base, cover.href) not in names:
+        problems.append(f"the cover picture is missing: {cover.href}")
+
 
 
 def check_opf(
@@ -261,5 +320,12 @@ def _missing_picture_links(
             missing.append(src)
     return missing
 
-
-__all__ = ["check_nav", "check_opf", "verify"]
+__all__ = [
+    "check_container",
+    "check_cover",
+    "check_documents",
+    "check_mimetype",
+    "check_nav",
+    "check_opf",
+    "verify",
+]

@@ -673,3 +673,155 @@ def test_the_verification_report_shape_is_stable() -> None:
         "xhtml_valid": 0,
         "image_links_ok": 0,
     }
+
+
+def _zip_info(name: str, *, compressed: bool = False) -> zipfile.ZipInfo:
+    info = zipfile.ZipInfo(name)
+    info.compress_type = zipfile.ZIP_DEFLATED if compressed else zipfile.ZIP_STORED
+    return info
+
+
+def test_check_mimetype_accepts_the_one_legal_first_entry() -> None:
+    from book_splitter.core.constants import EPUB_MIMETYPE
+    from book_splitter.epub.verify import check_mimetype
+
+    problems: list[str] = []
+    report: dict = {}
+    check_mimetype(
+        [_zip_info("mimetype")],
+        {"mimetype": EPUB_MIMETYPE.encode("ascii")},
+        problems,
+        report,
+    )
+
+    assert problems == []
+    assert report["mimetype_first"] is True
+
+
+def test_check_mimetype_reports_compression_and_position() -> None:
+    from book_splitter.core.constants import EPUB_MIMETYPE
+    from book_splitter.epub.verify import check_mimetype
+
+    problems: list[str] = []
+    report: dict = {}
+    check_mimetype(
+        [_zip_info("mimetype", compressed=True)],
+        {"mimetype": EPUB_MIMETYPE.encode("ascii")},
+        problems,
+        report,
+    )
+    assert problems == ["the mimetype entry is compressed"]
+    assert report["mimetype_first"] is False
+
+    problems = []
+    report = {}
+    check_mimetype([_zip_info("other")], {}, problems, report)
+    assert problems == ["the mimetype entry is not the first entry of the package"]
+
+
+def test_check_container_returns_the_package_document() -> None:
+    from book_splitter.epub.verify import check_container
+
+    container = (
+        b'<?xml version="1.0" encoding="UTF-8"?>'
+        b'<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+        b"<rootfiles><rootfile full-path=\"OEBPS/content.opf\"/></rootfiles>"
+        b"</container>"
+    )
+    problems: list[str] = []
+    report: dict = {}
+
+    opf_path = check_container(
+        {"META-INF/container.xml": container},
+        ["OEBPS/content.opf"],
+        problems,
+        report,
+    )
+
+    assert opf_path == "OEBPS/content.opf"
+    assert report["container_ok"] is True
+    assert problems == []
+
+
+def test_check_container_reports_an_unreadable_or_missing_document() -> None:
+    from book_splitter.epub.verify import check_container
+
+    problems: list[str] = []
+    report: dict = {}
+    assert check_container({"META-INF/container.xml": b"<"}, [], problems, report) == ""
+    assert problems == [
+        "META-INF/container.xml is unreadable",
+        "META-INF/container.xml names no package document",
+    ]
+    assert report.get("container_ok", False) is False
+
+
+def test_check_documents_accepts_a_titled_document() -> None:
+    from book_splitter.epub.package import SpineDocument
+    from book_splitter.epub.verify import check_documents
+
+    document = SpineDocument(href="text/01.xhtml", title="Chapter", body="")
+    xhtml = (
+        b'<?xml version="1.0" encoding="UTF-8"?>'
+        b'<html xmlns="http://www.w3.org/1999/xhtml">'
+        b"<head><title>Chapter</title></head><body><p>Text.</p></body></html>"
+    )
+    contents = {"OEBPS/text/01.xhtml": xhtml}
+    problems: list[str] = []
+    report = {"xhtml_valid": 0, "image_links_ok": 0}
+
+    check_documents([document], contents, list(contents), "OEBPS", problems, report)
+
+    assert problems == []
+    assert report == {"xhtml_valid": 1, "image_links_ok": 1}
+
+
+def test_check_documents_reports_malformed_and_missing_documents() -> None:
+    from book_splitter.epub.package import SpineDocument
+    from book_splitter.epub.verify import check_documents
+
+    problems: list[str] = []
+    report = {"xhtml_valid": 0, "image_links_ok": 0}
+    check_documents(
+        [SpineDocument(href="text/01.xhtml", title="", body="")],
+        {"OEBPS/text/01.xhtml": b"<"},
+        ["OEBPS/text/01.xhtml"],
+        "OEBPS",
+        problems,
+        report,
+    )
+    assert problems and "not well-formed XHTML" in problems[0]
+
+    problems = []
+    check_documents(
+        [SpineDocument(href="text/02.xhtml", title="", body="")],
+        {},
+        [],
+        "OEBPS",
+        problems,
+        report,
+    )
+    assert problems == ["spine document missing from the package: text/02.xhtml"]
+
+
+def test_check_cover_requires_both_page_and_picture() -> None:
+    from book_splitter.epub.package import ImageAsset
+    from book_splitter.epub.verify import check_cover
+
+    cover = ImageAsset(href="images/cover.png", media_type="image/png", data=b"x")
+
+    problems: list[str] = []
+    check_cover(cover, [], "OEBPS", problems)
+    assert problems == [
+        "the cover page is missing from the package",
+        "the cover picture is missing: images/cover.png",
+    ]
+
+    problems = []
+    check_cover(
+        cover,
+        ["OEBPS/text/0000-cover.xhtml", "OEBPS/images/cover.png"],
+        "OEBPS",
+        problems,
+    )
+    assert problems == []
