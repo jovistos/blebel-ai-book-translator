@@ -8,8 +8,12 @@ The package is deliberately layered, and each layer is usable on its own:
     one chapter's prose → *shape* detections (never a paragraph in the output)
 ``corpus``
     the whole book → sampled text and a counted damage profile
-``transform``
-    a plan → validation, application and provenance (no writes)
+``plan``
+    a plan → the legal-edit vocabulary and its two validators (no writes)
+``apply``
+    a validated plan → rewritten lines and their per-line provenance
+``verify``
+    the content proof that only declared lines changed
 """
 
 from .apply import ApplyResult, LineEdit, apply_cleaning_plan, text_of

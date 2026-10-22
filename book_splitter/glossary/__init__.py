@@ -26,10 +26,15 @@ The pieces:
     renderings produced here are the ones the translator must reuse;
 :mod:`~book_splitter.glossary.extract`
     one model call, structured output, retries, token accounting;
+:mod:`~book_splitter.glossary.book`
+    the live dictionary and its merge rules (first rendering wins; a later
+    disagreement is a recorded conflict);
+:mod:`~book_splitter.glossary.records`
+    the four records the run writes, and the front/back-matter chapter
+    selection;
 :mod:`~book_splitter.glossary.runner`
-    the ordered run over the chapters, the dictionary's merge rules (first
-    rendering wins; a later disagreement is a recorded conflict), the
-    front/back-matter skip, and the files that come out:
+    the ordered run over the chapters, the front/back-matter skip, and the
+    files that come out:
     ``glossary.json``, ``glossary.md``, ``_glossary_manifest.json`` and
     ``_glossary_trace.json``.
 """

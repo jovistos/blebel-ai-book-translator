@@ -2788,6 +2788,7 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_splitter/documents/images.py](book_splitter/documents/images.py) | find/protect/restore Markdown and HTML image references; the `[[IMG_n]]` round-trip every stage shares |
 | [book_splitter/documents/markdown.py](book_splitter/documents/markdown.py) | header/standalone/prose line shapes (both stages) |
 | [book_splitter/documents/bodyline.py](book_splitter/documents/bodyline.py) | body-line *damage* shapes: split words, mid-word page numbers |
+| [book_splitter/documents/book.py](book_splitter/documents/book.py) | the one `BookMetadata` record: title/author/stem plus the publication fields both the matter and EPUB stages share |
 | [book_splitter/documents/chapters.py](book_splitter/documents/chapters.py) | reads `01-chapters/` (or the cleaned `02-preprocessed/`) back as chapter records, from `_manifest.json` or `_preprocess_manifest.json`, and exposes the stage-folder helpers |
 | [book_splitter/documents/layout.py](book_splitter/documents/layout.py) | the one `STAGE_DIRS` registry and `resolve_stage_dir`: a book folder, a sibling stage folder or a file all resolve to the stage being written |
 | [book_splitter/documents/chunks.py](book_splitter/documents/chunks.py) | the read side of stage 5's folder: `ChunkInput`, `discover_chunk_inputs`, `chunk_files`, chunk order and per-chunk file naming |
@@ -2805,7 +2806,10 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_splitter/preprocess/inspect.py](book_splitter/preprocess/inspect.py) | one chapter's headers + evidence + deterministic recommendation |
 | [book_splitter/preprocess/damage.py](book_splitter/preprocess/damage.py) | damage detection and the three repair rules |
 | [book_splitter/preprocess/corpus.py](book_splitter/preprocess/corpus.py) | sampling and the book-wide damage profile |
-| [book_splitter/preprocess/transform.py](book_splitter/preprocess/transform.py) | plan validation, application, provenance, verification |
+| [book_splitter/preprocess/plan.py](book_splitter/preprocess/plan.py) | the legal-edit vocabulary, its predicates and the two validators (no writes) |
+| [book_splitter/preprocess/apply.py](book_splitter/preprocess/apply.py) | pure line rewriting, the provenance map and the `LineProvenance` index |
+| [book_splitter/preprocess/verify.py](book_splitter/preprocess/verify.py) | the content proof that only declared lines changed |
+| [book_splitter/preprocess/transform.py](book_splitter/preprocess/transform.py) | compatibility facade for the three modules above (kept for one phase) |
 | [book_splitter/openings/inspect.py](book_splitter/openings/inspect.py) | the final phase of stages 2/9: one chapter's opening — title candidate, ≤12 clipped lines and the provable issue vocabulary |
 | [book_splitter/openings/repair.py](book_splitter/openings/repair.py) | the final phase: pure removal of the audited junk lines (blank slot for stage 2, collapsed blank for stage 9) |
 | [book_splitter/openings/phase.py](book_splitter/openings/phase.py) | the final phase: the book-wide pass, counts/findings and the per-chapter report both stage runners store |
@@ -2817,7 +2821,9 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_splitter/glossary/models.py](book_splitter/glossary/models.py) | stage 4: the Pydantic answer (`term` / `category` / `translation`) and category normalisation |
 | [book_splitter/glossary/prompts.py](book_splitter/glossary/prompts.py) | stage 4: the book-translation system prompt, the incremental chapter prompt, the dictionary renderer |
 | [book_splitter/glossary/extract.py](book_splitter/glossary/extract.py) | stage 4: the chapter schema and outcome over `core.llm.StructuredCaller` |
-| [book_splitter/glossary/runner.py](book_splitter/glossary/runner.py) | stage 4: `run_glossary`, the ordered chapter walk, the front/back-matter skip, merge rules and the four artifacts |
+| [book_splitter/glossary/book.py](book_splitter/glossary/book.py) | stage 4: the live dictionary — first rendering wins, repeats deduplicated, drift recorded as a conflict |
+| [book_splitter/glossary/records.py](book_splitter/glossary/records.py) | stage 4: the four records (`GlossaryTerm`, `ChapterPlan`, `ChapterGlossary`, `GlossaryResult`) and the chapter selection |
+| [book_splitter/glossary/runner.py](book_splitter/glossary/runner.py) | stage 4: `run_glossary`, the ordered chapter walk, the front/back-matter skip and the four artifacts |
 | [book_splitter/chunking/boundaries.py](book_splitter/chunking/boundaries.py) | stage 5: names the boundary kind of a cut (paragraph / sentence / line / word / hard) |
 | [book_splitter/chunking/tokenizer.py](book_splitter/chunking/tokenizer.py) | stage 5: resolves the tokenizer and the offline approximation, with the reason recorded |
 | [book_splitter/chunking/runner.py](book_splitter/chunking/runner.py) | stage 5: `run_chunking`, the reversible cut, the manifest, the skip/reuse rules and the reconstruction helpers |
@@ -2825,6 +2831,10 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_splitter/chunk_glossary/matching.py](book_splitter/chunk_glossary/matching.py) | stage 6: glossary loading, term normalisation and the rapidfuzz matcher (threshold and scorer are options) |
 | [book_splitter/chunk_glossary/runner.py](book_splitter/chunk_glossary/runner.py) | stage 6: `run_chunk_glossary`, the two phases (NER over every chunk, then retrieval), the per-chunk files and the manifest/trace |
 | [book_splitter/chunk_glossary/__init__.py](book_splitter/chunk_glossary/__init__.py) | stage 6: public surface (`run_chunk_glossary`, the matcher and the per-chunk records) |
+| [book_splitter/matter/metadata.py](book_splitter/matter/metadata.py) | stage 6b: `Title - Author` parsing from the input filename (re-exports the shared `BookMetadata`) |
+| [book_splitter/matter/generate.py](book_splitter/matter/generate.py) | stage 6b: the English text of a synthetic front/back matter section |
+| [book_splitter/matter/records.py](book_splitter/matter/records.py) | stage 6b: split/chunk manifest records, totals and the two manifest updates |
+| [book_splitter/matter/synthesize.py](book_splitter/matter/synthesize.py) | stage 6b: `ensure_matter_sections` — decide what is missing and write it |
 | [book_splitter/translation/models.py](book_splitter/translation/models.py) | stage 7: the Pydantic answer — one `translation` field, non-blank |
 | [book_splitter/translation/prompts.py](book_splitter/translation/prompts.py) | stage 7: the constant translator system prompt and the per-chunk prompt (glossary, optional context, source, task) |
 | [book_splitter/translation/translator.py](book_splitter/translation/translator.py) | stage 7: the translation schema, quality validation and JSON recovery over `core.llm.StructuredCaller` |
@@ -2833,15 +2843,18 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_splitter/assembly/runner.py](book_splitter/assembly/runner.py) | stage 8: `run_assembly`, the chapter grouping, all-or-nothing assembly, the resume comparison and the manifest/trace |
 | [book_splitter/assembly/__init__.py](book_splitter/assembly/__init__.py) | stage 8: public surface (`run_assembly`, the result record and the folder resolvers) |
 | [book_splitter/postprocess/inspect.py](book_splitter/postprocess/inspect.py) | stage 9: the chapter-title inventory, bounded openings, heading records and matter inspection |
-| [book_splitter/postprocess/plan.py](book_splitter/postprocess/plan.py) | stage 9: naming/TOC validation, title canonicalisation, chapter apply and provenance verification |
+| [book_splitter/postprocess/titles.py](book_splitter/postprocess/titles.py) | stage 9: title text primitives and the canonical chapter-title policy |
+| [book_splitter/postprocess/rules/](book_splitter/postprocess/rules/__init__.py) | stage 9: validation split by rule group (evidence, naming, overrides, TOC, titles, chapter title, headings) |
+| [book_splitter/postprocess/plan.py](book_splitter/postprocess/plan.py) | stage 9: the public validators (thin orchestrators), chapter apply and provenance verification |
 | [book_splitter/postprocess/toc.py](book_splitter/postprocess/toc.py) | stage 9: TOC detection, generation, in-place update and consistency verification |
 | [book_splitter/postprocess_agent/graph.py](book_splitter/postprocess_agent/graph.py) | stage 9: the book-level and per-chapter `StageSpec`s, compiled by the scaffold |
 | [book_splitter/postprocess_agent/runner.py](book_splitter/postprocess_agent/runner.py) | stage 9: `run_postprocess`, the book pass, the ordered chapter walk and the TOC write |
 | [book_splitter/binding/runner.py](book_splitter/binding/runner.py) | stage 10: `run_bind`, the ordered single-file concatenation and its verification |
-| [book_splitter/epub/runner.py](book_splitter/epub/runner.py) | stage 11: `run_epub`, the chapter render, picture embedding, metadata resolution, the package write and the post-write verification |
+| [book_splitter/epub/runner.py](book_splitter/epub/runner.py) | stage 11: `run_epub`, the chapter render, picture embedding, metadata resolution and the package write |
+| [book_splitter/epub/verify.py](book_splitter/epub/verify.py) | stage 11: post-write verification, split by rule (mimetype, container, package document, navigation, documents, cover) |
 | [book_splitter/epub/render.py](book_splitter/epub/render.py) | stage 11: Markdown → XHTML (`markdown_it`, imported lazily), heading anchors, picture figures |
 | [book_splitter/epub/package.py](book_splitter/epub/package.py) | stage 11: the EPUB 3 container — zip layout, package document, navigation document, cover page |
-| [book_splitter/epub/metadata.py](book_splitter/epub/metadata.py) | stage 11: `dc:` metadata from stage 6b's records, the stable UUID and the package timestamp |
+| [book_splitter/epub/metadata.py](book_splitter/epub/metadata.py) | stage 11: `dc:` metadata from stage 6b's records, the stable UUID, the package timestamp and the ZIP date encoding |
 | [book_splitter/epub/assets/style.css](book_splitter/epub/assets/style.css) | stage 11: the stylesheet every package ships |
 | [book_splitter/agent/prompts.py](book_splitter/agent/prompts.py) | stage 1 system prompt and the fallback protocol |
 | [book_splitter/agent/llm.py](book_splitter/agent/llm.py) | the chat model with the toolset bound |

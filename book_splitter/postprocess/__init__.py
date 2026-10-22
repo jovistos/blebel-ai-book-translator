@@ -27,6 +27,9 @@ The public surface is intentionally small::
     apply_chapter_plan()         pure line rewrite (no writes)
     verify_chapter_plan()        proof that only declared lines changed
     detect_toc() / apply_toc()   locate, build and rewrite the TOC
+
+The validator rules live in :mod:`book_splitter.postprocess.rules`, one module
+per rule group; ``plan.py`` only orchestrates them and keeps the public names.
 """
 
 from .inspect import (

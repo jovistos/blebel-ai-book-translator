@@ -128,10 +128,12 @@ Package layout::
                         `openings` / `bind` / `epub` / `tools`
         conversion/     stage 0: EPUB/PDF/TXT -> Markdown (docling; no OCR)
         core/           constants, errors, LLM settings
-        documents/      reading, markdown/bodyline shapes, chapter discovery
+        documents/      reading, markdown/bodyline shapes, chapter discovery,
+                        the shared BookMetadata record
         analysis/       TOC detection, header assessment, title location
         slicing/        stage 1: planning, verbatim slicing, verification
-        preprocess/     stage 2: header inspection, damage scan, repair engine
+        preprocess/     stage 2: header inspection, damage scan, and the
+                        plan/apply/verify repair engine
         openings/       the final phase of stages 2 and 9: every chapter opening
                         audited, the provable leftovers (a stray number under the
                         title, a duplicated title, a page number) removed
@@ -144,7 +146,8 @@ Package layout::
         matter_agent/   stage 6b agent: book plan + per-chunk localization graphs
         translation/    stage 7: per-chunk structured translation + prompt record
         assembly/       stage 8: translated chunks concatenated into chapters
-        postprocess/    stage 9: heading/title/TOC planning and application
+        postprocess/    stage 9: heading/title/TOC planning, rule-group
+                        validation and application
         postprocess_agent/ stage 9 agent: book + per-chapter graphs
         binding/        stage 10: postprocessed chapters -> one Markdown book
         epub/           stage 11: postprocessed chapters -> one EPUB 3 book
