@@ -25,13 +25,13 @@ from ..core.errors import ConfigError, ExtractionError, ToolError
 from ..core.llm import TokenUsage
 from ..documents.chapters import reduced_dir, unique_dir
 from ..documents.io import load_lines
+from .book import GlossaryBook
 from .extract import GlossaryExtractor
 from .prompts import build_chapter_prompt
 from .records import (
     ChapterGlossary,
     ChapterPlan,
     Clock,
-    GlossaryBook,
     GlossaryResult,
     GlossaryTerm,
 )

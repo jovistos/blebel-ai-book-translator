@@ -54,6 +54,7 @@ from .artifacts import (
     chunk_sentences,
     resolve_sentences_dir,
 )
+from .book import GlossaryBook, MergeOutcome
 from .execute import execute_glossary
 from .extract import GlossaryExtractor, make_extractor
 from .records import (
@@ -61,10 +62,8 @@ from .records import (
     ChapterPlan,
     ChapterStartHook,
     Clock,
-    GlossaryBook,
     GlossaryResult,
     GlossaryTerm,
-    MergeOutcome,
     ProgressHook,
     chapter_kind,
     select_chapters,

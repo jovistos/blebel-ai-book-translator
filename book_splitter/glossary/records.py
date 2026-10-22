@@ -1,10 +1,25 @@
-"""Records, plans and the book-wide dictionary for the glossary stage."""
+"""The four records the glossary stage writes, and the chapter selection.
+
+``GlossaryTerm``
+    one locked dictionary row (``glossary.json``);
+``ChapterPlan``
+    one chapter file and whether the run will ask the model about it;
+``ChapterGlossary``
+    one chapter's part of the run — a manifest row plus a trace-only tail;
+``GlossaryResult``
+    the outcome of a whole stage-4 run.
+
+The mutable dictionary those rows belong to lives in
+:mod:`book_splitter.glossary.book`; the wire shape of the model's answer lives in
+:mod:`book_splitter.glossary.models`. All four records here expose ``to_dict()``
+and survive a JSON round-trip.
+"""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..core.constants import (
     DEFAULT_SOURCE_LANGUAGE,
@@ -14,6 +29,9 @@ from ..core.constants import (
 from ..core.llm import TokenUsage
 from ..documents.chapters import Chapter
 from .models import GlossaryEntry, TermCategory, entry_key
+
+if TYPE_CHECKING:  # pragma: no cover - import for type checkers only
+    from .book import GlossaryBook, MergeOutcome
 
 #: Entity kinds the stage-1 manifest uses for the two blocks around the body.
 FRONT_MATTER_KINDS = frozenset({"front-matter", "frontmatter", "front matter", "front_matter"})
@@ -25,9 +43,6 @@ BACK_MATTER_MARKERS = ("back-matter", "back_matter", "backmatter")
 Clock = Callable[[], float]
 
 
-# --------------------------------------------------------------------------- #
-# the dictionary being built
-# --------------------------------------------------------------------------- #
 @dataclass
 class GlossaryTerm:
     """One locked rendering, plus where it entered the dictionary.
@@ -49,6 +64,23 @@ class GlossaryTerm:
     @property
     def key(self) -> str:
         return entry_key(self.term)
+
+    @classmethod
+    def from_entry(
+        cls,
+        entry: GlossaryEntry,
+        *,
+        chapter_index: int = 0,
+        chapter_filename: str = "",
+    ) -> GlossaryTerm:
+        """Lock one validated model answer into a dictionary row."""
+        return cls(
+            term=entry.term,
+            category=entry.category.value,
+            translation=entry.translation,
+            chapter_index=chapter_index,
+            chapter_filename=chapter_filename,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -72,119 +104,6 @@ class GlossaryTerm:
         )
 
 
-@dataclass
-class MergeOutcome:
-    """What one chapter's answer did to the dictionary."""
-
-    added: list[GlossaryTerm] = field(default_factory=list)
-    repeats: list[str] = field(default_factory=list)
-    conflicts: list[dict[str, Any]] = field(default_factory=list)
-
-    @property
-    def empty(self) -> bool:
-        return not self.added and not self.repeats and not self.conflicts
-
-
-class GlossaryBook:
-    """The dictionary, in insertion order, with the consistency rules applied.
-
-    The first rendering of a term wins, always. That is the promise the prompt
-    makes to the translator, so a later chapter that re-states a locked term
-    differently is recorded as a **conflict** and the dictionary is left alone —
-    the model gets another chance to conform in the next chapter, but the text it
-    already translated can never disagree with itself.
-    """
-
-    def __init__(self, entries: Iterable[GlossaryTerm] = ()) -> None:
-        self._entries: dict[str, GlossaryTerm] = {}
-        self.conflicts: list[dict[str, Any]] = []
-        for entry in entries:
-            if entry.key:
-                self._entries[entry.key] = entry
-
-    def __len__(self) -> int:
-        return len(self._entries)
-
-    def __bool__(self) -> bool:
-        return bool(self._entries)
-
-    def __iter__(self):
-        return iter(self._entries.values())
-
-    def terms(self) -> list[GlossaryTerm]:
-        return list(self._entries.values())
-
-    def lock(self, entry: GlossaryTerm) -> None:
-        """Install an already-locked entry, as ``--resume`` does from disk."""
-        if entry.key:
-            self._entries[entry.key] = entry
-
-    def to_list(self) -> list[dict[str, Any]]:
-        return [entry.to_dict() for entry in self._entries.values()]
-
-    def categories(self) -> dict[str, int]:
-        counts: dict[str, int] = {}
-        for entry in self._entries.values():
-            counts[entry.category] = counts.get(entry.category, 0) + 1
-        return dict(sorted(counts.items()))
-
-    def merge(
-        self,
-        entries: Iterable[GlossaryEntry],
-        *,
-        chapter_index: int,
-        chapter_filename: str,
-    ) -> MergeOutcome:
-        """Fold one chapter's answer into the dictionary.
-
-        Runs in three cases, in this order: a term nobody has seen is added with
-        its provenance; a term already locked in and returned with the *same*
-        rendering is a repeat (deduplicated); a term already locked in and
-        returned with a *different* rendering is a conflict, the existing entry
-        stands, and both renderings are recorded so the run can report where the
-        model tried to drift.
-        """
-        outcome = MergeOutcome()
-        for entry in entries:
-            key = entry.key
-            if not key:
-                continue
-            existing = self._entries.get(key)
-            if existing is None:
-                term = GlossaryTerm(
-                    term=entry.term,
-                    category=entry.category.value,
-                    translation=entry.translation,
-                    chapter_index=chapter_index,
-                    chapter_filename=chapter_filename,
-                )
-                self._entries[key] = term
-                outcome.added.append(term)
-                continue
-            if _same_rendering(existing.translation, entry.translation):
-                if chapter_filename not in existing.repeats:
-                    existing.repeats.append(chapter_filename)
-                outcome.repeats.append(existing.term)
-                continue
-            conflict = {
-                "term": existing.term,
-                "chapter_index": chapter_index,
-                "chapter_filename": chapter_filename,
-                "locked": existing.translation,
-                "proposed": entry.translation,
-            }
-            self.conflicts.append(conflict)
-            outcome.conflicts.append(conflict)
-        return outcome
-
-
-def _same_rendering(left: str, right: str) -> bool:
-    return " ".join(str(left or "").split()).casefold() == " ".join(str(right or "").split()).casefold()
-
-
-# --------------------------------------------------------------------------- #
-# which chapters the model is asked about
-# --------------------------------------------------------------------------- #
 @dataclass
 class ChapterPlan:
     """One chapter file, and whether the run will ask the model about it.
@@ -283,9 +202,6 @@ def select_chapters(
     return plans
 
 
-# --------------------------------------------------------------------------- #
-# artifacts
-# --------------------------------------------------------------------------- #
 @dataclass
 class ChapterGlossary:
     """One chapter's part of the run: what it cost and what it contributed."""
@@ -318,51 +234,65 @@ class ChapterGlossary:
     conflict_detail: list[dict[str, Any]] = field(default_factory=list)
     raw_answers: list[str] = field(default_factory=list)
 
+    #: The manifest row, in this order. ``record()`` projects these fields and
+    #: adds the two computed ones, so the manifest and trace shapes cannot
+    #: drift apart.
+    _MANIFEST_FIELDS: tuple[str, ...] = (
+        "index",
+        "body_index",
+        "filename",
+        "chapter_id",
+        "title",
+        "kind",
+        "sentences_path",
+        "output_lines",
+        "source_chars",
+        "chunks",
+        "models_called",
+        "attempts",
+        "method",
+        "added",
+        "repeats",
+        "conflicts",
+        "skipped",
+        "skip_reason",
+        "reused",
+        "ok",
+        "error",
+    )
+    #: Present only in the trace, never in the manifest.
+    _TRACE_FIELDS: tuple[str, ...] = (
+        "log",
+        "added_terms",
+        "conflict_detail",
+        "raw_answers",
+    )
+
     def record(self) -> dict[str, Any]:
         """The flat per-chapter record stored in the manifest."""
-        return {
-            "index": self.index,
-            "body_index": self.body_index,
-            "filename": self.filename,
-            "chapter_id": self.chapter_id,
-            "title": self.title,
-            "kind": self.kind,
-            "sentences_path": self.sentences_path,
-            "output_lines": self.output_lines,
-            "source_chars": self.source_chars,
-            "chunks": self.chunks,
-            "models_called": self.models_called,
-            "attempts": self.attempts,
-            "method": self.method,
-            "added": self.added,
-            "repeats": self.repeats,
-            "conflicts": self.conflicts,
-            "skipped": self.skipped,
-            "skip_reason": self.skip_reason,
-            "reused": self.reused,
-            "ok": self.ok,
-            "error": self.error,
-            "tokens": self.usage.to_dict(),
-            "elapsed_seconds": round(self.elapsed_seconds, 4),
+        data: dict[str, Any] = {
+            name: getattr(self, name) for name in self._MANIFEST_FIELDS
         }
+        data["tokens"] = self.usage.to_dict()
+        data["elapsed_seconds"] = round(self.elapsed_seconds, 4)
+        return data
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            **self.record(),
-            "log": list(self.log),
-            "added_terms": list(self.added_terms),
-            "conflict_detail": list(self.conflict_detail),
-            "raw_answers": list(self.raw_answers),
-        }
+        data = self.record()
+        data.update({name: list(getattr(self, name)) for name in self._TRACE_FIELDS})
+        return data
 
 
+
+
+
+#: Called once per chapter as ``(chapter_record, completed, total)``.
 #: Called once per chapter as ``(chapter_record, completed, total)``.
 ProgressHook = Callable[[dict[str, Any], int, int], None]
 #: Called *before* a chapter's first model call, with where it sits in the run.
 #: A chapter is one long request, so a caller that wants a live bar needs to know
 #: what is in flight, not only what has finished.
 ChapterStartHook = Callable[[dict[str, Any]], None]
-
 
 @dataclass
 class GlossaryResult:
@@ -408,6 +338,17 @@ class GlossaryResult:
         return asdict(self)
 
 
+def __getattr__(name: str) -> Any:
+    """Keep ``records.GlossaryBook`` / ``records.MergeOutcome`` importable.
+
+    They moved to :mod:`book_splitter.glossary.book`; the lazy lookup avoids a
+    records <-> book import cycle while preserving the old import path.
+    """
+    if name in {"GlossaryBook", "MergeOutcome"}:
+        from . import book as _book
+
+        return getattr(_book, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [
