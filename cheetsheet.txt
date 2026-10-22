@@ -1,6 +1,14 @@
 cd /home/jovis/Documents/WORK/BleBelTranslateBook
 source .venv_splitter/bin/activate
 
+# Whole pipeline: `python -m book_splitter pipeline ...` is the same parser and
+# driver as `python scripts/run_pipeline.py ...` (the script is a wrapper).
+# Shared flags: --json (one object, no narration), --quiet (no narration),
+# --output-root (default data/output), --text-in (chapter text override).
+# --dry-run validates and writes nothing; it never calls a paid model.
+#   .venv_splitter/bin/python -m book_splitter pipeline BOOK.md --json
+#   .venv_splitter/bin/python -m book_splitter pipeline BOOK.md --dry-run --quiet
+
 # which model each stage uses: book_splitter.toml ([llm] + [llm.<stage>]).
 # Override one stage for one run without editing it:
 #   --llm split.model=deepseek-flash --llm translate.provider=lmstudio

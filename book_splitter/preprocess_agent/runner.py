@@ -77,16 +77,35 @@ def run_preprocess(
         chapters = chapters[: int(limit)]
     source_dir = Path(chapters_path).expanduser()
     out_dir = Path(output_dir).expanduser() if output_dir else preprocessed_dir(source_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
 
     corpus_scan = scan_corpus_damage(chapters)
-    previous = _previous_files(out_dir) if skip_if_present and not dry_run else {}
+    previous = _previous_files(out_dir) if skip_if_present else {}
     reused: dict[str, ChapterResult] = {}
     for chapter in chapters:
         reusable = _reusable_chapter(chapter, out_dir, previous)
         if reusable is not None:
             reused[chapter.filename] = reusable
     pending = [chapter for chapter in chapters if chapter.filename not in reused]
+    if dry_run:
+        # The plan is the model's answer: validate the chapter set and the
+        # reusable prefix, then stop before building the graph or a provider.
+        return PreprocessResult(
+            ok=True,
+            chapters_path=str(source_dir),
+            output_dir=str(out_dir),
+            chapter_count=len(chapters),
+            ok_count=len(reused),
+            skipped_count=len(reused),
+            skipped=not pending,
+            dry_run=True,
+            parallel=workers > 1,
+            corpus_scan=corpus_scan,
+            openings={},
+            chapters=[],
+            usage={},
+            errors=[],
+        )
+    out_dir.mkdir(parents=True, exist_ok=True)
     app = build_preprocess_graph(settings, model=model) if pending else None
 
     results: list[ChapterResult] = []

@@ -349,14 +349,17 @@ def test_progress_sees_every_chunk_in_reading_order(tmp_path: Path):
     assert all(total == 3 for _name, _done, total in seen)
 
 
-def test_dry_run_calls_the_model_but_writes_nothing(tmp_path: Path):
+def test_dry_run_never_calls_the_model_and_writes_nothing(tmp_path: Path):
     book, _chapters, chunks, _chunk_glossary = _project(tmp_path)
     translator = FakeTranslator()
 
     result = run_translation(str(chunks), translator=translator, dry_run=True)
 
     assert result.ok is True
-    assert len(translator.calls) == result.chunk_count
+    assert len(translator.calls) == 0  # a dry run never asks the translator
+    assert result.dry_run is True
+    assert result.chunk_count == 3  # the planned chunks are still reported
+    assert result.processed_count == 3
     assert not (book / "07-translations").exists()
     assert not (book / "07-translation-prompts").exists()
     assert result.manifest_path is None

@@ -213,6 +213,60 @@ def prepare_matter(
     ]
     pending = [chunk for chunk, is_reused in zip(inputs, reused, strict=True) if not is_reused]
 
+    if dry_run:
+        # The localization plan and every localized chunk are model answers. A
+        # dry run inventories the matter sections/chunks and the resumable
+        # prefix, then returns before building either graph.
+        return MatterResult(
+            ok=True,
+            chapters_path=str(book.chapters_path),
+            chunks_path=str(chunks),
+            output_dir=str(out_dir),
+            prompts_dir=str(prompt_dir) if write_prompts else "",
+            matter_path=str(stage_dir),
+            source_language=source_lang,
+            target_language=target_lang,
+            book_title=book.book_title,
+            book_author=book.book_author,
+            source_file=book.source_file,
+            synthetic_sections=list(synthesis.created) if synthesis else [],
+            synthetic_chunks=list(synthesis.chunk_created) if synthesis else [],
+            section_count=len(sections),
+            chunk_count=0,
+            ok_count=0,
+            processed_count=len(pending),
+            reused_count=sum(1 for value in reused if value),
+            skipped_count=0,
+            skipped=not pending,
+            dry_run=True,
+            save=save,
+            resumed=resume_enabled,
+            limited=limited,
+            book_plan={},
+            validation={},
+            settings={
+                "max_attempts": max(1, int(max_attempts)),
+                "recursion_limit": int(recursion_limit),
+                "limit": int(limit) if limit is not None else None,
+                "chapter_files": list(chapter_files) if chapter_files is not None else None,
+                "resume": bool(resume),
+                "write_prompts": bool(write_prompts),
+            },
+            tokens={"chunks": len(pending)},
+            totals={
+                "sections": len(sections),
+                "matter_chunks": len(pending),
+                "ok": 0,
+                "omitted": 0,
+                "reused": sum(1 for value in reused if value),
+                "localized_chars": 0,
+            },
+            timing={"run_seconds": 0.0, "seconds_per_chunk": 0.0},
+            sections=[section.to_dict() for section in sections],
+            chunks=[],
+            errors=[],
+        )
+
     if pending and (
         chunk_model is None
         and model is None

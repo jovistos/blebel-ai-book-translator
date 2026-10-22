@@ -495,8 +495,10 @@ def test_dry_run_asks_the_model_and_writes_nothing(tmp_path):
     extractor = FakeExtractor(by_chapter({"01-chapter-1.md": [entry("Potter", "Poter")]}))
     result = run_glossary(str(folder), str(out), extractor=extractor, dry_run=True)
 
-    assert len(extractor.calls) == 2  # the model was asked
-    assert result.entry_count == 1  # ...and the dictionary was built in memory
+    assert len(extractor.calls) == 0  # a dry run never asks the model
+    assert result.entry_count == 0  # ...so no dictionary is built in memory
+    assert result.dry_run is True
+    assert result.processed_count > 0  # but the pending chapters are reported
     assert result.glossary_path is None
     assert not out.exists()
 

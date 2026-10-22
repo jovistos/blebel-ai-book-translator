@@ -88,10 +88,31 @@ def run_split(
     if not Path(source).is_file():
         raise SystemExit(f"source file not found: {source_path}")
     out_dir = Path(output_dir).expanduser()
-    if skip_if_present and not dry_run and has_chapter_files(out_dir):
+    if skip_if_present and has_chapter_files(out_dir):
         return result_from_existing_chapters(out_dir)
     if dry_run:
-        out_dir.mkdir(parents=True, exist_ok=True)
+        # A dry run validates the source and the budget but never builds the
+        # graph: the split plan *is* the model's answer, so there is nothing
+        # deterministic to validate without spending.
+        lines = load_lines(source)
+        toc = detect_toc_block(lines)
+        return SplitterResult(
+            ok=True,
+            source_path=source,
+            output_dir=str(out_dir.resolve()),
+            validation={"ok": True, "dry_run": True, "issues": [], "warnings": []},
+            verification={"dry_run": True, "would_run": "split agent"},
+            log=[
+                f"dry run: {len(lines):,} source line(s) — the agent would run with "
+                f"at most {max_attempts} turn(s), a minimum of {min_chapters} chapter(s), "
+                f"and a {front_matter_lines}-line front-matter budget"
+                + (
+                    f"; printed TOC at lines {toc.get('start_line')}-{toc.get('end_line')}"
+                    if toc.get("found")
+                    else ""
+                )
+            ],
+        )
 
     app = build_graph(settings)
     initial: SplitterState = {

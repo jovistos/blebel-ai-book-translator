@@ -295,7 +295,7 @@ def test_dry_run_writes_nothing(tmp_path: Path, offline):
         ["translate", "--out", str(chapters), "--limit", "1", "--dry-run", "-q"]
     )
     assert code == 0
-    assert len(offline.calls) == 1
+    assert len(offline.calls) == 0  # a dry run never asks the translator
     assert not (book / "07-translations").exists()
     assert not (book / "07-translation-prompts").exists()
 

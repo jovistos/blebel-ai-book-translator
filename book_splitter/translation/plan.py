@@ -295,7 +295,7 @@ def prepare_translation(
         chunk for chunk, is_reused in zip(inputs, plan.reused, strict=True) if not is_reused
     ]
 
-    if translator is None and plan.pending:
+    if translator is None and plan.pending and not dry_run:
         if settings is None and settings_factory is not None:
             settings = settings_factory()
         if settings is None:

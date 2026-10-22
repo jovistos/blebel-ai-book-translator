@@ -125,16 +125,14 @@ def test_json_output_is_the_machine_readable_run(tmp_path, offline_model, capsys
     assert payload["glossary_path"].endswith("glossary.json")
 
 
-def test_quiet_drops_the_transcript_but_keeps_the_summary(tmp_path, offline_model, capsys):
+def test_quiet_drops_the_whole_transcript(tmp_path, offline_model, capsys):
     folder = make_book(tmp_path)
     out = tmp_path / "book" / "04-glossary"
     cli.main(["glossary", str(folder), "--glossary-out", str(out), "--quiet"])
     printed = capsys.readouterr().out
-    # The header and the per-chapter progress lines are gone...
-    assert "language=en -> sr" not in printed
-    assert "[1/" not in printed
-    # ...the summary — the token total the run exists to report — is not.
-    assert "tokens used" in printed
+    # ``--quiet`` now follows the shared contract: no header, no progress and no
+    # closing summary on stdout. The artifacts are still written.
+    assert printed.strip() == ""
     assert (out / "glossary.json").is_file()
 
 
@@ -281,8 +279,8 @@ def test_the_text_stages_default_to_the_cleaned_folder(tmp_path, monkeypatch):
         json.dumps({"stage": "preprocess", "ok": True, "dry_run": False, "files": []}),
         encoding="utf-8",
     )
-    monkeypatch.setattr(cli, "resolve_book_path", lambda *a, **k: book / "book.md")
-    monkeypatch.setattr(cli, "resolve_output_dir", lambda *a, **k: raw)
+    monkeypatch.setattr(cli.legacy, "resolve_book_path", lambda *a, **k: book / "book.md")
+    monkeypatch.setattr(cli.legacy, "resolve_output_dir", lambda *a, **k: raw)
 
     assert cli._resolve_text_dir(None, None, None) == cleaned
 
@@ -295,8 +293,8 @@ def test_the_cleaned_folder_is_ignored_without_a_completed_manifest(tmp_path, mo
         json.dumps({"stage": "preprocess", "ok": True, "dry_run": True, "files": []}),
         encoding="utf-8",
     )
-    monkeypatch.setattr(cli, "resolve_book_path", lambda *a, **k: book / "book.md")
-    monkeypatch.setattr(cli, "resolve_output_dir", lambda *a, **k: raw)
+    monkeypatch.setattr(cli.legacy, "resolve_book_path", lambda *a, **k: book / "book.md")
+    monkeypatch.setattr(cli.legacy, "resolve_output_dir", lambda *a, **k: raw)
 
     assert cli._resolve_text_dir(None, None, None) == raw
 

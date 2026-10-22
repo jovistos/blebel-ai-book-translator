@@ -2200,15 +2200,20 @@ Two rules apply to both the stage commands and `run_pipeline.py`:
   `preprocess` always read `01-chapters/`, because they run before (or produce) the cleaned copy.
   `matter` also keeps `01-chapters/`, because it creates synthetic front/back-matter files in that
   folder and appends them to stage 1's manifest; its chunk text still comes from `05-chunks/`.
-* **`--dry-run` means "do the work, write nothing".** Deterministic stages verify every cut or
-  plan; model-backed stages still call the model, because the plan *is* the model's answer and
-  there is nothing to validate without it. No chapter, chunk, glossary, translation, manifest or
-  trace is written. A dry run is a validation mode, not a free price quote; use `--limit` /
+* **`--dry-run` validates but never spends.** Deterministic stages still do their real work
+  (the chunker verifies every cut, the binder assembles in memory, the EPUB packager builds and
+  verifies the package) and write nothing. Model-backed stages stop at their deterministic
+  preview: they resolve the inputs, discover the chapters/chunks/matter sections, check the
+  resumable prefix and report what would run, but they do **not** construct a chat model or call
+  a provider. No chapter, chunk, glossary, translation, manifest or trace is written. A dry run
+  is a validation mode, not a way to see a model's plan; use a real run with `--limit` /
   `--first-chapters` when the goal is a cheaper sample.
 
 ### One command for the whole pipeline
 
-[scripts/run_pipeline.py](scripts/run_pipeline.py) runs the phases in the only order that works —
+The pipeline runs through one parser and one driver: `python -m book_splitter pipeline` and
+[scripts/run_pipeline.py](scripts/run_pipeline.py) (a thin compatibility wrapper) are the same
+command. It runs the phases in the only order that works —
 convert → recon → split → scan → preprocess → dictionary → chunk → chunk-glossary → matter
 (→ translate and concatenate, opt-in → postprocess → bind → epub) — and narrates each one: book size and header verdict, the strategy the agent
 chose, the byte-for-byte proof, the damage profile, how many sentences survived the dictionary funnel
@@ -2222,7 +2227,10 @@ from them.
 lands in `data/output/<book>/pipeline.log`, debug included.
 
 ```bash
-python scripts/run_pipeline.py                      # every default phase, the only book in data/input/
+python -m book_splitter pipeline                     # every default phase, the only book in data/input/
+python -m book_splitter pipeline --json              # one machine-readable summary, no narration
+python -m book_splitter pipeline --quiet             # no narration; errors still go to stderr
+python scripts/run_pipeline.py                      # the same driver through the old script path
 python scripts/run_pipeline.py BOOK.epub            # stage 0 converts it, then the usual run
 python scripts/run_pipeline.py BOOK.pdf --stop-after convert   # just the text-layer check + Markdown
 python scripts/run_pipeline.py BOOK.pdf --force-convert       # convert again despite a matching hash
@@ -2767,7 +2775,9 @@ The package is split by responsibility; each folder can be read on its own.
 | --- | --- |
 | [book_splitter/paths.py](book_splitter/paths.py) | where documents live: `data/input/` in, `data/output/` out |
 | [book_splitter/conversion/runner.py](book_splitter/conversion/runner.py) | stage 0: EPUB/PDF/TXT → Markdown (`00-markdown/`), picture extraction to `00-markdown/images/`, the PDF text-layer gate (no OCR) and the conversion manifest |
-| [book_splitter/cli.py](book_splitter/cli.py) | `convert` / `inspect` / `split` / `scan` / `preprocess` / `dictionary` / `glossary` / `chunk` / `chunk-glossary` / `matter` / `translate` / `concatenate` / `postprocess` / `openings` / `bind` / `epub` / `tools` commands |
+| [book_splitter/cli/](book_splitter/cli/__init__.py) | the command-line package: `main`/`build_parser` compatibility surface, the legacy command implementations (`cli/legacy.py`), shared argparse parents (`cli/parents.py`) and the `pipeline` dispatch |
+| [book_splitter/pipeline/](book_splitter/pipeline/__init__.py) | the one orchestrator: `options.py` (normalized options + exact runner kwargs), `paths.py` (`StagePaths`), `sources.py` (text/chunk fallbacks), `driver.py` (phase order, stop/start, records) and `parser.py` (the shared whole-pipeline CLI) |
+| [book_splitter/core/report.py](book_splitter/core/report.py) | `human_seconds`, `human_bytes`, the `Bar` progress bar and the per-stage `summarize(result)` used by both front ends |
 | [book_splitter/core/constants.py](book_splitter/core/constants.py) | every guardrail and default in one place |
 | [book_splitter/core/settings.py](book_splitter/core/settings.py) | provider and credential resolution |
 | [book_splitter/core/errors.py](book_splitter/core/errors.py) | `ToolError`, `ConfigError` |

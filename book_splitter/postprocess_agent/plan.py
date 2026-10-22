@@ -87,6 +87,26 @@ def prepare_postprocess(
     selected = _selected_files(files, limit, matters)
     selected_names = {path.name for path in selected}
 
+    if dry_run:
+        # The naming policy and every chapter plan are model answers. Validate
+        # the translated-chapter set and the requested window, then return
+        # before building the book-plan graph.
+        return build_postprocess_result(
+            ok=True,
+            source_dir=source_dir,
+            out_dir=out_dir,
+            chapter_count=len(selected),
+            dry_run=True,
+            limited=bool(limit is not None and len(selected) < len(files)),
+            first_chapters=limit,
+            web={"required": require_web_search, "attempted": False, "searches": []},
+            totals={},
+            openings={},
+            chapters=[],
+            usage={},
+            errors=[],
+        )
+
     book_app = build_postprocess_graph(
         settings,
         model=book_model if book_model is not None else model,

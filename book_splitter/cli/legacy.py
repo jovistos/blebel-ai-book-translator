@@ -113,12 +113,12 @@ import threading
 import time
 from pathlib import Path
 
-from .analysis.candidates import extract_candidates
-from .analysis.headers import assess_headers
-from .analysis.toc import detect_toc_block
-from .assembly import run_assembly
-from .conversion import is_markdown_source, run_conversion
-from .core.constants import (
+from ..analysis.candidates import extract_candidates
+from ..analysis.headers import assess_headers
+from ..analysis.toc import detect_toc_block
+from ..assembly import run_assembly
+from ..conversion import is_markdown_source, run_conversion
+from ..core.constants import (
     CHAPTERS_DIRNAME,
     CHUNK_GLOSSARY_SCORERS,
     DEFAULT_CHUNK_GLOSSARY_CANDIDATES,
@@ -152,9 +152,10 @@ from .core.constants import (
     TRANSLATION_GLOSSARY_SCOPES,
     TRANSLATION_METHODS,
 )
-from .core.errors import ConfigError, MissingDependencyError, ToolError
-from .core.settings import PROVIDERS, TRANSLATION_CHOICES
-from .documents.chapters import (
+from ..core.errors import ConfigError, MissingDependencyError, ToolError
+from ..core.report import summarize_payload
+from ..core.settings import PROVIDERS, TRANSLATION_CHOICES
+from ..documents.chapters import (
     chapters_dir,
     chunk_glossary_dir,
     chunks_dir,
@@ -178,12 +179,12 @@ from .documents.chapters import (
     translations_dir,
     unique_dir,
 )
-from .documents.io import load_lines, source_size_bytes
-from .documents.window import (
+from ..documents.io import load_lines, source_size_bytes
+from ..documents.window import (
     chapter_files_for_window,
     chapter_window_limit_for_path,
 )
-from .paths import default_input_dir, default_output_dir, resolve_book_path, resolve_output_dir
+from ..paths import default_input_dir, default_output_dir, resolve_book_path, resolve_output_dir
 
 
 def _print_json(payload) -> None:
@@ -194,7 +195,12 @@ def _resolve_book(args: argparse.Namespace) -> Path:
     return resolve_book_path(getattr(args, "book", None), input_dir=args.in_dir)
 
 
-def _resolve_chapters_dir(book: str | None, in_dir: str | None, out: str | None) -> Path:
+def _resolve_chapters_dir(
+    book: str | None,
+    in_dir: str | None,
+    out: str | None,
+    output_root: str | Path | None = None,
+) -> Path:
     """Where stage 1's chapters are.
 
     Resolution order: an explicit ``--out``, a ``--book`` / positional argument
@@ -208,10 +214,16 @@ def _resolve_chapters_dir(book: str | None, in_dir: str | None, out: str | None)
         if candidate.is_dir():
             return candidate
     source = resolve_book_path(book, input_dir=in_dir)
-    return resolve_output_dir(source, None)
+    return resolve_output_dir(source, None, output_root=output_root)
 
 
-def _resolve_text_dir(book: str | None, in_dir: str | None, out: str | None) -> Path:
+def _resolve_text_dir(
+    book: str | None,
+    in_dir: str | None,
+    out: str | None,
+    output_root: str | Path | None = None,
+    text_in: str | Path | None = None,
+) -> Path:
     """The chapter folder the text stages read: cleaned by default.
 
     Stage 2 exists to repair conversion damage before the text stages see it, so
@@ -220,13 +232,15 @@ def _resolve_text_dir(book: str | None, in_dir: str | None, out: str | None) -> 
     explicit ``--out`` or a book argument that is already a folder still wins,
     which is how a caller asks for the raw text on purpose.
     """
+    if text_in:
+        return chapters_dir(Path(text_in).expanduser())
     if out:
         return Path(out).expanduser()
     if book:
         candidate = Path(book).expanduser()
         if candidate.is_dir():
             return candidate
-    raw = _resolve_chapters_dir(book, in_dir, None)
+    raw = _resolve_chapters_dir(book, in_dir, None, output_root)
     cleaned = preprocessed_dir(raw)
     manifest = load_split_manifest(cleaned) if cleaned.is_dir() else {}
     if (
@@ -239,7 +253,9 @@ def _resolve_text_dir(book: str | None, in_dir: str | None, out: str | None) -> 
     return raw
 
 
-def _ensure_markdown_source(source: Path, out: str | Path | None = None) -> Path:
+def _ensure_markdown_source(
+    source: Path, out: str | Path | None = None, output_root: str | Path | None = None
+) -> Path:
     """Run stage 0 when the source is not Markdown and return what stage 1 reads.
 
     A Markdown source is returned untouched: stage 0 only exists to make the
@@ -247,7 +263,7 @@ def _ensure_markdown_source(source: Path, out: str | Path | None = None) -> Path
     """
     if is_markdown_source(source):
         return source
-    result = run_conversion(source, out)
+    result = run_conversion(source, out, output_root=output_root)
     for line in result.log:
         print(f"  · {line}", file=sys.stderr)
     if result.markdown_path:
@@ -267,7 +283,7 @@ def _model_settings(
     patching ``book_splitter.core.settings.resolve_settings`` (or
     ``resolve_translation_settings``) at the exact seam this command uses.
     """
-    from .core.settings import (
+    from ..core.settings import (
         parse_llm_overrides,
         resolve_settings,
         resolve_translation_settings,
@@ -307,6 +323,7 @@ def cmd_convert(args: argparse.Namespace) -> int:
     result = run_conversion(
         source,
         args.out,
+        output_root=getattr(args, "output_root", None),
         dry_run=args.dry_run,
         force=args.force,
         images=getattr(args, "images", True),
@@ -344,24 +361,36 @@ def cmd_convert(args: argparse.Namespace) -> int:
 
 
 def cmd_tools(args: argparse.Namespace) -> int:
-    from .agent.tools import grouped_tools
-    from .toolkit import import_all
+    from ..agent.tools import grouped_tools
+    from ..toolkit import import_all
 
     import_all()
 
     wanted = getattr(args, "stage", None)
+    groups = [
+        (stage, list(items))
+        for stage, items in grouped_tools()
+        if not wanted or stage == wanted
+    ]
+    if args.json:
+        _print_json(
+            {
+                stage: [{"name": name, "summary": summary} for name, summary in items]
+                for stage, items in groups
+            }
+        )
+        return 0
     printed = 0
-    for stage, items in grouped_tools():
-        if wanted and stage != wanted:
-            continue
-        print(f"{stage}:")
-        if not items:
-            print("    (none)")
+    for stage, items in groups:
+        if not args.quiet:
+            print(f"{stage}:")
         for name, summary in items:
-            print(f"    {name}")
-            print(f"        {summary}")
-        printed += len(items)
-        print()
+            print(name if args.quiet else f"    {name}")
+            if not args.quiet:
+                print(f"        {summary}")
+            printed += 1
+        if not args.quiet:
+            print()
     if printed == 0:
         print(f"no tools registered for stage {wanted!r}", file=sys.stderr)
         return 1
@@ -374,9 +403,9 @@ def cmd_inspect(args: argparse.Namespace) -> int:
     Stage 0 runs first when the source is EPUB/PDF/TXT, so the report exists for
     every supported format; a Markdown source is read as-is.
     """
-    from .agent.tools import scan_markdown_headers
+    from ..agent.tools import scan_markdown_headers
 
-    source = _ensure_markdown_source(_resolve_book(args))
+    source = _ensure_markdown_source(_resolve_book(args), output_root=getattr(args, "output_root", None))
     lines = load_lines(source)
     headers = scan_markdown_headers(str(source))["headers"]
     toc = detect_toc_block(lines, scan_lines=args.toc_scan_lines)
@@ -400,16 +429,28 @@ def cmd_inspect(args: argparse.Namespace) -> int:
         report["heuristic_candidates"] = extract_candidates(
             lines, max_candidates=args.max_candidates
         )["candidates"]
-    _print_json(report)
+    report["candidate_count"] = len(report.get("heuristic_candidates") or [])
+    if args.json:
+        _print_json(report)
+        return 0
+    summary = summarize_payload("recon", report)
+    if not args.quiet:
+        for label, value in summary.rows:
+            print(f"{label:<16}: {value}")
+        if report["first_lines"]:
+            print()
+            print("first lines:")
+            for line in report["first_lines"]:
+                print(f"  L{line['line_number']:<5} {line['text']}")
     return 0
 
 
 def cmd_scan(args: argparse.Namespace) -> int:
     """Deterministic damage profile of a split book: no LLM, no writes."""
-    from .preprocess.corpus import scan_corpus_damage
-    from .preprocess.inspect import chapter_digest, inspect_chapter
+    from ..preprocess.corpus import scan_corpus_damage
+    from ..preprocess.inspect import chapter_digest, inspect_chapter
 
-    chapters_dir = _resolve_chapters_dir(args.book, args.in_dir, args.out)
+    chapters_dir = _resolve_chapters_dir(args.book, args.in_dir, args.out, getattr(args, "output_root", None))
     chapters = discover_chapters(chapters_dir)
     window = chapter_window_limit_for_path(
         chapters_dir,
@@ -429,18 +470,32 @@ def cmd_scan(args: argparse.Namespace) -> int:
             print()
     report = scan_corpus_damage(chapters, max_examples_per_pattern=args.examples)
     report["chapters_path"] = str(chapters_dir)
+    report["chapter_count"] = len(chapters)
     report["manifest"] = {
         "strategy": load_split_manifest(chapters_dir).get("strategy"),
         "chapter_count": len(chapters),
     }
-    _print_json(report)
+    if args.json:
+        _print_json(report)
+        return 0
+    summary = summarize_payload("scan", report)
+    if not args.quiet:
+        for label, value in summary.rows:
+            print(f"{label:<16}: {value}")
+        counts = report.get("counts") or {}
+        if counts:
+            print()
+            for name, value in sorted(counts.items(), key=lambda item: -item[1]):
+                print(f"  {name:<28} {value:>5}")
+        if not counts:
+            print("  none recognised — stage 2 has nothing to repair")
     return 0
 
 
 def cmd_preprocess(args: argparse.Namespace) -> int:
-    from .preprocess_agent import run_preprocess
+    from ..preprocess_agent import run_preprocess
 
-    chapters_dir = _resolve_chapters_dir(args.book, args.in_dir, args.out)
+    chapters_dir = _resolve_chapters_dir(args.book, args.in_dir, args.out, getattr(args, "output_root", None))
     out_dir = args.preprocessed_out or None
 
     try:
@@ -548,12 +603,18 @@ def _parse_entity_types(value: str | None) -> tuple[str, ...]:
 
 def cmd_dictionary(args: argparse.Namespace) -> int:
     """Stage 3: reduce each chapter to its entity-bearing sentences, then to first mentions."""
-    from .dictionary import run_dictionary
+    from ..dictionary import run_dictionary
 
     # Accept either the chapters folder or the book folder that holds it: an
     # explicit ``--out`` is taken as given, while the default prefers the cleaned
     # ``02-preprocessed/`` folder when stage 2 wrote it.
-    chapters_path = chapters_dir(_resolve_text_dir(args.book, args.in_dir, args.out))
+    chapters_path = chapters_dir(_resolve_text_dir(
+            args.book,
+            args.in_dir,
+            args.out,
+            getattr(args, "output_root", None),
+            getattr(args, "text_in", None),
+        ))
     if not has_chapter_files(chapters_path):
         print(
             f"no chapter files in {chapters_path.expanduser().resolve()} — run `split` first",
@@ -758,9 +819,15 @@ def _print_dictionary_summary(result, dry_run: bool = False) -> None:
 
 def cmd_chunk(args: argparse.Namespace) -> int:
     """Stage 5: cut each chapter into chunks that concatenate back exactly."""
-    from .chunking import run_chunking
+    from ..chunking import run_chunking
 
-    chapters_path = chapters_dir(_resolve_text_dir(args.book, args.in_dir, args.out))
+    chapters_path = chapters_dir(_resolve_text_dir(
+            args.book,
+            args.in_dir,
+            args.out,
+            getattr(args, "output_root", None),
+            getattr(args, "text_in", None),
+        ))
     if not has_chapter_files(chapters_path):
         print(
             f"no chapter files in {chapters_path.expanduser().resolve()} — run `split` first",
@@ -887,10 +954,16 @@ def _print_chunk_summary(result, dry_run: bool = False) -> None:
 
 def cmd_chunk_glossary(args: argparse.Namespace) -> int:
     """Stage 6: NER over every chunk, then fuzzy-match each term to the glossary."""
-    from .chunk_glossary import run_chunk_glossary
-    from .chunk_glossary.runner import resolve_chunks_dir
+    from ..chunk_glossary import run_chunk_glossary
+    from ..chunk_glossary.runner import resolve_chunks_dir
 
-    chapters_path = chapters_dir(_resolve_text_dir(args.book, args.in_dir, args.out))
+    chapters_path = chapters_dir(_resolve_text_dir(
+            args.book,
+            args.in_dir,
+            args.out,
+            getattr(args, "output_root", None),
+            getattr(args, "text_in", None),
+        ))
     chunks_path = (
         resolve_chunks_dir(Path(args.chunks_in).expanduser())
         if args.chunks_in
@@ -1218,8 +1291,8 @@ class _TranslationBar:
 
 def cmd_matter(args: argparse.Namespace) -> int:
     """Stage 6b: localize front/back matter with its own agent, before translation."""
-    from .chunk_glossary.runner import resolve_chunks_dir
-    from .matter_agent import run_matter
+    from ..chunk_glossary.runner import resolve_chunks_dir
+    from ..matter_agent import run_matter
 
     if args.chapters_in:
         chapters_path = chapters_dir(Path(args.chapters_in).expanduser())
@@ -1227,7 +1300,7 @@ def cmd_matter(args: argparse.Namespace) -> int:
         # The matter stage keeps stage 1's folder: it creates synthetic
         # front/back-matter files and appends them to that stage's manifest.
         chapters_path = chapters_dir(
-            _resolve_chapters_dir(args.book, args.in_dir, args.out)
+            _resolve_chapters_dir(args.book, args.in_dir, args.out, getattr(args, "output_root", None))
         )
     chunks_path = (
         resolve_chunks_dir(Path(args.chunks_in).expanduser())
@@ -1434,11 +1507,17 @@ def _print_matter_summary(result, dry_run: bool = False) -> None:
 
 def cmd_translate(args: argparse.Namespace) -> int:
     """Stage 7: translate each chunk in reading order, with its glossary rows."""
-    from .chunk_glossary.runner import resolve_chunks_dir
-    from .translation import run_translation
-    from .translation.runner import resolve_chunk_glossary_dir
+    from ..chunk_glossary.runner import resolve_chunks_dir
+    from ..translation import run_translation
+    from ..translation.runner import resolve_chunk_glossary_dir
 
-    chapters_path = chapters_dir(_resolve_text_dir(args.book, args.in_dir, args.out))
+    chapters_path = chapters_dir(_resolve_text_dir(
+            args.book,
+            args.in_dir,
+            args.out,
+            getattr(args, "output_root", None),
+            getattr(args, "text_in", None),
+        ))
     chunks_path = (
         resolve_chunks_dir(Path(args.chunks_in).expanduser())
         if args.chunks_in
@@ -1653,13 +1732,19 @@ def _print_translation_summary(result, dry_run: bool = False) -> None:
 
 def cmd_concatenate(args: argparse.Namespace) -> int:
     """Stage 8: concatenate the translated chunks into one file per chapter."""
-    from .assembly.runner import resolve_chunks_dir
+    from ..assembly.runner import resolve_chunks_dir
 
     if args.chunks_in:
         chunks_path = resolve_chunks_dir(Path(args.chunks_in).expanduser())
         chapters_path = chunks_path.parent / CHAPTERS_DIRNAME
     else:
-        chapters_path = chapters_dir(_resolve_text_dir(args.book, args.in_dir, args.out))
+        chapters_path = chapters_dir(_resolve_text_dir(
+            args.book,
+            args.in_dir,
+            args.out,
+            getattr(args, "output_root", None),
+            getattr(args, "text_in", None),
+        ))
         chunks_path = chunks_dir(chapters_path)
     if not has_chunk_files(chunks_path):
         print(
@@ -1781,8 +1866,8 @@ def _print_assembly_summary(result, dry_run: bool = False) -> None:
 
 def cmd_postprocess(args: argparse.Namespace) -> int:
     """Stage 9: postprocess the translated chapters' headings and table of contents."""
-    from .postprocess_agent import run_postprocess
-    from .translation.runner import resolve_chunks_dir as _resolve_chunks
+    from ..postprocess_agent import run_postprocess
+    from ..translation.runner import resolve_chunks_dir as _resolve_chunks
 
     if args.translated_chapters_in:
         source_path = Path(args.translated_chapters_in).expanduser()
@@ -1795,7 +1880,13 @@ def cmd_postprocess(args: argparse.Namespace) -> int:
             _resolve_chunks(Path(args.chunks_in).expanduser())
         )
     else:
-        chapters_path = chapters_dir(_resolve_text_dir(args.book, args.in_dir, args.out))
+        chapters_path = chapters_dir(_resolve_text_dir(
+            args.book,
+            args.in_dir,
+            args.out,
+            getattr(args, "output_root", None),
+            getattr(args, "text_in", None),
+        ))
         source_path = translated_chapters_dir(chapters_path)
     if not has_translated_chapter_files(source_path):
         print(
@@ -1969,7 +2060,7 @@ def _print_openings_line(openings: dict | None, *, detail: bool = True) -> None:
 
 def cmd_openings(args: argparse.Namespace) -> int:
     """Final phase of stages 2 and 9: audit every chapter opening (no LLM)."""
-    from .openings import audit_openings
+    from ..openings import audit_openings
 
     folder = _resolve_openings_dir(args)
     if not folder.is_dir():
@@ -2036,7 +2127,7 @@ def _resolve_openings_dir(args: argparse.Namespace) -> Path:
                 if has_chapter_files(candidate):
                     return candidate
         return path
-    chapters = _resolve_chapters_dir(args.book, args.in_dir, None)
+    chapters = _resolve_chapters_dir(args.book, args.in_dir, None, getattr(args, "output_root", None))
     for candidate in (
         postprocessed_chapters_dir(chapters),
         translated_chapters_dir(chapters),
@@ -2050,7 +2141,7 @@ def _resolve_openings_dir(args: argparse.Namespace) -> Path:
 
 def cmd_bind(args: argparse.Namespace) -> int:
     """Stage 10: concatenate the postprocessed chapters into one Markdown book."""
-    from .binding import run_bind
+    from ..binding import run_bind
 
     if args.postprocessed_in:
         source_path = Path(args.postprocessed_in).expanduser()
@@ -2059,7 +2150,13 @@ def cmd_bind(args: argparse.Namespace) -> int:
         if (source_path / POSTPROCESSED_CHAPTERS_DIRNAME).is_dir():
             source_path = source_path / POSTPROCESSED_CHAPTERS_DIRNAME
     else:
-        chapters_path = chapters_dir(_resolve_text_dir(args.book, args.in_dir, args.out))
+        chapters_path = chapters_dir(_resolve_text_dir(
+            args.book,
+            args.in_dir,
+            args.out,
+            getattr(args, "output_root", None),
+            getattr(args, "text_in", None),
+        ))
         source_path = postprocessed_chapters_dir(chapters_path)
     if not has_postprocessed_chapter_files(source_path):
         print(
@@ -2116,7 +2213,7 @@ def _print_bind_summary(result, dry_run: bool = False) -> None:
 
 def cmd_epub(args: argparse.Namespace) -> int:
     """Stage 11: package the postprocessed chapters as an EPUB 3 book."""
-    from .epub import run_epub
+    from ..epub import run_epub
 
     if args.postprocessed_in:
         source_path = Path(args.postprocessed_in).expanduser()
@@ -2125,7 +2222,13 @@ def cmd_epub(args: argparse.Namespace) -> int:
         if (source_path / POSTPROCESSED_CHAPTERS_DIRNAME).is_dir():
             source_path = source_path / POSTPROCESSED_CHAPTERS_DIRNAME
     else:
-        chapters_path = chapters_dir(_resolve_text_dir(args.book, args.in_dir, args.out))
+        chapters_path = chapters_dir(_resolve_text_dir(
+            args.book,
+            args.in_dir,
+            args.out,
+            getattr(args, "output_root", None),
+            getattr(args, "text_in", None),
+        ))
         source_path = postprocessed_chapters_dir(chapters_path)
     if not has_postprocessed_chapter_files(source_path):
         print(
@@ -2212,10 +2315,16 @@ def _print_epub_summary(result, dry_run: bool = False) -> None:
 
 def cmd_glossary(args: argparse.Namespace) -> int:
     """Stage 4: build the book-wide glossary, one chapter at a time, first to last."""
-    from .glossary import run_glossary
-    from .glossary.runner import resolve_sentences_dir
+    from ..glossary import run_glossary
+    from ..glossary.runner import resolve_sentences_dir
 
-    chapters_path = chapters_dir(_resolve_text_dir(args.book, args.in_dir, args.out))
+    chapters_path = chapters_dir(_resolve_text_dir(
+            args.book,
+            args.in_dir,
+            args.out,
+            getattr(args, "output_root", None),
+            getattr(args, "text_in", None),
+        ))
     if not has_chapter_files(chapters_path):
         print(
             f"no chapter files in {chapters_path.expanduser().resolve()} — run `split` first",
@@ -2398,17 +2507,19 @@ def _print_glossary_summary(result, dry_run: bool = False) -> None:
 
 
 def cmd_split(args: argparse.Namespace) -> int:
-    from .agent import run_split, run_split_from_map
-    from .core.errors import ToolError
-    from .slicing.mapfile import load_split_map
+    from ..agent import run_split, run_split_from_map
+    from ..core.errors import ToolError
+    from ..slicing.mapfile import load_split_map
 
     source = _resolve_book(args)
-    out_dir = resolve_output_dir(source, args.out)
+    out_dir = resolve_output_dir(
+        source, args.out, output_root=getattr(args, "output_root", None)
+    )
 
     if getattr(args, "skip_if_present", False) and not args.dry_run and has_chapter_files(out_dir):
         # Checked here, before any provider settings are resolved: a run that is
         # going to be skipped must not need an API key either.
-        from .agent import result_from_existing_chapters
+        from ..agent import result_from_existing_chapters
 
         if not args.quiet:
             print(f"source={source}")
@@ -2417,7 +2528,7 @@ def cmd_split(args: argparse.Namespace) -> int:
 
     # Stage 0: the splitter only ever reads Markdown. A TXT is copied and an
     # EPUB/text-based PDF is converted before anything tries to count lines.
-    source = _ensure_markdown_source(source)
+    source = _ensure_markdown_source(source, output_root=getattr(args, "output_root", None))
 
     if getattr(args, "map", None):
         # A supplied map needs no provider, no key and no network.
@@ -2559,6 +2670,11 @@ def build_parser() -> argparse.ArgumentParser:
             default=None,
             help=f"folder holding the source documents (default: {default_input_dir()})",
         )
+        parser_.add_argument(
+            "--output-root",
+            default=None,
+            help=f"root of the generated artifacts (default: {default_output_dir()})",
+        )
 
     def add_llm_flags(parser_: argparse.ArgumentParser) -> None:
         parser_.add_argument(
@@ -2637,6 +2753,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="show only one stage group (shared lists the generic tools)",
     )
+    p_tools.add_argument("--json", action="store_true", help="machine-readable result")
+    p_tools.add_argument("--quiet", "-q", action="store_true")
     p_tools.set_defaults(func=cmd_tools)
 
     p_inspect = sub.add_parser(
@@ -2652,6 +2770,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--candidates", action="store_true", help="also list heuristic candidate lines"
     )
     p_inspect.add_argument("--max-candidates", type=int, default=DEFAULT_MAX_CANDIDATES)
+    p_inspect.add_argument("--json", action="store_true", help="machine-readable result")
+    p_inspect.add_argument("--quiet", "-q", action="store_true")
     p_inspect.set_defaults(func=cmd_inspect)
 
     p_split = sub.add_parser("split", help="stage 1: run the agent and write chapter files")
@@ -2747,6 +2867,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="scan only the first N body chapters (the whole book when omitted)",
     )
+    p_scan.add_argument("--json", action="store_true", help="machine-readable result")
+    p_scan.add_argument("--quiet", "-q", action="store_true")
     p_scan.set_defaults(func=cmd_scan)
 
     p_pre = sub.add_parser(
@@ -2925,6 +3047,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_dict.add_argument("--json", action="store_true", help="machine-readable result")
     p_dict.add_argument("--quiet", "-q", action="store_true")
+    p_dict.add_argument(
+        "--text-in",
+        default=None,
+        help="chapter text folder to read (default: 02-preprocessed/ when it covers "
+        "the window, else 01-chapters/); overrides --out",
+    )
     p_dict.set_defaults(func=cmd_dictionary)
 
     p_chunk = sub.add_parser(
@@ -2995,6 +3123,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_chunk.add_argument("--json", action="store_true", help="machine-readable result")
     p_chunk.add_argument("--quiet", "-q", action="store_true")
+    p_chunk.add_argument(
+        "--text-in",
+        default=None,
+        help="chapter text folder to read (default: 02-preprocessed/ when it covers "
+        "the window, else 01-chapters/); overrides --out",
+    )
     p_chunk.set_defaults(func=cmd_chunk)
 
     p_cg = sub.add_parser(
@@ -3121,6 +3255,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_cg.add_argument("--json", action="store_true", help="machine-readable result")
     p_cg.add_argument("--quiet", "-q", action="store_true")
+    p_cg.add_argument(
+        "--text-in",
+        default=None,
+        help="chapter text folder to read (default: 02-preprocessed/ when it covers "
+        "the window, else 01-chapters/); overrides --out",
+    )
     p_cg.set_defaults(func=cmd_chunk_glossary)
 
     p_matter = sub.add_parser(
@@ -3392,6 +3532,12 @@ def build_parser() -> argparse.ArgumentParser:
     add_llm_flags(p_tr)
     p_tr.add_argument("--json", action="store_true", help="machine-readable result")
     p_tr.add_argument("--quiet", "-q", action="store_true")
+    p_tr.add_argument(
+        "--text-in",
+        default=None,
+        help="chapter text folder to read (default: 02-preprocessed/ when it covers "
+        "the window, else 01-chapters/); overrides --out",
+    )
     p_tr.set_defaults(func=cmd_translate)
 
     p_concat = sub.add_parser(
@@ -3800,12 +3946,32 @@ def build_parser() -> argparse.ArgumentParser:
     add_llm_flags(p_gloss)
     p_gloss.add_argument("--json", action="store_true", help="machine-readable result")
     p_gloss.add_argument("--quiet", "-q", action="store_true")
+    p_gloss.add_argument(
+        "--text-in",
+        default=None,
+        help="chapter text folder to read (default: 02-preprocessed/ when it covers "
+        "the window, else 01-chapters/); overrides --out",
+    )
     p_gloss.set_defaults(func=cmd_glossary)
+
+    # The real parser and driver live in book_splitter.pipeline; this entry is
+    # what makes the subcommand discoverable from `book_splitter --help`. The
+    # dispatch in book_splitter.cli.main intercepts it before argparse.
+    p_pipeline = sub.add_parser(
+        "pipeline",
+        help="run the whole pipeline (same driver as scripts/run_pipeline.py)",
+    )
+    p_pipeline.set_defaults(func=None)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    # One JSON object on stdout, nothing else: commands already guard their
+    # human narration with ``--quiet``, so a JSON run turns that narration off
+    # without changing the command's own result printing.
+    if getattr(args, "json", False):
+        args.quiet = True
     first_chapters = getattr(args, "first_chapters", None)
     if first_chapters is not None and int(first_chapters) < 0:
         print("error: --first-chapters cannot be negative", file=sys.stderr)
@@ -3814,13 +3980,22 @@ def main(argv: list[str] | None = None) -> int:
     # --map replay, a fully resumed run); the command's own stage is filled in
     # when the setting is actually resolved.
     try:
-        from .core.settings import parse_llm_overrides
+        from ..core.settings import parse_llm_overrides
 
         parse_llm_overrides(getattr(args, "llm", None), default_stage="split")
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     try:
+        # ``--quiet`` silences the human narration *and* the closing summary, the
+        # same contract the pipeline follows. ``--json`` still writes its one
+        # object, so a quiet machine run keeps its result.
+        if getattr(args, "quiet", False) and not getattr(args, "json", False):
+            import contextlib
+            import io
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                return int(args.func(args))
         return int(args.func(args))
     except ConfigError as exc:
         print(f"error: {exc}", file=sys.stderr)

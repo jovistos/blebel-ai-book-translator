@@ -460,12 +460,12 @@ def test_split_converts_a_non_markdown_source_before_slicing(tmp_path, monkeypat
     source = tmp_path / "book.txt"
     source.write_text("# Chapter One\n\nSome text.\n", encoding="utf-8")
 
-    real_convert = cli.run_conversion
+    real_convert = cli.legacy.run_conversion
 
     def converted_into_tmp(src, out=None, **kwargs):  # noqa: ARG001
         return real_convert(src, tmp_path / "md", **kwargs)
 
-    monkeypatch.setattr(cli, "run_conversion", converted_into_tmp)
+    monkeypatch.setattr(cli.legacy, "run_conversion", converted_into_tmp)
 
     seen: dict = {}
 

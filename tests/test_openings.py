@@ -645,8 +645,10 @@ def test_both_stage_runners_skip_the_phase_on_a_dry_run(tmp_path: Path):
         write_manifest=False,
     )
 
-    assert result.openings["dry_run"] is True
-    assert result.openings["skipped"]
+    assert result.dry_run is True
+    # A dry run never builds the graph, so the opening audit has nothing to read.
+    assert result.openings == {}
+    assert not (tmp_path / "clean").exists()
 
 
 def test_the_phase_audit_is_clean_on_a_normal_opening(tmp_path: Path):

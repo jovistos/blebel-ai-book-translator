@@ -175,6 +175,40 @@ def execute_glossary(
     processable = [plan for plan in plans if plan.will_process]
     pending = [plan for plan in processable if plan.chapter.filename not in done]
 
+    if dry_run:
+        # The glossary entry *is* the model's answer. A dry run validates the
+        # sentence folder, the chapter selection and the resumable prefix, then
+        # returns without constructing an extractor or spending a token.
+        return GlossaryResult(
+            ok=True,
+            chapters_path=str(source_dir),
+            sentences_dir=str(sentences_path),
+            output_dir=str(out_dir),
+            source_language=str(source_language),
+            target_language=str(target_language),
+            source_file=source_file,
+            book_title=title,
+            chapter_count=len(plans),
+            body_chapter_count=len(processable),
+            processed_count=len(pending),
+            ok_count=0,
+            skipped_count=0,
+            reused_count=0,
+            entry_count=len(book),
+            dry_run=True,
+            limited=limited,
+            save=save,
+            resumed=resumed,
+            settings=chosen_settings,
+            tokens={},
+            categories=book.categories(),
+            conflicts=previous_conflicts,
+            timing=_timing([], run_seconds=context.elapsed()),
+            chapters=[],
+            entries=book.to_list(),
+            errors=[],
+        )
+
     if extractor is None and pending:
         if settings is None and settings_factory is not None:
             # Resolved only now: a resumed run with nothing left to mine never

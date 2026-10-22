@@ -7,9 +7,7 @@ the log keeps that the console does not — not the agents themselves.
 
 from __future__ import annotations
 
-import importlib.util
 import json
-import sys
 from pathlib import Path
 
 import book_splitter.agent
@@ -19,6 +17,8 @@ import pytest
 from book_splitter.agent.result import SplitterResult
 from book_splitter.core.errors import MissingDependencyError
 from book_splitter.dictionary.runner import DictionaryResult
+from book_splitter.pipeline.driver import PipelineDriver
+from book_splitter.pipeline.options import PipelineOptions
 from book_splitter.preprocess_agent import runner as preprocess_runner
 from book_splitter.preprocess_agent.runner import ChapterResult, PreprocessResult
 
@@ -32,19 +32,10 @@ ROOT = Path(__file__).resolve().parent.parent
 # --------------------------------------------------------------------------- #
 @pytest.fixture(scope="module")
 def script():
-    """``scripts/run_pipeline.py`` loaded as a module (it is not a package)."""
-    name = "run_pipeline_script"
-    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / "run_pipeline.py")
-    module = importlib.util.module_from_spec(spec)
-    # Registered before execution: ``from __future__ import annotations`` makes
-    # dataclass field types strings, which dataclasses resolves through sys.modules.
-    sys.modules[name] = module
-    try:
-        spec.loader.exec_module(module)
-    except Exception:
-        sys.modules.pop(name, None)
-        raise
-    return module
+    """The pipeline parser module shared by the CLI and the compatibility script."""
+    from book_splitter.pipeline import parser
+
+    return parser
 
 
 def install_chunk_glossary(monkeypatch, *, ok: bool = True, files: bool = False):
@@ -243,7 +234,8 @@ def run(script, monkeypatch):
         args = list(argv)
         if "--chunk-tokenizer" not in args:
             args += ["--chunk-tokenizer", "word", "--chunk-size", "50"]
-        pipeline = script.Pipeline(script.build_parser().parse_args(args))
+        parsed = script.build_parser().parse_args(args)
+        pipeline = PipelineDriver(PipelineOptions.from_namespace(parsed), ns=parsed)
         try:
             return pipeline.run()
         finally:
@@ -551,7 +543,7 @@ def test_skip_if_present_reuses_chapters_without_a_provider(
     def explode(*_, **__):  # pragma: no cover - must never be reached
         raise AssertionError("a reused split must not resolve provider settings")
 
-    monkeypatch.setattr(script, "resolve_settings", explode)
+    monkeypatch.setattr("book_splitter.pipeline.driver.resolve_settings", explode)
 
     code = run(
         str(SAMPLE),
@@ -655,7 +647,7 @@ def test_a_dry_run_without_chapters_reports_stage_two_as_skipped(
 
 
 @requires_sample
-def test_json_flag_appends_a_machine_readable_summary(script, tmp_path, monkeypatch, capsys, run):
+def test_json_prints_one_machine_readable_summary(script, tmp_path, monkeypatch, capsys, run):
     install_split(monkeypatch, writes={"01-a.md": "## 18\n"})
     dictionary_calls = install_dictionary(monkeypatch, writes={"01-a.md": "## 18\n"})
     install_preprocess(monkeypatch)
@@ -664,7 +656,10 @@ def test_json_flag_appends_a_machine_readable_summary(script, tmp_path, monkeypa
     out = capsys.readouterr().out
 
     assert code == 0
-    payload = json.loads(out[out.rindex("\n{\n") :])
+    # One JSON object on stdout, no human narration around it.
+    assert out.lstrip().startswith("{")
+    assert "DONE" not in out
+    payload = json.loads(out)
     assert payload["ok"] is True
     assert [phase["name"] for phase in payload["phases"]] == [
         "recon",
@@ -1139,7 +1134,7 @@ def test_run_preprocess_reports_every_chapter(tmp_path, monkeypatch):
     result = preprocess_runner.run_preprocess(
         str(_chapter_folder(tmp_path)),
         str(tmp_path / "clean"),
-        dry_run=True,
+        dry_run=False,
         write_manifest=False,
         progress=lambda chapter, done, total: seen.append((chapter["filename"], done, total)),
     )
