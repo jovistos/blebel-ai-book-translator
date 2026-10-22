@@ -34,6 +34,7 @@ from ..documents.io import load_lines
 from ..documents.markdown import header_of
 from ..documents.text import excerpt, norm, similarity
 from .inspect import is_toc_filename, matter_kind
+from .titles import canonical_titles
 
 #: A list marker at the start of a TOC entry (``- ``, ``* ``, ``1. ``, ``1) ``).
 _LIST_MARKER_RE = re.compile(r"^\s*(?:[-*•]|\d{1,3}[.)])\s+")
@@ -243,8 +244,6 @@ def build_toc_entries(
 ) -> list[dict[str, Any]]:
     """The TOC entries implied by the final chapter titles, in reading order."""
     if titles is None:
-        from .plan import canonical_titles
-
         titles = canonical_titles(book, plan)
     include_back = (
         bool((plan.get("toc") or {}).get("include_back_matter"))
