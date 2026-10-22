@@ -147,7 +147,7 @@ def test_dry_run_writes_no_chapter(tmp_path: Path):
 
 
 def test_a_chapter_window_maps_to_the_chunk_prefix(tmp_path: Path):
-    _book, _chapters, chunks, translations = _project(tmp_path)
+    _book, _chapters, chunks, _translations = _project(tmp_path)
 
     total = len(chunk_files(chunks))
     first_two = chunk_limit_for_chapters(chunks, 2)

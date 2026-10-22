@@ -20,7 +20,7 @@ builder executes the tail in order, stops at the gate, and honours a tail router
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from book_splitter.agent.graph import SPLIT, after_slice
@@ -345,7 +345,10 @@ def step(name: str, router=None) -> TailStep:
 
 def run(spec: StageSpec, model: ScriptedModel) -> dict:
     initial = {"messages": [], "attempts": 0, "log": [], "usage": {}, "dry_run": False}
-    return build_stage_graph(spec, model).invoke(initial, config={"recursion_limit": 40})
+    return cast(
+        dict[str, Any],
+        build_stage_graph(spec, model).invoke(initial, config={"recursion_limit": 40}),
+    )
 
 
 def test_a_valid_plan_runs_the_tail_in_order():

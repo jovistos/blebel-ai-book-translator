@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from book_splitter.binding import run_bind
 from book_splitter.postprocess.inspect import (
@@ -759,7 +760,7 @@ def test_a_plain_chapter_title_must_be_promoted_to_a_heading(tmp_path: Path):
     chapter = tmp_path / "01-chapter-1.md"
     chapter.write_text("Poglavlje 1\n\nPrva rečenica.\n", encoding="utf-8")
     structure = scan_chapter_structure(chapter)
-    plan = {
+    plan: dict[str, Any] = {
         "title": {"action": "keep", "line_number": 1, "text": "Poglavlje 1", "level": 1},
         "headings": [],
     }
@@ -861,7 +862,7 @@ def test_a_promoted_heading_matches_the_existing_section_level(tmp_path: Path):
         encoding="utf-8",
     )
     structure = scan_chapter_structure(chapter)
-    plan = {
+    plan: dict[str, Any] = {
         "title": {"action": "keep", "line_number": 1, "level": 2},
         "headings": [{"line_number": 7, "decision": "promote"}],
     }
@@ -880,7 +881,7 @@ def test_a_plain_heading_candidate_can_be_kept_but_not_demoted(tmp_path: Path):
         encoding="utf-8",
     )
     structure = scan_chapter_structure(chapter)
-    plan = {
+    plan: dict[str, Any] = {
         "title": {"action": "keep", "line_number": 1, "level": 1},
         "headings": [{"line_number": 5, "decision": "keep", "note": "a dedication name"}],
     }

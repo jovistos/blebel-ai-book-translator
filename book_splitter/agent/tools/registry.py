@@ -27,7 +27,7 @@ returning the first one it was registered under for backwards compatibility.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from typing import Any
+from typing import Any, cast
 
 #: Stage names, also used as the grouping keys in `book_splitter tools`.
 SHARED = "shared"
@@ -221,7 +221,7 @@ def reset() -> None:
 
 def register(function: Callable[..., Any]) -> Callable[..., Any]:
     """Alias kept for readability when decorating a tool factory."""
-    return register_tool(function)
+    return cast(Callable[..., Any], register_tool(function))
 
 
 def bind_all(tools: Iterable[Any]) -> dict[str, Any]:

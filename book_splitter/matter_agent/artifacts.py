@@ -145,8 +145,10 @@ def _write_prompt_files(
         lines.append("")
         lines.append(str(message.get("content") or ""))
         lines.append("")
-        for call in message.get("tool_calls") or []:
-            lines.append(f"- tool `{call.get('name')}` args: `{call.get('args')}`")
+        lines.extend(
+            f"- tool `{call.get('name')}` args: `{call.get('args')}`"
+            for call in message.get("tool_calls") or []
+        )
         lines.append("")
     write_text(md_path, "\n".join(lines))
     result.prompt_path = str(json_path)

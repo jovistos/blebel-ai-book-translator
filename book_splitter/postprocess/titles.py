@@ -115,7 +115,7 @@ def canonical_titles(
         filename = str(summary.get("filename") or "")
         if not filename:
             continue
-        if filename in overrides and overrides[filename]:
+        if overrides.get(filename):
             out[filename] = overrides[filename]
             continue
         if summary.get("matter") != "body":

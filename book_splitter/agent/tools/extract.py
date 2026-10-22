@@ -29,7 +29,7 @@ def detect_native_toc(file_path: str | Path) -> dict[str, Any]:
     suffix = Path(file_path).suffix.lower()
     try:
         if suffix == ".pdf":
-            import fitz  # type: ignore
+            import fitz
 
             doc = fitz.open(str(file_path))
             toc = doc.get_toc()
@@ -45,9 +45,9 @@ def detect_native_toc(file_path: str | Path) -> dict[str, Any]:
                 ],
             }
         if suffix == ".epub":
-            import ebooklib  # type: ignore
-            from bs4 import BeautifulSoup  # type: ignore
-            from ebooklib import epub  # type: ignore
+            import ebooklib
+            from bs4 import BeautifulSoup
+            from ebooklib import epub
 
             book = epub.read_epub(str(file_path))
             titles: list[str] = []

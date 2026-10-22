@@ -23,7 +23,7 @@ from __future__ import annotations
 import io
 import zipfile
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 from xml.sax.saxutils import escape
 
 from ..core.constants import (
@@ -155,12 +155,17 @@ def build_epub(
                 False,
             )
         )
-    for document in documents:
-        entries.append(
-            (f"{CONTENT_DIRNAME}/{document.href}", _document_xhtml(document, metadata).encode("utf-8"), False)
+    entries.extend(
+        (
+            f"{CONTENT_DIRNAME}/{document.href}",
+            _document_xhtml(document, metadata).encode("utf-8"),
+            False,
         )
-    for image in images:
-        entries.append((f"{CONTENT_DIRNAME}/{image.href}", image.data, False))
+        for document in documents
+    )
+    entries.extend(
+        (f"{CONTENT_DIRNAME}/{image.href}", image.data, False) for image in images
+    )
 
     opf = _package_document(metadata, documents, images, cover)
     nav = _nav_document(metadata, documents, cover)
@@ -378,7 +383,7 @@ def _heading_tree(headings: list[dict[str, Any]]) -> list[dict[str, Any]]:
             stack.pop()
         stack[-1]["children"].append(node)
         stack.append(node)
-    return root["children"]
+    return cast(list[dict[str, Any]], root["children"])
 
 
 def _nav_list(nodes: list[dict[str, Any]], document_href: str) -> str:

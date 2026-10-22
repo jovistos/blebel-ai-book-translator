@@ -106,7 +106,7 @@ def finish_matter(
     usage_tokens,
     run_seconds: float,
     write_manifest: bool,
-):
+) -> MatterResult:
     from ..core.constants import MATTER_MANIFEST_FILENAME, MATTER_TRACE_FILENAME
     from ..core.store import ArtifactStore
     from .artifacts import matter_manifest_payload

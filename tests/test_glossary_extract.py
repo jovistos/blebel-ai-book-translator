@@ -10,6 +10,8 @@ lie in the summary.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from book_splitter.core.errors import ExtractionError
 from book_splitter.glossary.extract import (
@@ -35,7 +37,7 @@ class FakeMessage:
     def __init__(self, text: str = "", usage: dict | None = None, blocks: bool = False) -> None:
         self.content = [{"type": "text", "text": text}] if blocks else text
         self.usage_metadata = usage or {}
-        self.response_metadata = {}
+        self.response_metadata: dict[str, Any] = {}
 
 
 class ScriptedModel:
@@ -72,7 +74,7 @@ class ScriptedModel:
             raise answer
         return FakeMessage(answer.get("text", ""), answer.get("usage"), answer.get("blocks", False))
 
-    def _next(self) -> dict:
+    def _next(self) -> Any:
         if not self._answers:
             raise AssertionError("the double ran out of scripted answers")
         return self._answers.pop(0)
@@ -358,7 +360,7 @@ def test_parse_json_object_recovers_the_object_from_prose_and_fences(text):
 
 
 def test_parse_json_object_refuses_a_truncated_answer():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="no JSON object"):
         parse_json_object('{"entries": [{"term": "Pot')
 
 
@@ -381,7 +383,7 @@ def test_make_extractor_names_the_model_and_keeps_the_attempt_cap():
 
 
 def test_an_unknown_method_is_rejected_at_construction():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="unknown method"):
         LangChainExtractor(ScriptedModel([]), method="magic")
 
 

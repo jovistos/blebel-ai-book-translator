@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from itertools import pairwise
 from typing import Any
 
 from ..analysis.backmatter import is_back_matter_role
@@ -140,7 +141,7 @@ def gap_warnings(points: list[dict[str, Any]], max_gap_lines: int = MAX_GAP_LINE
     """Plausibility warnings about the distance between consecutive split points."""
     warnings: list[str] = []
     ordered = sorted(points, key=lambda p: p["line_number"])
-    for prev, cur in zip(ordered, ordered[1:], strict=False):
+    for prev, cur in pairwise(ordered):
         gap = cur["line_number"] - prev["line_number"]
         if gap < MIN_GAP_LINES:
             warnings.append(

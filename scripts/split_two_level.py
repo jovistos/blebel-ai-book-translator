@@ -67,6 +67,11 @@ from book_splitter.paths import (  # noqa: E402
 from book_splitter.slicing.slice import preview_split, slice_book  # noqa: E402
 from book_splitter.slicing.verify import verify_output_dir  # noqa: E402
 
+
+def _header_text(line: str) -> str:
+    header = header_of(line)
+    return header[1].strip() if header else ""
+
 #: Book / part markers. Anchored on purpose: `## PROLOGUE -LONDON` (a mangled
 #: cover-page line) must not shadow the real `## PROLOGUE`.
 DEFAULT_BOOK_PATTERN = (
@@ -92,7 +97,7 @@ def book_sequences(
     book_re = re.compile(book_pattern, re.IGNORECASE)
     chapter_re = re.compile(chapter_pattern)
     headers = [
-        (i + 1, header_of(line)[1].strip()) for i, line in enumerate(lines) if header_of(line)
+        (i + 1, _header_text(line)) for i, line in enumerate(lines) if header_of(line)
     ]
     books = [(line, text) for line, text in headers if book_re.match(text)]
     if not books:
@@ -128,7 +133,7 @@ def build_plan(
     book_aliases = book_aliases or {}
     book_re = re.compile(book_pattern, re.IGNORECASE)
     headers = [
-        (i + 1, header_of(line)[1].strip()) for i, line in enumerate(lines) if header_of(line)
+        (i + 1, _header_text(line)) for i, line in enumerate(lines) if header_of(line)
     ]
 
     sequences = book_sequences(lines, book_pattern, chapter_pattern)

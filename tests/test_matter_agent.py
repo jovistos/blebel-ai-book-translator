@@ -330,7 +330,7 @@ def _write_chunk_glossary(chunks: Path, output: Path) -> None:
 
 
 def test_the_body_translation_stage_skips_matter_chunks(tmp_path: Path):
-    chapters, chunks = _book(tmp_path)
+    _chapters, chunks = _book(tmp_path)
     glossary = tmp_path / "06-chunk-glossary"
     _write_chunk_glossary(chunks, glossary)
     translator = _Translator()
@@ -352,7 +352,7 @@ def test_the_body_translation_stage_skips_matter_chunks(tmp_path: Path):
 
 
 def test_the_body_translation_stage_needs_no_glossary_when_only_matter_remains(tmp_path: Path):
-    chapters, chunks = _book(
+    _chapters, chunks = _book(
         tmp_path,
         chapters={"00-front-matter.md": FRONT, "01-predgovor.md": PREFACE},
     )

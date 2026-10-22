@@ -441,6 +441,7 @@ def test_stage_nine_removes_the_stray_number_under_the_title(tmp_path: Path):
     assert result.openings["fixed_count"] == 1
     assert result.totals["opening_fixes"] == 1
     assert result.totals["opening_remaining"] == 0
+    assert result.manifest_path is not None
     manifest = json.loads(Path(result.manifest_path).read_text(encoding="utf-8"))
     assert manifest["openings"]["fixed_count"] == 1
 
@@ -585,7 +586,7 @@ def test_a_reused_chapter_whose_title_moved_is_reprocessed(tmp_path: Path):
 class _WritingPreprocessApp:
     """A graph double whose ``apply`` step writes the chapter unchanged."""
 
-    def invoke(self, state, config=None):  # noqa: ARG002 - mirrors the graph API
+    def invoke(self, state, config=None):
         source = Path(state["chapter_path"])
         target = Path(state["output_dir"]) / source.name
         text = source.read_text(encoding="utf-8")

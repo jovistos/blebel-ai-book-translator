@@ -280,9 +280,11 @@ def _resume_state(
         total_tokens=int(tokens.get("total_tokens") or 0),
         calls=int(tokens.get("calls") or 0),
     )
-    for conflict in previous_manifest.get("conflicts") or []:
-        if isinstance(conflict, dict):
-            conflicts.append(conflict)
+    conflicts.extend(
+        conflict
+        for conflict in previous_manifest.get("conflicts") or []
+        if isinstance(conflict, dict)
+    )
     for entry in previous_manifest.get("files") or []:
         if not isinstance(entry, dict):
             continue

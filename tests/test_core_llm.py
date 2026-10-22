@@ -60,7 +60,7 @@ class ScriptedModel:
             raise answer
         return Message(answer.get("text", ""), answer.get("usage"))
 
-    def _next(self) -> dict:
+    def _next(self) -> Any:
         if not self._answers:
             raise AssertionError("the double ran out of scripted answers")
         return self._answers.pop(0)
@@ -87,7 +87,7 @@ USAGE = {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
 
 
 def _caller(model: ScriptedModel, **overrides) -> StructuredCaller[Answer]:
-    options = {
+    options: dict[str, Any] = {
         "max_attempts": 2,
         "method": "auto",
         "json_note": "\nJSON ONLY",

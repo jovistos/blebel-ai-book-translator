@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from book_splitter.agent import build_graph
 from langchain_core.messages import AIMessage, HumanMessage
@@ -301,8 +302,8 @@ class _ToolBinder:
     """A chat-model double that records what ``bind_tools`` was handed."""
 
     def __init__(self) -> None:
-        self.tools = []
-        self.kwargs = {}
+        self.tools: list[Any] = []
+        self.kwargs: dict[str, Any] = {}
 
     def bind_tools(self, tools, **kwargs):
         self.tools = list(tools)

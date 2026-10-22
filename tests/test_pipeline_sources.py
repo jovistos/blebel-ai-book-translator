@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from book_splitter.core.artifacts import sha256_text
@@ -36,7 +37,7 @@ def write_chapter(path: Path, text: str) -> str:
 
 def write_raw(root: Path, names: tuple[str, ...] = ("01-a.md", "02-b.md")) -> Path:
     raw = root / "book" / "01-chapters"
-    files = []
+    files: list[dict[str, Any]] = []
     for name in names:
         digest = write_chapter(raw / name, f"# {name}\n\nText.\n")
         files.append(
@@ -59,7 +60,7 @@ def write_cleaned(root: Path, raw: Path, names: tuple[str, ...] | None = None) -
     cleaned = root / "book" / "02-preprocessed"
     raw_manifest = json.loads((raw / MANIFEST_FILENAME).read_text(encoding="utf-8"))
     by_name = {entry["filename"]: entry for entry in raw_manifest["files"]}
-    files = []
+    files: list[dict[str, Any]] = []
     for name in names or tuple(by_name):
         text = (raw / name).read_text(encoding="utf-8")
         digest = write_chapter(cleaned / name, text)
@@ -124,7 +125,7 @@ def test_a_stale_cleaned_file_falls_back_to_raw(book):
 
 
 def test_a_changed_source_line_count_falls_back_to_raw(book):
-    paths, raw, cleaned = book
+    paths, raw, _cleaned = book
     (raw / "01-a.md").write_text("one\ntwo\nthree\nfour\n", encoding="utf-8")
     assert cleaned_covers_window(paths, None) is None
 

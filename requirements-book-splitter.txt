@@ -1,62 +1,29 @@
-# Runtime dependencies of the book splitter (the LangGraph agent itself).
+# Runtime dependencies of the book splitter.
+#
+# Canonical dependency definitions live in pyproject.toml. This file is kept as
+# a compatibility shim for the historical install command:
+#
+#   pip install -r requirements-book-splitter.txt
+#
+# which is now equivalent to installing the project plus the stage 5/6 extras:
+#
+#   pip install -e ".[chunk]"
+#
 # Python 3.11+ is required: the per-stage model config (book_splitter.toml) is
 # read with the standard library's tomllib, so there is no YAML/TOML dependency.
-langgraph>=0.2
-langchain-core>=0.3
-langchain-openai>=0.2
-pydantic>=2.0
-python-dotenv>=1.0
-
-# Stage 5 (`book_splitter chunk`) cuts chapters into reversible, sentence-safe
-# chunks. chonkie is imported lazily, so the other stages keep working without it.
-# tiktoken makes the default `cl100k_base` token count exact; without it the stage
-# falls back to a local approximation (and says so in the manifest).
-chonkie>=1.7
-tiktoken>=0.7
-
-# Stage 6 (`book_splitter chunk-glossary`) retrieves each NER term from the
-# glossary with a fuzzy score (95 % by default). rapidfuzz is imported lazily and
-# is a small pure wheel — no torch, no model download.
-rapidfuzz>=3.0
-
-# Optional: let `resolve_api_key` reuse keys from ~/.dsh/.credentials.yaml.
-# PyYAML>=6.0
-
-# Optional: stage 0 (`book_splitter convert`) turns an EPUB or a text-based PDF
-# into Markdown with docling. A TXT or Markdown source needs no dependency, and
-# docling is imported lazily, so install it only when converting. The PDF
-# text-layer preflight uses pypdfium2, which docling already brings; PyMuPDF is
-# an acceptable fallback. OCR is never attempted for an image-based PDF.
-# docling>=2.7
-
-# Optional: `extract_native_toc` for the original PDF/EPUB sources.
-# PyMuPDF>=1.24
-# ebooklib>=0.18
-# beautifulsoup4>=4.12
-
-# Optional: stage 11 (`book_splitter epub`) renders the postprocessed Markdown to
-# XHTML with markdown-it-py and then writes the EPUB 3 container with the standard
-# library's zipfile, so no ebooklib, pandoc or calibre is needed. The import is
-# lazy, so a run that stops at the Markdown book needs nothing extra.
-# markdown-it-py>=3.0
-
-# Optional: stage 3 (`book_splitter dictionary`) needs a tagger. It is imported
-# lazily, so the splitter and preprocessor never need it. See
-# requirements-dictionary.txt (classla / stanza / lingua-language-detector).
 #
-# Stage 4 (`book_splitter glossary`) needs no dependency of its own: it uses the
-# same langchain-openai client as stages 1 and 2, and pydantic for its structured
-# output.
+# The core install covers stages 1, 2, 4, 6b, 7, 8 and 9, plus the Markdown path
+# of stage 11. Optional stages are installed as extras:
 #
-# Stage 7 (`book_splitter translate`) reuses that client and Pydantic for its
-# one-field structured translation, and needs no dependency of its own.
+#   convert     stage 0  — docling (EPUB/text-based PDF -> Markdown)
+#   dictionary  stage 3  — classla / stanza / lingua-language-detector
+#   chunk       stage 5  — chonkie + tiktoken, plus rapidfuzz for stage 6
+#   epub        stage 11 — markdown-it-py
 #
-# Stage 5 (`book_splitter chunk`) needs chonkie + tiktoken (above). Both are
-# imported lazily so a split-only install does not need them.
+# Every optional import is lazy, so a split-only install keeps working without
+# any of them. Stage 4 and stage 7 reuse the core langchain-openai client.
 #
-# Stage 6 (`book_splitter chunk-glossary`) needs rapidfuzz (above) and a tagger:
-# it reuses stage 3's CLASSLA/stanza backend, so install requirements-dictionary.txt
-# as well before tagging real chunks.
+# Stage 6 (`book_splitter chunk-glossary`) also needs a tagger: install the
+# dictionary extra as well before tagging real chunks.
 
-# Development only (see requirements-dev.txt).
-# pytest>=8.0
+-e .[chunk]

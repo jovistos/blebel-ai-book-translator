@@ -178,17 +178,16 @@ def build_book_report(book: MatterBook) -> str:
         "front/back matter files (reading order):",
     ]
     if book.sections:
-        for section in book.sections:
-            lines.append(f"  {_section_line(section)}")
+        lines.extend(f"  {_section_line(section)}" for section in book.sections)
     else:
         lines.append("  (none)")
     lines.append("")
     lines.append(f"body chapters: {len(book.body_chapters)}")
-    for chapter in book.body_chapters[:200]:
-        lines.append(
-            f"  {str(chapter.get('filename') or ''):<40} "
-            f"{chapter.get('title')!r} (index {chapter.get('chapter_index')})"
-        )
+    lines.extend(
+        f"  {chapter.get('filename') or ''!s:<40} "
+        f"{chapter.get('title')!r} (index {chapter.get('chapter_index')})"
+        for chapter in book.body_chapters[:200]
+    )
     if len(book.body_chapters) > 200:
         lines.append(f"  … {len(book.body_chapters) - 200} more")
     lines.extend(

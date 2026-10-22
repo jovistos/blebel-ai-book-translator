@@ -50,10 +50,14 @@ def test_the_index_maps_every_source_line_once(tmp_path: Path) -> None:
         assert provenance.entry(source_line) is not None
         assert provenance.output_index(source_line) >= 0
 
-    assert provenance.entry(1).origin == "kept"
-    assert provenance.entry(3).origin == "removed_page_number"
-    assert provenance.entry(5).origin == "removed_caption"
-    assert provenance.entry(7).origin == "promoted_heading"
+    entry = provenance.entry(1)
+    assert entry is not None and entry.origin == "kept"
+    entry = provenance.entry(3)
+    assert entry is not None and entry.origin == "removed_page_number"
+    entry = provenance.entry(5)
+    assert entry is not None and entry.origin == "removed_caption"
+    entry = provenance.entry(7)
+    assert entry is not None and entry.origin == "promoted_heading"
 
 
 def test_output_index_points_at_the_slot_the_applier_wrote(tmp_path: Path) -> None:

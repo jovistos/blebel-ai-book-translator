@@ -11,6 +11,7 @@ request asked for, the total token count.
 from __future__ import annotations
 
 import json
+from typing import Any, ClassVar
 
 import pytest
 from book_splitter import cli
@@ -197,8 +198,8 @@ def test_the_summary_names_conflicts_and_resumed_chapters(capsys):
         reused_count = 1
         skipped_count = 2
         entry_count = 4
-        categories = {"character": 3, "location": 1}
-        conflicts = [
+        categories: ClassVar[Any] = {"character": 3, "location": 1}
+        conflicts: ClassVar[Any] = [
             {
                 "term": "Potter",
                 "locked": "Poter",
@@ -206,14 +207,14 @@ def test_the_summary_names_conflicts_and_resumed_chapters(capsys):
                 "chapter_filename": "12-chapter-12.md",
             }
         ]
-        tokens = {
+        tokens: ClassVar[Any] = {
             "input_tokens": 900,
             "output_tokens": 100,
             "total_tokens": 1_000,
             "calls": 4,
             "chapters": 3,
         }
-        timing = {
+        timing: ClassVar[Any] = {
             "run_seconds": 12.5,
             "model_seconds": 11.0,
             "seconds_per_chapter": 3.7,
@@ -225,7 +226,7 @@ def test_the_summary_names_conflicts_and_resumed_chapters(capsys):
         markdown_path = "/tmp/glossary/glossary.md"
         manifest_path = "/tmp/glossary/_glossary_manifest.json"
         trace_path = "/tmp/glossary/_glossary_trace.json"
-        errors: list = []
+        errors: ClassVar[Any] = []
         ok = True
 
     cli._print_glossary_summary(Result())

@@ -69,7 +69,7 @@ def finish_postprocess(
     skipped: bool,
     dry_run: bool,
     write_manifest: bool,
-):
+) -> PostprocessResult:
     from ..core.constants import POSTPROCESS_MANIFEST_FILENAME, POSTPROCESS_TRACE_FILENAME
     from ..core.store import ArtifactStore
     from .artifacts import postprocess_manifest_payload

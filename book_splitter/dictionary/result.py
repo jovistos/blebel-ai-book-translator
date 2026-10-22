@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..core.store import ArtifactStore
 from .models import ChapterReduction, DictionaryResult
 
 
@@ -61,7 +62,9 @@ def build_dictionary_result(
 __all__ = ["build_dictionary_result"]
 
 
-def write_dictionary_result(store, result, chapters, records):
+def write_dictionary_result(
+    store: ArtifactStore, result: DictionaryResult, chapters: Any, records: Any
+) -> DictionaryResult:
     if not store.enabled:
         return result
     from .artifacts import reduced_manifest_payload

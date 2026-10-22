@@ -24,7 +24,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from ..core.constants import (
     DEFAULT_CHUNK_GLOSSARY_CANDIDATES,
@@ -96,7 +96,7 @@ def resolve_runner(stage: str) -> Callable[..., Any]:
     except KeyError as exc:  # pragma: no cover - programming error
         raise ToolError(f"unknown pipeline stage {stage!r}") from exc
     module = importlib.import_module(module_name)
-    return getattr(module, function_name)
+    return cast(Callable[..., Any], getattr(module, function_name))
 
 
 def _get(ns: Any, name: str, default: Any = None) -> Any:

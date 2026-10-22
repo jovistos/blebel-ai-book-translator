@@ -13,6 +13,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+from typing import Any, ClassVar
 
 import pytest
 from book_splitter.core.errors import MissingDependencyError, ToolError
@@ -649,7 +650,7 @@ def test_stanza_ontonotes_labels_are_folded_onto_the_four_types():
             self.ents = ents
 
     class Doc:
-        sentences = [
+        sentences: ClassVar[Any] = [
             Sent(
                 [
                     Ent("Theodorus Van Gogh", "PERSON"),
@@ -662,7 +663,7 @@ def test_stanza_ontonotes_labels_are_folded_onto_the_four_types():
                 ]
             )
         ]
-        ents = []
+        ents: ClassVar[Any] = []
 
     entities = _document_entities(Doc(), type_map=_STANZA_TO_CLASSLA)
     assert [(e.text, e.type) for e in entities] == [
@@ -706,7 +707,7 @@ def test_the_stanza_backend_folds_its_labels_end_to_end(monkeypatch):
             return Doc()
 
     class FakeStanza:
-        def Pipeline(self, **kwargs):  # noqa: N802 - mirrors the library
+        def Pipeline(self, **kwargs):
             return FakePipeline()
 
     monkeypatch.setitem(sys.modules, "stanza", FakeStanza())
@@ -754,7 +755,7 @@ def test_the_first_run_downloads_only_the_processors_it_will_load(monkeypatch):
         def __init__(self) -> None:
             self.builds = 0
 
-        def Pipeline(self, language, **kwargs):  # noqa: N802 - mirrors the library
+        def Pipeline(self, language, **kwargs):
             self.builds += 1
             if self.builds == 1:
                 raise Exception("Resources file not found at: /x/resources.json")

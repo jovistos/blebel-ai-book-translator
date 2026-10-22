@@ -286,10 +286,10 @@ def corpus_digest(report: dict[str, Any]) -> str:
             continue
         out.append(f"  {name:<26} {count:>5}  fix: {DAMAGE_PATTERNS[name]['fix']}")
     for name, items in (report.get("examples") or {}).items():
-        for item in items:
-            out.append(
-                f"    e.g. {name} :: {item['chapter']}:{item['line_number']} {item['text']!r}"
-            )
+        out.extend(
+            f"    e.g. {name} :: {item['chapter']}:{item['line_number']} {item['text']!r}"
+            for item in items
+        )
     return "\n".join(out)
 
 

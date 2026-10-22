@@ -60,16 +60,46 @@ SOURCE_SUFFIXES = _MARKDOWN_SUFFIXES + _TEXT_SUFFIXES + _DOCLING_SUFFIXES
 
 
 def repo_root(start: Path | str | None = None) -> Path:
-    """The project root: the nearest ancestor containing ``book_splitter/``.
+    """The project root: a checkout, a book project, or the current directory.
 
-    Falls back to the package's parent, so this keeps working when the package
-    is installed elsewhere or imported from a test runner.
+    A source checkout is recognised by ``pyproject.toml`` next to the
+    ``book_splitter/`` package; a book project is recognised by its
+    ``book_splitter.toml`` runtime config. The package's own location is only an
+    anchor, never proof of a project root: once the package is installed,
+    ``site-packages`` contains ``book_splitter/`` but is not a project, so the
+    current directory is the only sensible fallback there.
     """
     anchor = Path(start).expanduser().resolve() if start else Path(__file__).resolve()
-    for candidate in [anchor, *anchor.parents]:
-        if (candidate / "book_splitter").is_dir():
-            return candidate
-    return Path(__file__).resolve().parent.parent
+    anchor_candidates = [anchor, *anchor.parents]
+    cwd = Path.cwd().resolve()
+    cwd_candidates = [cwd, *cwd.parents]
+
+    def source_checkout(candidates: list[Path]) -> Path | None:
+        for candidate in candidates:
+            if (candidate / "pyproject.toml").is_file() and (
+                candidate / "book_splitter"
+            ).is_dir():
+                return candidate
+        return None
+
+    def book_project(candidates: list[Path]) -> Path | None:
+        for candidate in candidates:
+            if (candidate / "book_splitter.toml").is_file():
+                return candidate
+        return None
+
+    # The package's own ancestor chain wins for a source checkout, then for a
+    # project whose config sits next to it. Only then does the working directory
+    # get a say, which is the installed-package case.
+    for search in (source_checkout, book_project):
+        found = search(anchor_candidates)
+        if found is not None:
+            return found
+    for search in (source_checkout, book_project):
+        found = search(cwd_candidates)
+        if found is not None:
+            return found
+    return cwd
 
 
 def default_input_dir(root: Path | str | None = None) -> Path:

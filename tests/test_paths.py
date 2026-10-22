@@ -31,6 +31,35 @@ def test_default_folders_are_input_and_output_under_the_repo_root():
     assert default_output_dir(root) == ROOT / "data" / "output"
 
 
+def test_repo_root_uses_pyproject_next_to_the_package(tmp_path):
+    checkout = tmp_path / "checkout"
+    (checkout / "book_splitter").mkdir(parents=True)
+    (checkout / "pyproject.toml").write_text("[project]\nname = 'x'\n", encoding="utf-8")
+
+    assert repo_root(checkout / "book_splitter") == checkout
+
+
+def test_repo_root_recognises_a_book_project_by_its_runtime_config(tmp_path):
+    project = tmp_path / "book-project"
+    nested = project / "data" / "input"
+    nested.mkdir(parents=True)
+    (project / "book_splitter.toml").write_text("[llm]\n", encoding="utf-8")
+
+    assert repo_root(nested) == project
+
+
+def test_repo_root_does_not_mistake_site_packages_for_a_project(tmp_path, monkeypatch):
+    site_packages = tmp_path / "site-packages"
+    (site_packages / "book_splitter").mkdir(parents=True)
+    project = tmp_path / "working-dir"
+    project.mkdir()
+    monkeypatch.chdir(project)
+
+    # A bare installed package directory has neither pyproject.toml nor
+    # book_splitter.toml, so the working directory wins.
+    assert repo_root(site_packages / "book_splitter") == project.resolve()
+
+
 def test_per_book_output_layout():
     book = ROOT / "data" / "input" / "My Book.md"
     assert book_slug(book) == "My-Book"

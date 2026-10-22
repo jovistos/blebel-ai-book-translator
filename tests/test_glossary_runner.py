@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from book_splitter.core.errors import ExtractionError, ToolError
@@ -142,8 +143,8 @@ def make_book(
     return folder
 
 
-def read_json(path: str | Path) -> dict:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+def read_json(path: str | Path) -> dict[str, Any]:
+    return cast(dict[str, Any], json.loads(Path(path).read_text(encoding="utf-8")))
 
 
 # --------------------------------------------------------------------------- #

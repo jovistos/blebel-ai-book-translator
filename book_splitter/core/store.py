@@ -21,9 +21,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar, cast
 
 from .artifacts import write_manifest, write_trace
+
+R = TypeVar("R")
 
 
 @dataclass
@@ -76,11 +78,11 @@ class ArtifactStore:
 
     def write_result(
         self,
-        result: Any,
+        result: R,
         manifest_payload: dict[str, Any],
         *,
         trace_payload: Any = None,
-    ) -> Any:
+    ) -> R:
         """Write the pair for ``result`` and attach both paths.
 
         The manifest is written first and its path is put on ``result`` before
@@ -91,8 +93,9 @@ class ArtifactStore:
             return result
         path = self.write_manifest(manifest_payload)
         if path is not None and hasattr(result, "manifest_path"):
-            result.manifest_path = str(path)  # type: ignore[attr-defined]
-        self.write_trace(result.to_dict() if trace_payload is None else trace_payload)
+            result.manifest_path = str(path)
+        to_dict = cast(Any, result).to_dict
+        self.write_trace(to_dict() if trace_payload is None else trace_payload)
         return self.attach(result)
 
     def snapshot(self, payload: dict[str, Any]) -> Path | None:
@@ -130,12 +133,12 @@ class ArtifactStore:
         if trace_path is not None:
             self.trace_path = str(trace_path)
 
-    def attach(self, result: Any) -> Any:
+    def attach(self, result: R) -> R:
         """Copy the recorded paths onto ``result`` and return it."""
         if hasattr(result, "manifest_path"):
-            result.manifest_path = self.manifest_path  # type: ignore[attr-defined]
+            result.manifest_path = self.manifest_path
         if hasattr(result, "trace_path"):
-            result.trace_path = self.trace_path  # type: ignore[attr-defined]
+            result.trace_path = self.trace_path
         return result
 
     def existing(self, name: str) -> Path | None:

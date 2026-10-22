@@ -206,12 +206,15 @@ def verify_cleaning_plan(
     }
     undeclared = sorted(set(result.removed_artefacts) - declared)
     undeclared_captions = sorted(set(result.removed_captions) - declared)
-    for number in undeclared:
-        if number in headers:
-            problems.append(f"line {number} was removed without being declared in the plan")
-
-    for number in undeclared_captions:
-        problems.append(f"line {number} was removed as a caption without being declared")
+    problems.extend(
+        f"line {number} was removed without being declared in the plan"
+        for number in undeclared
+        if number in headers
+    )
+    problems.extend(
+        f"line {number} was removed as a caption without being declared"
+        for number in undeclared_captions
+    )
 
     source_images = [ref for line in lines for ref in image_refs(line)]
     output_images = [ref for line in output for ref in image_refs(line)]

@@ -124,14 +124,10 @@ class StageSummary:
         lines = [f"{pad}{label:<16}: {value}" for label, value in self.rows]
         if debug and self.detail:
             lines.extend(f"{pad}  {line}" if line else "" for line in self.detail)
-        for warning in self.warnings:
-            lines.append(f"{pad}warning         : {warning}")
-        for error in self.errors:
-            lines.append(f"{pad}error           : {error}")
-        for label, path in self.artifacts:
-            lines.append(f"{pad}{label:<16}: {path}")
-        for step in self.next_steps:
-            lines.append(f"{pad}{step}")
+        lines.extend(f"{pad}warning         : {warning}" for warning in self.warnings)
+        lines.extend(f"{pad}error           : {error}" for error in self.errors)
+        lines.extend(f"{pad}{label:<16}: {path}" for label, path in self.artifacts)
+        lines.extend(f"{pad}{step}" for step in self.next_steps)
         return lines
 
 

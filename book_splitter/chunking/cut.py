@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import bisect
 from collections.abc import Callable, Iterable
+from itertools import pairwise
 
 from ..core.constants import DEFAULT_CHUNK_TOKENIZER
 from ..core.errors import MissingDependencyError, ToolError
@@ -66,7 +67,7 @@ def build_chunker(chunk_size: int, tokenizer: str | None = None):
         raise ValueError("chunk_size must be greater than 0")
     try:
         from chonkie import RecursiveChunker
-    except Exception as exc:  # noqa: BLE001 - an ImportError is the normal case
+    except Exception as exc:
         raise MissingDependencyError(
             "the chunking stage needs chonkie: pip install chonkie"
         ) from exc
@@ -262,11 +263,11 @@ def _image_safe_spans(
 
     if any(cut <= 0 or cut >= len(text) for cut in cuts):
         return spans
-    if any(left >= right for left, right in zip(cuts, cuts[1:], strict=False)):
+    if any(left >= right for left, right in pairwise(cuts)):
         return spans
 
     adjusted = [(0, cuts[0])]
-    adjusted.extend(zip(cuts, cuts[1:], strict=False))
+    adjusted.extend(pairwise(cuts))
     adjusted.append((cuts[-1], len(text)))
     if any(start >= end for start, end in adjusted):
         return spans

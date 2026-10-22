@@ -180,7 +180,7 @@ def test_plan_files_treats_a_prose_chapter_as_a_chapter(plain):
     kinds = {item["filename"]: item["kind"] for item in planned}
     assert kinds["02-dolazak.md"] == "chapter"
     assert kinds["03-biljeske.md"] == "back-matter"
-    assert [item["filename"] for item in planned][0] == "00-front-matter.md"
+    assert next(item["filename"] for item in planned) == "00-front-matter.md"
 
 
 # --------------------------------------------------------------------------- #

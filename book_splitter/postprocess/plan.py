@@ -403,18 +403,22 @@ def verify_chapter_plan(
     accounted: set[int] = set()
     for entry in result.provenance:
         accounted.update(entry.get("source_lines") or [])
-    for number in range(1, len(lines) + 1):
-        if number not in accounted:
-            problems.append(f"line {number} vanished without a provenance entry")
+    problems.extend(
+        f"line {number} vanished without a provenance entry"
+        for number in range(1, len(lines) + 1)
+        if number not in accounted
+    )
     for number in merged_subtitles:
         subtitle = clean_title(lines[number - 1])
         if subtitle and norm(subtitle) not in norm(result.title):
             problems.append(
                 f"line {number} was merged into the title but its text is not in the title"
             )
-    for number in collapsed_blanks:
-        if lines[number - 1].strip():
-            problems.append(f"line {number} was collapsed as a separator but is not blank")
+    problems.extend(
+        f"line {number} was collapsed as a separator but is not blank"
+        for number in collapsed_blanks
+        if lines[number - 1].strip()
+    )
     title_line = result.title_line
     output_lines = set(result.lines)
     output_headings = {

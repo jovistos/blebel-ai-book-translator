@@ -1,0 +1,8 @@
+include README-book-splitter.md
+include book_splitter.toml
+include .env.example
+recursive-include tests *.py
+recursive-include tests/fixtures *
+recursive-include tests/snapshots *
+recursive-include scripts *.py
+recursive-include book_splitter *.css

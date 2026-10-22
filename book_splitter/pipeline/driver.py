@@ -1728,7 +1728,7 @@ class PipelineDriver:
         tokens = chapter.get("tokens") or {}
         self.console.clear_bar()
         self.console.info(
-            f"  [{done:>2}/{total}] {str(chapter.get('filename') or '?'):<44} "
+            f"  [{done:>2}/{total}] {chapter.get('filename') or '?'!s:<44} "
             f"{int(chapter.get('added') or 0):>3} new · "
             f"{int(chapter.get('repeats') or 0):>2} locked · "
             f"{int(chapter.get('conflicts') or 0):>2} conflict · "
@@ -2228,8 +2228,8 @@ class PipelineDriver:
             flag = "FAIL "
         usage = chunk.get("usage") or {}
         self.console.info(
-            f"  [{done:>3}/{total}] {flag} {str(chunk.get('filename') or '?'):<46} "
-            f"{str(chunk.get('section_kind') or '?'):<5} "
+            f"  [{done:>3}/{total}] {flag} {chunk.get('filename') or '?'!s:<46} "
+            f"{chunk.get('section_kind') or '?'!s:<5} "
             f"{int(chunk.get('source_chars') or 0):>6,} → "
             f"{int(chunk.get('translation_chars') or 0):>6,} chars · "
             f"{int(usage.get('total_tokens') or 0):>7,} tok · "
@@ -2567,8 +2567,8 @@ class PipelineDriver:
         """One durable line per postprocessed (or reused) chapter."""
         flag = "reuse" if chapter.get("reused") else ("ok   " if chapter.get("ok") else "FAIL ")
         self.console.info(
-            f"  [{done:>3}/{total}] {flag} {str(chapter.get('filename') or '?'):<46} "
-            f"{str(chapter.get('title_action') or '—'):<8} "
+            f"  [{done:>3}/{total}] {flag} {chapter.get('filename') or '?'!s:<46} "
+            f"{chapter.get('title_action') or '—'!s:<8} "
             f"{int(chapter.get('heading_decisions') or 0):>3} heading decision(s) · "
             f"{int(chapter.get('output_lines') or 0):>5} lines"
         )
@@ -2678,7 +2678,7 @@ class PipelineDriver:
             flag = "ok   "
             tail = ""
         self.console.info(
-            f"  [{done:>3}/{total}] {flag} {str(chapter.get('filename') or '?'):<46} "
+            f"  [{done:>3}/{total}] {flag} {chapter.get('filename') or '?'!s:<46} "
             f"{int(chapter.get('chunk_count') or 0):>3} chunk(s) · "
             f"{int(chapter.get('translation_chars') or 0):>7,} chars{tail}"
         )
@@ -2695,7 +2695,7 @@ class PipelineDriver:
             flag = "FAIL "
         tokens = chunk.get("tokens") or {}
         self.console.info(
-            f"  [{done:>3}/{total}] {flag} {str(chunk.get('filename') or '?'):<46} "
+            f"  [{done:>3}/{total}] {flag} {chunk.get('filename') or '?'!s:<46} "
             f"{int(chunk.get('source_chars') or 0):>6,} → "
             f"{int(chunk.get('translation_chars') or 0):>6,} chars · "
             f"{int(tokens.get('total_tokens') or 0):>7,} tok · "

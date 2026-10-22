@@ -9,6 +9,7 @@ body line numbers, surviving OCR/PDF-conversion damage such as ``GIAVA 5`` for
 from __future__ import annotations
 
 import re
+from itertools import pairwise
 from typing import Any
 
 from ..core.constants import (
@@ -104,7 +105,7 @@ def locate_toc_titles(
     found = [m for m in matches if m["found"]]
     out_of_order = [
         f"{a['title']} -> {b['title']}"
-        for a, b in zip(found, found[1:], strict=False)
+        for a, b in pairwise(found)
         if b["line_number"] < a["line_number"]
     ]
     return {

@@ -144,7 +144,7 @@ def resolve_tokenizer(name: str | None = None) -> TokenizerChoice:
                 used=requested,
                 tokenizer=_wrap(tiktoken.get_encoding(requested)),
             )
-        except Exception as exc:  # noqa: BLE001 - any failure is a reason to fall back
+        except Exception as exc:
             return _fallback(
                 requested,
                 f"tiktoken could not load {requested!r} ({type(exc).__name__}: {exc}); "
@@ -153,7 +153,7 @@ def resolve_tokenizer(name: str | None = None) -> TokenizerChoice:
 
     try:
         return TokenizerChoice(requested=requested, used=requested, tokenizer=_wrap(requested))
-    except Exception as exc:  # noqa: BLE001 - a missing HF model is not fatal
+    except Exception as exc:
         return _fallback(
             requested,
             f"tokenizer {requested!r} could not be loaded ({type(exc).__name__}: {exc})",

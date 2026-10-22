@@ -187,9 +187,8 @@ prompt, so a bad paragraph can be debugged without reconstructing the request.
 English into Serbian is the default pair, `--limit N` translates a prefix, and
 `--resume` skips chunks an earlier run already finished.
 
-This is the implementation of the toolset described in
-[gemini-splitting-markdown-books-without-llms.md](gemini-splitting-markdown-books-without-llms.md),
-built for the sample book
+This is the implementation of the toolset described in the original design notes for
+splitting Markdown books without LLMs, built for the sample book
 [data/input/Aleksandar_Loven_-_Ljubav_seks_i_vase_srce.md](data/input/Aleksandar_Loven_-_Ljubav_seks_i_vase_srce.md)
 whose PDF→Markdown conversion mangled the headings (78 `##` headers of which most are page
 numbers and figure captions, `GIAVA 5` instead of `GLAVA 5`, chapter titles split onto the line
@@ -1919,57 +1918,88 @@ the same kind of stage: a deterministic package build whose whole vocabulary is
 
 ## Install
 
+Python 3.11+ is required. The package metadata lives in
+[pyproject.toml](pyproject.toml); the optional stages are installed as extras:
+
 ```bash
 python -m venv .venv && . .venv/bin/activate
-pip install -r requirements-book-splitter.txt -r requirements-dev.txt
+
+pip install -e ".[dev]"                 # development checkout: tests, lint, types
+pip install "book-splitter[convert]"    # EPUB / text-based PDF input
+pip install "book-splitter[dictionary]" # the NER tagger for stages 3 and 6
+pip install "book-splitter[chunk]"      # chonkie + tiktoken + rapidfuzz
+pip install "book-splitter[epub]"       # markdown-it-py for stage 11
 ```
+
+| Extra | Unlocks |
+|---|---|
+| `convert` | Stage 0: EPUB / text-based PDF → Markdown through docling |
+| `dictionary` | Stage 3 and the NER half of stage 6: CLASSLA, stanza, lingua |
+| `chunk` | Stage 5 chunking and stage 6 fuzzy retrieval: chonkie, tiktoken, rapidfuzz |
+| `epub` | Stage 11: markdown-it-py |
+| `dev` | The offline test suite, ruff, mypy and the build tooling |
+
+Every optional import is lazy, so a split-only install keeps working without any
+of them. `dev` includes the chunk and EPUB dependencies so
+`pip install -e ".[dev]"` runs the whole suite; `convert` and `dictionary` stay
+out because docling/torch and the taggers are heavy and their tests use stubs.
+
+The installed console scripts and the module form are equivalent:
+
+```bash
+book-splitter --help
+book-splitter pipeline BOOK.md
+book-splitter-pipeline BOOK.md        # same driver, no `pipeline` subcommand
+python -m book_splitter --help
+```
+
+The historical `requirements-*.txt` files still work; they are thin shims that
+install the matching extra (`requirements-book-splitter.txt` → `.[chunk]`,
+`requirements-dev.txt` → `.[dev]`, `requirements-dictionary.txt` →
+`.[dictionary]`).
 
 Then copy [.env.example](.env.example) to `.env` and fill in the key(s); which
 model each stage uses is set in [book_splitter.toml](book_splitter.toml) (see
 [Configuration](#configuration)).
 
-Stage 0 (`convert`) needs `docling` only when the source is an EPUB or a PDF; a
+Stage 0 (`convert`) needs docling only when the source is an EPUB or a PDF; a
 TXT or Markdown source needs no dependency at all. docling pulls its own layout
 models (and torch), so it is deliberately optional and imported lazily:
 
 ```bash
-pip install docling                  # EPUB/PDF conversion (no OCR; text-layer PDFs only)
+pip install -e ".[convert]"           # or: pip install "book-splitter[convert]"
 ```
 
 The PDF text-layer preflight uses `pypdfium2`, which docling already installs;
 without docling it can also fall back to PyMuPDF. An image-based PDF is rejected
 with an actionable message — OCR is never attempted.
 
-Stage 5 (`chunk`) needs `chonkie`; `tiktoken` is what makes the default
-`cl100k_base` token count exact:
+Stages 5 and 6 need the chunk extra: `chonkie` cuts the chapters, `tiktoken`
+makes the default `cl100k_base` token count exact, and `rapidfuzz` retrieves the
+glossary terms:
 
 ```bash
-pip install chonkie tiktoken        # already in requirements-book-splitter.txt
+pip install -e ".[chunk]"
+```
+
+Stage 6's NER half and stage 3 need the dictionary extra:
+
+```bash
+pip install -e ".[dictionary]"
 ```
 
 Both are imported lazily. Without `tiktoken` the chunk length is still enforced,
 but measured with the documented local approximation (and the manifest says so);
 without `chonkie` the whole-pipeline script reports the phase as skipped and
-`python -m book_splitter chunk` exits with the exact `pip install` line.
-
-Stage 6 (`chunk-glossary`) needs `rapidfuzz` for the fuzzy retrieval, and the same
-tagger as stage 3 for the NER pass:
-
-```bash
-pip install rapidfuzz                # already in requirements-book-splitter.txt
-pip install -r requirements-dictionary.txt   # the tagger, if stage 3 already runs
-```
-
-`rapidfuzz` is a small wheel with no torch dependency and is imported lazily; the
-tagger is only needed for phase 1, and `--language` / `--gpu` / `--cpu` behave
-exactly as they do for `dictionary`. A missing tagger or missing `rapidfuzz` is one
-`pip install` line, not a traceback.
+`book-splitter chunk` exits with the exact `pip install` line. The tagger is only
+needed for stage 6 phase 1, and `--language` / `--gpu` / `--cpu` behave exactly
+as they do for `dictionary`.
 
 Stage 11 (`epub`) renders the Markdown to XHTML with `markdown-it-py` and writes
 the EPUB 3 container with the standard library — no pandoc, calibre or ebooklib:
 
 ```bash
-pip install markdown-it-py          # EPUB packaging only; imported lazily
+pip install -e ".[epub]"
 ```
 
 A run that stops at `10-translated-book.md` needs none of it.
@@ -1977,15 +2007,9 @@ A run that stops at `10-translated-book.md` needs none of it.
 Optional, only for `extract_native_toc` with PDF/EPUB sources:
 `pip install PyMuPDF ebooklib beautifulsoup4`.
 
-Optional, only for stage 3 (`dictionary`) — a tagger plus a language detector:
-
-```bash
-pip install -r requirements-dictionary.txt     # classla + stanza + lingua-py (pulls in torch)
-```
-
-⚠️ **`classla` pins `torch<=2.6` on Python < 3.14**, so a plain `pip install classla` next to a
-newer torch will downgrade it and pull ~2 GB of CUDA wheels. If torch is already installed to your
-liking, keep it:
+⚠️ **`classla` pins `torch<=2.6` on Python < 3.14**, so a plain
+`pip install -e ".[dictionary]"` next to a newer torch will downgrade it and pull
+~2 GB of CUDA wheels. If torch is already installed to your liking, keep it:
 
 ```bash
 pip install numpy requests tqdm "protobuf==4.21.2" obeliks reldi-tokeniser lxml
@@ -2004,6 +2028,18 @@ the ~150 MB a partial pipeline would need, so the stage asks for `tokenize,ner` 
 (`~/.cache/stanza/<version>/resources`, not `~/stanza_resources`) and honours
 `STANZA_RESOURCES_DIR`. The `model load` line of the first run therefore includes the download
 (measured: 1m 08s for English) and drops to a second or two once the weights are on disk.
+
+### Building a wheel
+
+```bash
+python -m build
+```
+
+The wheel installs the `book_splitter` package (including
+`book_splitter/epub/assets/style.css`), both console scripts and all five extras.
+The sdist includes the README, the `book_splitter.toml` example, the tests and the
+scripts; `MANIFEST.in` is the list. CI builds both and smoke-tests the installed
+wheel, so packaging regressions fail before a release.
 
 ## Use
 
@@ -2420,16 +2456,23 @@ flag (`--translate-model`, or `--model` on a single command) → stage-specific
 environment (`SPLITTER_<STAGE>_<FIELD>`, `TRANSLATION_*`, `LMSTUDIO_*`) → the
 shared pipeline flags (`--provider`/`--model`/`--base-url`/`--api-key`) →
 `[llm.<stage>]` → `[llm]` → the legacy `SPLITTER_*` variables → the provider
-default.
+default. The provider itself follows the same idea: `--llm <stage>.provider` → the
+stage flag → `SPLITTER_<STAGE>_PROVIDER` → `TRANSLATION_PROVIDER` → `--provider` →
+`[llm.<stage>]` → `[llm]` → `SPLITTER_PROVIDER` → `deepseek` (or stage 7's
+two-backend default). Both orders are executable tables in
+[book_splitter/core/settings.py](book_splitter/core/settings.py) and are exercised
+pair by pair in `tests/test_settings_precedence.py`.
 
 **Keys stay in `.env`.** Copy [.env.example](.env.example) to `.env` and set the
 key for each provider you configured: `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`,
 `OPENROUTER_API_KEY`, `LM_STUDIO_API_KEY`, `OLLAMA_API_KEY`. A stage may name a
-different variable with `api_key_env = "MY_KEY"`. Lookup order: `--api-key` / the
-stage's `api_key_env` → `SPLITTER_<STAGE>_API_KEY` / `TRANSLATION_API_KEY` → the
-provider's own variable → `SPLITTER_API_KEY` → `refs:` in
-`~/.dsh/.credentials.yaml`. Local endpoints (`localhost`, `127.0.0.1`) may run
-keyless.
+different variable with `api_key_env = "MY_KEY"`. Credential lookup order:
+the explicit `--api-key` → `--llm <stage>.api_key` / `api_key_env` → the shared
+`--api-key` (when its provider matches) → `SPLITTER_<STAGE>_API_KEY` /
+`TRANSLATION_API_KEY` / the provider's own variable → `[llm.<stage>].api_key_env`
+→ `[llm].api_key_env` → the provider's built-in key variable →
+`SPLITTER_API_KEY` → `refs:` in `~/.dsh/.credentials.yaml`. Local endpoints
+(`localhost`, `127.0.0.1`) may run keyless.
 
 Stages 3, 5 and 6 (reduction, chunking, NER matching) call no model at all. Stage 4
 needs a key only when there is a chapter left to mine, and stage 7 only when there

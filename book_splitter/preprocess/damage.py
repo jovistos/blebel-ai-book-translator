@@ -563,13 +563,15 @@ def damage_digest(report: dict[str, Any], max_items: int = 25) -> str:
         )
     )
     out = [header]
-    for item in report.get("findings", [])[:max_items]:
-        out.append(f"  {item['kind']:<24} line {item['line_number']:>4}: {item['evidence']}")
+    out.extend(
+        f"  {item['kind']:<24} line {item['line_number']:>4}: {item['evidence']}"
+        for item in report.get("findings", [])[:max_items]
+    )
     for name, items in (report.get("examples") or {}).items():
-        for item in items[:max_items]:
-            out.append(
-                f"  {name:<24} {item['chapter']}:{item['line_number']} {item['text']!r}"
-            )
+        out.extend(
+            f"  {name:<24} {item['chapter']}:{item['line_number']} {item['text']!r}"
+            for item in items[:max_items]
+        )
     return "\n".join(out)
 
 

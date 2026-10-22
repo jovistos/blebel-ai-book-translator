@@ -130,7 +130,9 @@ def _nav_list(archive: zipfile.ZipFile) -> ET.Element:
         for element in root.iter(f"{namespace}nav")
         if element.get(f"{ops}type") == "toc"
     )
-    return toc.find(f"{namespace}ol")
+    element = toc.find(f"{namespace}ol")
+    assert element is not None
+    return element
 
 
 def nav_entries(archive: zipfile.ZipFile) -> list[tuple[str, str]]:
@@ -139,6 +141,7 @@ def nav_entries(archive: zipfile.ZipFile) -> list[tuple[str, str]]:
     entries: list[tuple[str, str]] = []
     for item in _nav_list(archive).findall(f"{namespace}li"):
         link = item.find(f"{namespace}a")
+        assert link is not None
         entries.append(("".join(link.itertext()).strip(), link.get("href") or ""))
     return entries
 

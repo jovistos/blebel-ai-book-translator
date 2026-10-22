@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 from book_splitter.chunk_glossary import (
@@ -54,7 +55,7 @@ WORDS: dict[str, tuple[str, str]] = {
     "Beogradu": ("Beograd", "LOC"),
     "Mithril": ("Mithril", "MISC"),
 }
-GLOSSARY = {
+GLOSSARY: dict[str, Any] = {
     "entries": [
         {
             "term": "Džordž",

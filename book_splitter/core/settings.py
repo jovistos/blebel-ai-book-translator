@@ -31,6 +31,13 @@ Resolution order for one stage and one field (first hit wins):
 7. the legacy shared environment (``SPLITTER_PROVIDER``, ``SPLITTER_MODEL``, ...)
 8. the provider's built-in default
 
+That list is executable, not prose: :data:`FIELD_SOURCES` is the ordered table the
+resolver walks, and ``tests/test_settings_precedence.py`` exercises every adjacent
+pair. Providers have their own :data:`PROVIDER_SOURCES` table (the stage-specific
+sources may be rejected by a restricted stage, while a broad one is skipped), and
+credentials have :data:`CREDENTIAL_SOURCES` because a key has sources the config
+file must never hold.
+
 Credentials are never stored in the config file. Keys come from the environment
 (a project ``.env`` is loaded without overriding the real environment), then from
 ``~/.dsh/.credentials.yaml`` ``refs:`` so an existing DSH key can be reused.
@@ -44,7 +51,7 @@ Nothing is ever written back or logged.
 from __future__ import annotations
 
 import os
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -125,25 +132,6 @@ STAGE_ALIASES = {
     "post_process": "postprocess",
 }
 
-#: The fields a ``[llm]`` / ``[llm.<stage>]`` section or a ``--llm`` switch may set.
-LLM_FIELDS = (
-    "provider",
-    "model",
-    "base_url",
-    "temperature",
-    "timeout",
-    "max_retries",
-    "api_key_env",
-)
-_TEXT_FIELDS = ("provider", "model", "base_url", "api_key_env")
-_FLOAT_FIELDS = ("temperature", "timeout")
-_INT_FIELDS = ("max_retries",)
-
-#: The one file that answers "which model does each stage use?".
-LLM_CONFIG_FILENAME = "book_splitter.toml"
-#: Environment variable naming an alternative config file.
-LLM_CONFIG_ENV = "BOOK_SPLITTER_CONFIG"
-
 #: Provider-specific names that may stand in for a stage setting.
 _PROVIDER_ENV = {
     "lmstudio": {
@@ -152,6 +140,50 @@ _PROVIDER_ENV = {
         "API_KEY": "LM_STUDIO_API_KEY",
     },
 }
+
+
+@dataclass(frozen=True, slots=True)
+class FieldSpec:
+    """One field a ``[llm]`` section, an environment variable or a flag may set."""
+
+    name: str
+    kind: type[str] | type[float] | type[int]
+    default: Any = None
+    #: Only inherit from a broad source written for the same provider.
+    provider_scoped: bool = False
+    #: A ``[llm.<stage>]`` value is ignored when the stage's provider is switched.
+    section_scoped: bool = False
+
+    def env_names(self, stage: str, provider: str | None = None) -> list[str]:
+        """Environment names that may hold this field, most specific first."""
+        upper = self.name.upper()
+        names = [f"SPLITTER_{stage.upper()}_{upper}"]
+        if stage == "translate":
+            names.append(f"TRANSLATION_{upper}")
+        if provider:
+            specific = _PROVIDER_ENV.get(provider, {}).get(upper)
+            if specific:
+                names.append(specific)
+        return names
+
+
+#: The fields a ``[llm]`` / ``[llm.<stage>]`` section or a ``--llm`` switch may set.
+FIELDS: tuple[FieldSpec, ...] = (
+    FieldSpec("provider", str),
+    FieldSpec("model", str, provider_scoped=True, section_scoped=True),
+    FieldSpec("base_url", str, provider_scoped=True, section_scoped=True),
+    FieldSpec("temperature", float, 0.0),
+    FieldSpec("timeout", float, 180.0),
+    FieldSpec("max_retries", int, 3),
+    FieldSpec("api_key_env", str, provider_scoped=True),
+)
+FIELD_BY_NAME: dict[str, FieldSpec] = {spec.name: spec for spec in FIELDS}
+LLM_FIELDS = tuple(spec.name for spec in FIELDS)
+
+#: The one file that answers "which model does each stage use?".
+LLM_CONFIG_FILENAME = "book_splitter.toml"
+#: Environment variable naming an alternative config file.
+LLM_CONFIG_ENV = "BOOK_SPLITTER_CONFIG"
 
 #: How long model discovery waits for LM Studio before giving up (seconds).
 LMSTUDIO_DISCOVERY_TIMEOUT = 2.0
@@ -178,7 +210,7 @@ def _dsh_ref(name: str) -> str | None:
     if not _DSH_CREDENTIALS.is_file():
         return None
     try:
-        import yaml  # type: ignore
+        import yaml
     except ImportError:
         return None
     try:
@@ -206,12 +238,13 @@ def _env_field(name: str, field_name: str) -> Any:
     raw = _env(name)
     if raw is None:
         return None
-    if field_name in _FLOAT_FIELDS:
+    spec = FIELD_BY_NAME[field_name]
+    if spec.kind is float:
         try:
             return float(raw)
         except ValueError as exc:
             raise ConfigError(f"{name} must be a number, got {raw!r}") from exc
-    if field_name in _INT_FIELDS:
+    if spec.kind is int:
         try:
             return int(raw)
         except ValueError as exc:
@@ -343,14 +376,17 @@ def _config_section(where: str, section: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _coerce_field(name: str, value: Any, *, where: str) -> Any:
+    spec = FIELD_BY_NAME.get(name)
+    if spec is None:
+        raise ConfigError(f"{where}: unknown key {name!r}")
     try:
-        if name in _TEXT_FIELDS:
+        if spec.kind is str:
             if not isinstance(value, str):
                 raise TypeError("expected a string")
             return value.strip() or None
-        if name in _FLOAT_FIELDS:
+        if spec.kind is float:
             return float(value)
-        if name in _INT_FIELDS:
+        if spec.kind is int:
             return int(value)
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"{where}: {name} = {value!r} is not valid ({exc})") from exc
@@ -416,6 +452,107 @@ def stage_overrides(
 # --------------------------------------------------------------------------- #
 # credentials
 # --------------------------------------------------------------------------- #
+@dataclass(slots=True)
+class _CredentialContext:
+    provider: str
+    stage: str
+    explicit: str | None
+    config: LLMConfig
+    overrides: Mapping[str, Any]
+    shared: Mapping[str, Any]
+    provider_specific: bool
+    shared_key_ok: bool
+    env_shared_key_ok: bool
+    spec: Mapping[str, str]
+
+
+def _credential_explicit(ctx: _CredentialContext) -> str | None:
+    return ctx.explicit
+
+
+def _credential_override_key(ctx: _CredentialContext) -> str | None:
+    value = ctx.overrides.get("api_key")
+    return str(value) if value else None
+
+
+def _credential_override_key_env(ctx: _CredentialContext) -> str | None:
+    name = ctx.overrides.get("api_key_env")
+    return _env(str(name)) if name else None
+
+
+def _credential_shared(ctx: _CredentialContext) -> str | None:
+    return _text(ctx.shared.get("api_key")) if ctx.shared_key_ok else None
+
+
+def _credential_stage_env(ctx: _CredentialContext) -> str | None:
+    for env_name in _stage_env_names(ctx.stage, "API_KEY", ctx.provider):
+        value = _env(env_name)
+        if value:
+            return value
+    return None
+
+
+def _credential_stage_section(ctx: _CredentialContext) -> str | None:
+    name = ctx.config.stages.get(ctx.stage, {}).get("api_key_env")
+    return _env(str(name)) if name else None
+
+
+def _credential_defaults(ctx: _CredentialContext) -> str | None:
+    name = ctx.config.defaults.get("api_key_env")
+    defaults_provider = _text(ctx.config.defaults.get("provider"))
+    if defaults_provider == ctx.provider and name:
+        return _env(str(name))
+    return None
+
+
+def _credential_provider_env(ctx: _CredentialContext) -> str | None:
+    name = ctx.spec.get("key_env")
+    return _env(name) if name else None
+
+
+def _credential_legacy_shared(ctx: _CredentialContext) -> str | None:
+    return _env("SPLITTER_API_KEY") if ctx.env_shared_key_ok else None
+
+
+def _credential_dsh(ctx: _CredentialContext) -> str | None:
+    name = ctx.spec.get("key_env")
+    return _dsh_ref(name) if name else None
+
+
+@dataclass(frozen=True, slots=True)
+class CredentialSource:
+    """One place an API key may come from, in resolution order."""
+
+    key: str
+    label: str
+    resolve: Callable[[_CredentialContext], str | None]
+
+
+#: The key lookup order. It is separate from the field table because a credential
+#: has its own sources (the DSH credential store, provider-owned variables) and
+#: never appears in the config file itself.
+CREDENTIAL_SOURCES: tuple[CredentialSource, ...] = (
+    CredentialSource("explicit", "--api-key", _credential_explicit),
+    CredentialSource("override_key", "--llm <stage>.api_key", _credential_override_key),
+    CredentialSource(
+        "override_key_env", "--llm <stage>.api_key_env", _credential_override_key_env
+    ),
+    CredentialSource("shared_key", "the shared --api-key", _credential_shared),
+    CredentialSource(
+        "stage_env",
+        "SPLITTER_<STAGE>_API_KEY / TRANSLATION_API_KEY / provider key variable",
+        _credential_stage_env,
+    ),
+    CredentialSource(
+        "stage_section", "[llm.<stage>].api_key_env", _credential_stage_section
+    ),
+    CredentialSource("defaults", "[llm].api_key_env", _credential_defaults),
+    CredentialSource("provider_env", "the provider's key_env", _credential_provider_env),
+    CredentialSource("legacy_shared", "SPLITTER_API_KEY", _credential_legacy_shared),
+    CredentialSource("dsh", "~/.dsh/.credentials.yaml refs", _credential_dsh),
+)
+
+
 def resolve_api_key(
     provider: str,
     explicit: str | None = None,
@@ -433,54 +570,36 @@ def resolve_api_key(
     load_dotenv_files()
     cfg = config if config is not None else load_llm_config(config_path)
     canonical = _canonical_stage(stage)
-    ov = dict(overrides or {})
-    stage_section = cfg.stage(canonical)
+    shared_data = dict(shared or {})
     spec = PROVIDERS.get(provider) or TRANSLATION_PROVIDERS.get(provider) or {}
-    shared_provider = _text((shared or {}).get("provider"))
+    shared_provider = _text(shared_data.get("provider"))
     env_shared_provider = _env("SPLITTER_PROVIDER")
-    shared_key_ok = shared_provider == provider or (
-        shared_provider is None and not provider_specific
+    ctx = _CredentialContext(
+        provider=provider,
+        stage=canonical,
+        explicit=explicit,
+        config=cfg,
+        overrides=dict(overrides or {}),
+        shared=shared_data,
+        provider_specific=provider_specific,
+        shared_key_ok=shared_provider == provider
+        or (shared_provider is None and not provider_specific),
+        env_shared_key_ok=env_shared_provider == provider
+        or (env_shared_provider is None and not provider_specific),
+        spec=spec,
     )
-    env_shared_key_ok = env_shared_provider == provider or (
-        env_shared_provider is None and not provider_specific
-    )
-
-    # An explicit --llm key is not part of the documented surface (keys live in
-    # the environment), but honour it when a caller builds the mapping itself.
-    if ov.get("api_key"):
-        return str(ov["api_key"])
-    if ov.get("api_key_env"):
-        value = _env(str(ov["api_key_env"]))
+    for source in CREDENTIAL_SOURCES:
+        value = source.resolve(ctx)
         if value:
-            return value
-    if shared_key_ok:
-        shared_key = _text((shared or {}).get("api_key"))
-        if shared_key:
-            return shared_key
-    for env_name in _stage_env_names(canonical, "API_KEY", provider):
-        value = _env(env_name)
-        if value:
-            return value
-    api_key_env = stage_section.get("api_key_env")
-    if api_key_env and _env(api_key_env):
-        return _env(api_key_env)
-    defaults_provider = _text(cfg.defaults.get("provider"))
-    if defaults_provider == provider and cfg.defaults.get("api_key_env"):
-        value = _env(cfg.defaults["api_key_env"])
-        if value:
-            return value
-    key_env = spec.get("key_env")
-    if key_env and _env(key_env):
-        return _env(key_env)
-    if env_shared_key_ok and _env("SPLITTER_API_KEY"):
-        return _env("SPLITTER_API_KEY")
-    if key_env:
-        return _dsh_ref(key_env)
+            return str(value)
     return None
 
 
 def _stage_env_names(stage: str, field_name: str, provider: str | None = None) -> list[str]:
     """Environment names that may hold one stage's setting, most specific first."""
+    spec = FIELD_BY_NAME.get(field_name)
+    if spec is not None:
+        return spec.env_names(stage, provider)
     upper = field_name.upper()
     names = [f"SPLITTER_{stage.upper()}_{upper}"]
     if stage == "translate":
@@ -526,6 +645,80 @@ def _shared_field_ok(
     return not provider_specific
 
 
+_MISSING = object()
+
+
+@dataclass(slots=True)
+class _ProviderContext:
+    stage: str
+    explicit: str | None
+    config: LLMConfig
+    overrides: Mapping[str, Any]
+    shared: Mapping[str, Any]
+
+
+def _provider_override(ctx: _ProviderContext) -> Any:
+    return ctx.overrides.get("provider")
+
+
+def _provider_explicit(ctx: _ProviderContext) -> Any:
+    return ctx.explicit
+
+
+def _provider_stage_env(ctx: _ProviderContext) -> Any:
+    return _env(f"SPLITTER_{ctx.stage.upper()}_PROVIDER")
+
+
+def _provider_translation_env(ctx: _ProviderContext) -> Any:
+    return _env("TRANSLATION_PROVIDER") if ctx.stage == "translate" else None
+
+
+def _provider_shared(ctx: _ProviderContext) -> Any:
+    return ctx.shared.get("provider")
+
+
+def _provider_stage_section(ctx: _ProviderContext) -> Any:
+    return ctx.config.stages.get(ctx.stage, {}).get("provider")
+
+
+def _provider_defaults(ctx: _ProviderContext) -> Any:
+    return ctx.config.defaults.get("provider")
+
+
+def _provider_shared_env(ctx: _ProviderContext) -> Any:
+    return _env("SPLITTER_PROVIDER")
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderSource:
+    """One place a stage's provider may be named, in resolution order."""
+
+    key: str
+    label: str
+    specific: bool
+    resolve: Callable[[_ProviderContext], Any]
+
+
+#: The provider lookup order. ``specific`` sources belong to this one stage, so
+#: an unsupported name from one of them is an error; a broad source is ignored
+#: instead, which lets a global ``SPLITTER_PROVIDER`` coexist with a stage 7 that
+#: only offers deepseek/lmstudio.
+PROVIDER_SOURCES: tuple[ProviderSource, ...] = (
+    ProviderSource("override", "--llm <stage>.provider", True, _provider_override),
+    ProviderSource("explicit", "the command line", True, _provider_explicit),
+    ProviderSource(
+        "stage_env", "SPLITTER_<STAGE>_PROVIDER", True, _provider_stage_env
+    ),
+    ProviderSource(
+        "translation_env", "TRANSLATION_PROVIDER", True, _provider_translation_env
+    ),
+    ProviderSource("shared", "--provider", False, _provider_shared),
+    ProviderSource("stage_section", "[llm.<stage>]", True, _provider_stage_section),
+    ProviderSource("defaults", "[llm]", False, _provider_defaults),
+    ProviderSource("shared_env", "SPLITTER_PROVIDER", False, _provider_shared_env),
+)
+
+
 def _resolve_provider(
     stage: str,
     *,
@@ -536,44 +729,113 @@ def _resolve_provider(
     allowed: Collection[str] | None,
 ) -> tuple[str, bool]:
     """The stage's provider and whether a stage-specific source named it."""
-    stage_section = config.stages.get(stage, {})
-    shared_provider = _text(shared.get("provider"))
-    env_shared = _env("SPLITTER_PROVIDER")
-    candidates: list[tuple[str, str | None, bool]] = [
-        ("--llm", _text(overrides.get("provider")), True),
-        ("the command line", _text(explicit), True),
-        (f"SPLITTER_{stage.upper()}_PROVIDER", _env(f"SPLITTER_{stage.upper()}_PROVIDER"), True),
-    ]
-    if stage == "translate":
-        candidates.append(("TRANSLATION_PROVIDER", _env("TRANSLATION_PROVIDER"), True))
-    candidates.extend(
-        [
-            ("--provider", shared_provider, False),
-            (f"[llm.{stage}]", _text(stage_section.get("provider")), True),
-            ("[llm]", _text(config.defaults.get("provider")), False),
-            ("SPLITTER_PROVIDER", env_shared, False),
-        ]
+    ctx = _ProviderContext(
+        stage=stage,
+        explicit=explicit,
+        config=config,
+        overrides=overrides,
+        shared=shared,
     )
-    for source, value, specific in candidates:
-        name = _text(value)
+    for source in PROVIDER_SOURCES:
+        name = _text(source.resolve(ctx))
         if name is None:
             continue
         name = name.lower()
         if allowed is not None and name not in allowed:
-            if specific:
+            if source.specific:
                 raise ConfigError(
-                    f"unknown {stage} provider {name!r} (from {source}); choose one of "
-                    f"{', '.join(sorted(allowed))}"
+                    f"unknown {stage} provider {name!r} (from {source.label}); choose "
+                    f"one of {', '.join(sorted(allowed))}"
                 )
             continue
-        return name, specific
+        return name, source.specific
     if allowed is not None:
         return DEFAULT_TRANSLATION_PROVIDER, False
     return "deepseek", False
 
 
+@dataclass(slots=True)
+class _FieldContext:
+    stage: str
+    explicit: Any
+    config: LLMConfig
+    overrides: Mapping[str, Any]
+    shared: Mapping[str, Any]
+    provider: str
+    shared_ok: bool
+    env_shared_ok: bool
+    defaults_ok: bool
+    stage_ok: bool
+
+
+def _field_override(spec: FieldSpec, ctx: _FieldContext) -> Any:
+    return ctx.overrides.get(spec.name, _MISSING)
+
+
+def _field_explicit(spec: FieldSpec, ctx: _FieldContext) -> Any:
+    return _MISSING if ctx.explicit is None else ctx.explicit
+
+
+def _field_stage_env(spec: FieldSpec, ctx: _FieldContext) -> Any:
+    for env_name in spec.env_names(ctx.stage, ctx.provider):
+        value = _env_field(env_name, spec.name)
+        if value is not None:
+            return value
+    return _MISSING
+
+
+def _field_shared(spec: FieldSpec, ctx: _FieldContext) -> Any:
+    value = ctx.shared.get(spec.name)
+    return _MISSING if value is None else value
+
+
+def _field_stage_section(spec: FieldSpec, ctx: _FieldContext) -> Any:
+    section = ctx.config.stages.get(ctx.stage, {})
+    return section.get(spec.name, _MISSING)
+
+
+def _field_defaults(spec: FieldSpec, ctx: _FieldContext) -> Any:
+    return ctx.config.defaults.get(spec.name, _MISSING)
+
+
+def _field_shared_env(spec: FieldSpec, ctx: _FieldContext) -> Any:
+    value = _env_field(f"SPLITTER_{spec.name.upper()}", spec.name)
+    return _MISSING if value is None else value
+
+
+def _field_builtin(spec: FieldSpec, ctx: _FieldContext) -> Any:
+    return spec.default
+
+
+@dataclass(frozen=True, slots=True)
+class FieldSource:
+    """One place a field value may come from, in resolution order."""
+
+    key: str
+    label: str
+    #: The context attribute that gates this source for provider-scoped fields.
+    gate: str | None
+    resolve: Callable[[FieldSpec, _FieldContext], Any]
+
+
+#: The field lookup order documented in the module docstring, README and
+#: book_splitter.toml. ``gate`` is None for sources that always apply; the
+#: provider/section gates are only consulted for the fields marked for them in
+#: :data:`FIELDS`, so a generic field still inherits from the broadest source.
+FIELD_SOURCES: tuple[FieldSource, ...] = (
+    FieldSource("override", "--llm <stage>.<field>", None, _field_override),
+    FieldSource("explicit", "the stage's own flag", None, _field_explicit),
+    FieldSource("stage_env", "stage-specific environment", None, _field_stage_env),
+    FieldSource("shared", "shared pipeline flags", "shared_ok", _field_shared),
+    FieldSource("stage_section", "[llm.<stage>]", "stage_ok", _field_stage_section),
+    FieldSource("defaults", "[llm]", "defaults_ok", _field_defaults),
+    FieldSource("shared_env", "legacy SPLITTER_* environment", "env_shared_ok", _field_shared_env),
+    FieldSource("builtin", "the provider's built-in default", None, _field_builtin),
+)
+
+
 def _resolve_field(
-    field_name: str,
+    spec: FieldSpec,
     *,
     stage: str,
     explicit: Any,
@@ -586,26 +848,33 @@ def _resolve_field(
     defaults_ok: bool,
     stage_ok: bool,
 ) -> Any:
-    """One field from the ordered sources: override → stage flag → stage env →
-    shared flag → stage section → [llm] → shared env."""
-    if field_name in overrides:
-        return overrides[field_name]
-    if explicit is not None:
-        return explicit
-    for env_name in _stage_env_names(stage, field_name, provider):
-        value = _env_field(env_name, field_name)
-        if value is not None:
+    """One field from the ordered sources in :data:`FIELD_SOURCES`."""
+    ctx = _FieldContext(
+        stage=stage,
+        explicit=explicit,
+        config=config,
+        overrides=overrides,
+        shared=shared,
+        provider=provider,
+        shared_ok=shared_ok,
+        env_shared_ok=env_shared_ok,
+        defaults_ok=defaults_ok,
+        stage_ok=stage_ok,
+    )
+    for source in FIELD_SOURCES:
+        if source.gate == "stage_ok":
+            if spec.section_scoped and not ctx.stage_ok:
+                continue
+        elif (
+            source.gate is not None
+            and spec.provider_scoped
+            and not getattr(ctx, source.gate)
+        ):
+            continue
+        value = source.resolve(spec, ctx)
+        if value is not _MISSING:
             return value
-    if shared_ok and shared.get(field_name) is not None:
-        return shared[field_name]
-    stage_section = config.stages.get(stage, {})
-    if stage_ok and field_name in stage_section:
-        return stage_section[field_name]
-    if defaults_ok and field_name in config.defaults:
-        return config.defaults[field_name]
-    if env_shared_ok:
-        return _env_field(f"SPLITTER_{field_name.upper()}", field_name)
-    return None
+    return spec.default
 
 
 def resolve_settings(
@@ -674,7 +943,7 @@ def resolve_settings(
     # Only the connection fields belong to one provider: a shared model id or
     # endpoint must not leak into a stage pinned to another provider, while
     # temperature/timeouts are generic and inherit from the broadest source.
-    connection_fields = ("model", "base_url", "api_key_env")
+    # FieldSpec carries those two scopes, so the resolution loop stays generic.
     stage_section = cfg.stages.get(canonical, {})
     stage_provider = _text(stage_section.get("provider"))
     # A stage section's model/endpoint is written for one provider. When the
@@ -686,20 +955,18 @@ def resolve_settings(
         stage_ok = defaults_provider is None or defaults_provider == resolved_provider
 
     def field(name: str, value: Any) -> Any:
-        per_provider = name in connection_fields
-        section_applies = stage_ok if name in ("model", "base_url") else True
         return _resolve_field(
-            name,
+            FIELD_BY_NAME[name],
             stage=canonical,
             explicit=value,
             config=cfg,
             overrides=ov,
             shared=shared_data,
             provider=resolved_provider,
-            shared_ok=shared_ok if per_provider else True,
-            env_shared_ok=env_shared_ok if per_provider else True,
-            defaults_ok=defaults_ok if per_provider else True,
-            stage_ok=section_applies,
+            shared_ok=shared_ok,
+            env_shared_ok=env_shared_ok,
+            defaults_ok=defaults_ok,
+            stage_ok=stage_ok,
         )
 
     resolved_base = field("base_url", base_url) or _text(spec.get("base_url")) or ""
@@ -729,13 +996,13 @@ def resolve_settings(
 
     resolved_temperature = field("temperature", temperature)
     if resolved_temperature is None:
-        resolved_temperature = 0.0
+        resolved_temperature = FIELD_BY_NAME["temperature"].default
     resolved_timeout = field("timeout", timeout)
     if resolved_timeout is None:
-        resolved_timeout = 180.0
+        resolved_timeout = FIELD_BY_NAME["timeout"].default
     resolved_retries = field("max_retries", max_retries)
     if resolved_retries is None:
-        resolved_retries = 3
+        resolved_retries = FIELD_BY_NAME["max_retries"].default
 
     resolved_key = resolve_api_key(
         resolved_provider,
@@ -887,11 +1154,9 @@ def list_lmstudio_models(
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, list):
         return []
-    models: list[str] = []
-    for item in data:
-        if isinstance(item, dict) and item.get("id"):
-            models.append(str(item["id"]))
-    return models
+    return [
+        str(item["id"]) for item in data if isinstance(item, dict) and item.get("id")
+    ]
 
 
 def pick_lmstudio_model(models: Sequence[str]) -> str:
@@ -917,13 +1182,18 @@ def pick_lmstudio_model(models: Sequence[str]) -> str:
 
 
 __all__ = [
+    "CREDENTIAL_SOURCES",
     "DEFAULT_DEEPSEEK_MODEL",
     "DEFAULT_STAGE",
     "DEFAULT_TRANSLATION_PROVIDER",
+    "FIELD_BY_NAME",
+    "FIELD_SOURCES",
+    "FIELDS",
     "LLM_CONFIG_ENV",
     "LLM_CONFIG_FILENAME",
     "LLM_FIELDS",
     "LMSTUDIO_DISCOVERY_TIMEOUT",
+    "PROVIDER_SOURCES",
     "PROVIDERS",
     "STAGES",
     "STAGE_ALIASES",

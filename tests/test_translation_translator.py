@@ -182,8 +182,8 @@ def test_every_attempt_failing_raises_with_the_usage_still_attached():
         translator.translate(system_prompt="s", user_prompt="u", source_text="George.")
 
     assert "3 attempt" in str(info.value)
-    assert info.value.usage.total_tokens == 420  # type: ignore[attr-defined]
-    assert info.value.attempts == 3  # type: ignore[attr-defined]
+    assert info.value.usage.total_tokens == 420
+    assert info.value.attempts == 3
     assert len(llm.calls) == 3
 
 

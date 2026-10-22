@@ -26,6 +26,11 @@
 #   7. the legacy SPLITTER_* environment variables
 #   8. the provider's built-in default (deepseek-flash for DeepSeek)
 #
+# These orders are executable tables in book_splitter/core/settings.py
+# (FIELD_SOURCES, PROVIDER_SOURCES and CREDENTIAL_SOURCES) and are tested pair by
+# pair in tests/test_settings_precedence.py. The provider follows the same idea;
+# credentials add the provider's own variable and ~/.dsh/.credentials.yaml.
+#
 # Keys are never written here: put DEEPSEEK_API_KEY / OPENAI_API_KEY /
 # OPENROUTER_API_KEY / LM_STUDIO_API_KEY / OLLAMA_API_KEY in .env. A stage may
 # name another variable with api_key_env = "MY_KEY".

@@ -137,7 +137,7 @@ class LineProvenance:
     It is a pure view: it never mutates the result it indexes.
     """
 
-    __slots__ = ("_by_source", "_by_output", "_output_texts")
+    __slots__ = ("_by_output", "_by_source", "_output_texts")
 
     def __init__(
         self,
@@ -256,7 +256,7 @@ def apply_cleaning_plan(
             continue
 
     consumed: set[int] = set()
-    for _, pair in merge_pairs.items():
+    for pair in merge_pairs.values():
         consumed.add(pair[1])
 
     idx = 0

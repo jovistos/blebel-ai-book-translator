@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from _fixtures import PLAIN, ROOT, SAMPLE, plain, plan, sample  # noqa: F401
+from _fixtures import PLAIN, ROOT, SAMPLE, plain, plan, sample
 
 __all__ = ["PLAIN", "ROOT", "SAMPLE", "plan", "plain", "sample"]

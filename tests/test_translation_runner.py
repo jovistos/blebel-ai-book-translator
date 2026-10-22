@@ -266,7 +266,7 @@ def test_a_failed_chunk_is_reported_and_the_book_continues(tmp_path: Path):
 
 
 def test_a_missing_chunk_glossary_file_is_not_fatal(tmp_path: Path):
-    book, _chapters, chunks, chunk_glossary = _project(tmp_path)
+    _book, _chapters, chunks, chunk_glossary = _project(tmp_path)
     victim = _files(chunks)[1]
     (chunk_glossary / f"{victim}.json").unlink()
 
@@ -283,7 +283,7 @@ def test_a_missing_chunk_glossary_file_is_not_fatal(tmp_path: Path):
 
 
 def test_a_missing_chunk_glossary_folder_is_a_setup_error(tmp_path: Path):
-    _book, _chapters, chunks, chunk_glossary = _project(tmp_path)
+    __book, _chapters, chunks, chunk_glossary = _project(tmp_path)
     for path in chunk_glossary.iterdir():
         path.unlink()
     chunk_glossary.rmdir()
@@ -510,7 +510,7 @@ def test_resume_is_invalidated_by_a_changed_context_window(tmp_path: Path):
 
 
 def test_resume_is_invalidated_by_a_changed_glossary(tmp_path: Path):
-    _book, _chapters, chunks, chunk_glossary = _project(tmp_path)
+    __book, _chapters, chunks, chunk_glossary = _project(tmp_path)
     run_translation(str(chunks), translator=FakeTranslator())
 
     victim = _files(chunks)[0]

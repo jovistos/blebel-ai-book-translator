@@ -195,15 +195,17 @@ def build_book_report(book: dict[str, Any]) -> str:
         "",
         "chapters (index, file, matter, title, title line, subtitle, headings/suspicious):",
     ]
-    for summary in book.get("chapters") or []:
-        lines.append(
+    lines.extend(
+        (
             f"  {int(summary.get('index', 0)):>2} {summary.get('filename'):<40} "
-            f"{str(summary.get('matter') or ''):<5} "
+            f"{summary.get('matter') or ''!s:<5} "
             f"{summary.get('title')!r} [{_title_line(summary)}]"
             + (f" sub={summary.get('subtitle')!r}" if summary.get("subtitle") else "")
             + f" headings={summary.get('heading_count', 0)}"
             f"/{summary.get('suspicious_heading_count', 0)}"
         )
+        for summary in book.get("chapters") or []
+    )
     front = book.get("front_matter")
     back = book.get("back_matter")
     front_names = [

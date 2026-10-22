@@ -44,7 +44,7 @@ def install_chunk_glossary(monkeypatch, *, ok: bool = True, files: bool = False)
 
     calls: list[Path] = []
 
-    def fake_run_chunk_glossary(chunks_path, output_dir=None, **kwargs):  # noqa: ARG001
+    def fake_run_chunk_glossary(chunks_path, output_dir=None, **kwargs):
         calls.append(Path(chunks_path))
         out = Path(output_dir or chunks_path)
         if output_dir:
@@ -374,7 +374,7 @@ def install_dictionary(
     """Replace stage 3 (both halves), so no test loads a tagger or calls a model."""
     calls: list[Path] = []
 
-    def fake_run_dictionary(chapters_path, output_dir=None, **kwargs):  # noqa: ARG001
+    def fake_run_dictionary(chapters_path, output_dir=None, **kwargs):
         calls.append(Path(chapters_path))
         if missing:
             raise MissingDependencyError("the tagger is not installed: pip install classla")
@@ -1069,7 +1069,7 @@ class _FakePreprocessApp:
     def __init__(self, final: dict) -> None:
         self.final = final
 
-    def invoke(self, state, config=None):  # noqa: ARG002 - mirrors the graph API
+    def invoke(self, state, config=None):
         return dict(self.final)
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 from book_splitter.pipeline.options import (
@@ -19,7 +20,7 @@ from book_splitter.pipeline.sources import StageSources
 
 
 def base_ns(**overrides) -> argparse.Namespace:
-    values = dict(  # noqa: C408 - keeping the keyword list readable
+    values: dict[str, Any] = dict(  # noqa: C408 - keeping the keyword list readable
         book="book.md",
         in_dir=None,
         output_root=None,

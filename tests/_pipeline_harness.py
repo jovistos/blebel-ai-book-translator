@@ -24,7 +24,7 @@ import os
 import re
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import book_splitter.agent.graph as agent_graph
 import pytest
@@ -171,7 +171,7 @@ class ScriptedModel:
 
     def invoke(self, messages, *_, **__) -> AIMessage:
         self.calls.append(list(messages))
-        return self._responder(messages, len(self.calls))
+        return cast(AIMessage, self._responder(messages, len(self.calls)))
 
 
 class FixtureNer:

@@ -1,3 +1,87 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "book-splitter"
+dynamic = ["version"]
+description = "Turn one long book into a translated EPUB through staged, verifiable agents."
+readme = "README-book-splitter.md"
+requires-python = ">=3.11"
+keywords = ["book", "translation", "epub", "langgraph", "ocr"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Text Processing :: Linguistic",
+]
+dependencies = [
+    "langgraph>=0.2",
+    "langchain-core>=0.3",
+    "langchain-openai>=0.2",
+    "pydantic>=2.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+# Stage 0: EPUB / text-based PDF -> Markdown. docling pulls its own layout
+# models and torch, which is why conversion is an extra and imported lazily.
+convert = [
+    "docling>=2.7",
+]
+
+# Stage 3 and the NER half of stage 6. classla pins torch<=2.6 on Python < 3.14;
+# the README documents the --no-deps install for an existing torch.
+dictionary = [
+    "classla>=2.2",
+    "stanza>=1.8",
+    "lingua-language-detector>=1.3",
+]
+
+# Stage 5 and the fuzzy half of stage 6. All three imports are lazy.
+chunk = [
+    "chonkie>=1.7",
+    "tiktoken>=0.7",
+    "rapidfuzz>=3.0",
+]
+
+# Stage 11: Markdown -> XHTML for the EPUB package. Imported lazily.
+epub = [
+    "markdown-it-py>=3.0",
+]
+
+# Development and CI. `dev` deliberately includes the chunk/epub runtime
+# dependencies so `pip install -e ".[dev]"` can run the whole offline suite.
+dev = [
+    "pytest==9.1.1",
+    "ruff==0.17.0",
+    "mypy==2.4.0",
+    "build>=1.2",
+    "chonkie>=1.7",
+    "tiktoken>=0.7",
+    "rapidfuzz>=3.0",
+    "markdown-it-py>=3.0",
+]
+
+[project.scripts]
+book-splitter = "book_splitter.cli:main"
+book-splitter-pipeline = "book_splitter.pipeline.parser:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.dynamic]
+version = {attr = "book_splitter.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["book_splitter*"]
+
+[tool.setuptools.package-data]
+"book_splitter.epub" = ["assets/*.css"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
@@ -6,14 +90,22 @@ addopts = "-q"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["book_splitter", "tests"]
+src = ["book_splitter", "tests", "scripts"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
-ignore = ["E501"]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF", "PIE", "PERF", "PT011"]
+# RUF001/002/003: the prompts and fixtures intentionally contain Serbian Cyrillic
+# and other confusable characters. RUF022: __all__ order is a tested public
+# contract (tests/snapshots/package_all.json), so sorting it is not a fix.
+ignore = ["E501", "RUF001", "RUF002", "RUF003", "RUF022"]
 
 [tool.mypy]
 python_version = "3.11"
-files = ["book_splitter"]
-warn_unused_ignores = false
+files = ["book_splitter", "scripts", "tests"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = true
+warn_unused_configs = true
+no_implicit_optional = true
+strict_equality = true
 ignore_missing_imports = true

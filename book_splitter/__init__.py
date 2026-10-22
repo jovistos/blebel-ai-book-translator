@@ -138,10 +138,10 @@ Package layout::
                         audited, the provable leftovers (a stray number under the
                         title, a duplicated title, a page number) removed
         dictionary/     stage 3: sentence funnel, language routing, NER gate
-        04-glossary/       stage 4: ordered LLM pass that builds the glossary
+        glossary/       stage 4: ordered LLM pass that builds the glossary
         chunking/       stage 5: reversible, sentence-safe chapter chunks
         chunk_glossary/ stage 6: per-chunk NER + fuzzy glossary retrieval
-        06b-matter/         stage 6b: front/back matter discovery, plan validation,
+        matter/         stage 6b: front/back matter discovery, plan validation,
                         publication formatting (no LLM)
         matter_agent/   stage 6b agent: book plan + per-chunk localization graphs
         translation/    stage 7: per-chunk structured translation + prompt record
@@ -157,44 +157,52 @@ Package layout::
         preprocess_agent/  stage 2 agent: prompts, model, tools binding, graph
 """
 
-from .agent import SplitterResult, SplitterState, build_graph, run_split
-from .assembly import AssemblyResult, run_assembly
-from .binding import BindResult, run_bind
-from .chunk_glossary import ChunkGlossaryResult, run_chunk_glossary
-from .chunking import ChunkingResult, run_chunking
-from .conversion import ConversionResult, run_conversion
-from .dictionary import DictionaryResult, run_dictionary
-from .epub import EpubResult, run_epub
-from .glossary import GlossaryResult, run_glossary
-from .matter_agent import (
-    MatterChunkState,
-    MatterPlanState,
-    MatterResult,
-    build_matter_chunk_graph,
-    build_matter_graph,
-    run_matter,
-)
-from .openings import OpeningAuditResult, audit_openings
-from .paths import (
-    default_input_dir,
-    default_output_dir,
-    resolve_book_path,
-    resolve_output_dir,
-)
-from .postprocess_agent import (
-    ChapterPostprocessState,
-    PostprocessResult,
-    build_chapter_postprocess_graph,
-    build_postprocess_graph,
-    run_postprocess,
-)
-from .preprocess_agent import (
-    PreprocessResult,
-    PreprocessState,
-    build_preprocess_graph,
-    run_preprocess,
-)
-from .translation import TranslationResult, run_translation
+from __future__ import annotations
+
+import importlib
+from typing import TYPE_CHECKING, Any
+
+__version__ = "2.5.0"
+
+if TYPE_CHECKING:  # pragma: no cover - typing surface only
+    from .agent import SplitterResult, SplitterState, build_graph, run_split
+    from .assembly import AssemblyResult, run_assembly
+    from .binding import BindResult, run_bind
+    from .chunk_glossary import ChunkGlossaryResult, run_chunk_glossary
+    from .chunking import ChunkingResult, run_chunking
+    from .conversion import ConversionResult, run_conversion
+    from .dictionary import DictionaryResult, run_dictionary
+    from .epub import EpubResult, run_epub
+    from .glossary import GlossaryResult, run_glossary
+    from .matter_agent import (
+        MatterChunkState,
+        MatterPlanState,
+        MatterResult,
+        build_matter_chunk_graph,
+        build_matter_graph,
+        run_matter,
+    )
+    from .openings import OpeningAuditResult, audit_openings
+    from .paths import (
+        default_input_dir,
+        default_output_dir,
+        resolve_book_path,
+        resolve_output_dir,
+    )
+    from .postprocess_agent import (
+        ChapterPostprocessState,
+        PostprocessResult,
+        build_chapter_postprocess_graph,
+        build_postprocess_graph,
+        run_postprocess,
+    )
+    from .preprocess_agent import (
+        PreprocessResult,
+        PreprocessState,
+        build_preprocess_graph,
+        run_preprocess,
+    )
+    from .translation import TranslationResult, run_translation
 
 __all__ = [
     "AssemblyResult",
@@ -241,4 +249,71 @@ __all__ = [
     "run_split",
     "run_translation",
 ]
-__version__ = "2.5.0"
+
+#: Where each public name lives. Importing this mapping is free; the modules are
+#: only imported when the name is first read. That keeps a small import such as
+#: ``book_splitter.documents.text`` from dragging in every LangGraph stage (and
+#: the OpenAI client) through the package's own ``__init__``.
+_LAZY_GROUPS: dict[str, tuple[str, ...]] = {
+    "book_splitter.agent": (
+        "SplitterResult",
+        "SplitterState",
+        "build_graph",
+        "run_split",
+    ),
+    "book_splitter.assembly": ("AssemblyResult", "run_assembly"),
+    "book_splitter.binding": ("BindResult", "run_bind"),
+    "book_splitter.chunk_glossary": ("ChunkGlossaryResult", "run_chunk_glossary"),
+    "book_splitter.chunking": ("ChunkingResult", "run_chunking"),
+    "book_splitter.conversion": ("ConversionResult", "run_conversion"),
+    "book_splitter.dictionary": ("DictionaryResult", "run_dictionary"),
+    "book_splitter.epub": ("EpubResult", "run_epub"),
+    "book_splitter.glossary": ("GlossaryResult", "run_glossary"),
+    "book_splitter.matter_agent": (
+        "MatterChunkState",
+        "MatterPlanState",
+        "MatterResult",
+        "build_matter_chunk_graph",
+        "build_matter_graph",
+        "run_matter",
+    ),
+    "book_splitter.openings": ("OpeningAuditResult", "audit_openings"),
+    "book_splitter.paths": (
+        "default_input_dir",
+        "default_output_dir",
+        "resolve_book_path",
+        "resolve_output_dir",
+    ),
+    "book_splitter.postprocess_agent": (
+        "ChapterPostprocessState",
+        "PostprocessResult",
+        "build_chapter_postprocess_graph",
+        "build_postprocess_graph",
+        "run_postprocess",
+    ),
+    "book_splitter.preprocess_agent": (
+        "PreprocessResult",
+        "PreprocessState",
+        "build_preprocess_graph",
+        "run_preprocess",
+    ),
+    "book_splitter.translation": ("TranslationResult", "run_translation"),
+}
+
+_LAZY_EXPORTS: dict[str, str] = {
+    name: module_name for module_name, names in _LAZY_GROUPS.items() for name in names
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve one public name on first access (PEP 562)."""
+    module_name = _LAZY_EXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(importlib.import_module(module_name), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))

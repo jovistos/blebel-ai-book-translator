@@ -484,9 +484,11 @@ def validate_matter_translation(
                 "material was listed in the plan"
             )
 
-    for phrase in omitted_phrases(plan, section_filename):
-        if phrase.casefold() in text.casefold():
-            issues.append(f"omitted phrase still appears in the translation: {phrase!r}")
+    issues.extend(
+        f"omitted phrase still appears in the translation: {phrase!r}"
+        for phrase in omitted_phrases(plan, section_filename)
+        if phrase.casefold() in text.casefold()
+    )
 
     # Front/back matter can carry a cover, a portrait or a facsimile. The
     # localization may rearrange the layout, but it may not lose a picture.

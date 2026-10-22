@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 from .models import ChunkGlossary, ChunkGlossaryResult
 
@@ -74,7 +74,7 @@ def finish_chunk_glossary(
     context,
     write_manifest: bool,
     dry_run: bool,
-):
+) -> ChunkGlossaryResult:
     from .artifacts import (
         _totals,
         write_chunk_glossary_manifest,
@@ -131,4 +131,4 @@ def finish_chunk_glossary(
         result.trace_path = str(
             write_chunk_glossary_trace(setup.out_dir, result, records)
         )
-    return context.finish(result)
+    return cast(ChunkGlossaryResult, context.finish(result))

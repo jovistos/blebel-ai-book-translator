@@ -73,9 +73,9 @@ class RunContext:
         ``clock``-measured ``run_seconds`` in ``timing`` when it times itself.
         """
         if hasattr(result, "dry_run"):
-            result.dry_run = self.dry_run  # type: ignore[attr-defined]
+            result.dry_run = self.dry_run
         if hasattr(result, "limited"):
-            result.limited = self.limited  # type: ignore[attr-defined]
+            result.limited = self.limited
         timing = getattr(result, "timing", None)
         if isinstance(timing, dict):
             timing.setdefault("run_seconds", round(self.elapsed(), 4))

@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from book_splitter import paths  # noqa: E402
+from book_splitter import paths
 
 
 def _check(module: str) -> bool:
@@ -23,11 +23,11 @@ def _check(module: str) -> bool:
 
 def main() -> int:
     """Verify the local layout and the importable optional pieces."""
-    problems: list[str] = []
-
-    for required in ("langgraph", "langchain_core", "langchain_openai", "pydantic"):
-        if not _check(required):
-            problems.append(f"missing required dependency: {required}")
+    problems = [
+        f"missing required dependency: {required}"
+        for required in ("langgraph", "langchain_core", "langchain_openai", "pydantic")
+        if not _check(required)
+    ]
 
     # Stages 3, 5 and 6 are optional: report them, but never fail the check because of them.
     optional = {

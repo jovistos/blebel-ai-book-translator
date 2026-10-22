@@ -417,12 +417,12 @@ def report_chapter_postprocess(
         issues.append("title.text cannot be empty for action 'set' or 'insert'")
     if len(normalized["title"].get("text") or "") > MAX_POSTPROCESS_TITLE_CHARS:
         issues.append(f"title.text is longer than {MAX_POSTPROCESS_TITLE_CHARS} characters")
-    for entry in normalized["headings"]:
-        if entry["decision"] not in HEADING_DECISIONS:
-            issues.append(
-                f"heading line {entry['line_number']}: decision must be one of "
-                f"{list(HEADING_DECISIONS)}"
-            )
+    issues.extend(
+        f"heading line {entry['line_number']}: decision must be one of "
+        f"{list(HEADING_DECISIONS)}"
+        for entry in normalized["headings"]
+        if entry["decision"] not in HEADING_DECISIONS
+    )
     if issues:
         return jdump({"accepted": False, "error": "invalid plan", "issues": issues})
     return jdump(
@@ -547,8 +547,10 @@ def verify_postprocessed_chapters(
         source = Path(source_path).expanduser()
         source_files = {path.name for path in chapter_files(source)}
         output_files = {path.name for path in outputs}
-        for name in sorted(source_files - output_files):
-            problems.append(f"missing output chapter: {name}")
+        problems.extend(
+            f"missing output chapter: {name}"
+            for name in sorted(source_files - output_files)
+        )
     return jdump(
         {
             "ok": not problems and bool(outputs),

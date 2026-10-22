@@ -9,6 +9,7 @@ continuity block only when there is context to send.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import pytest
 from book_splitter.translation.prompts import (
@@ -26,7 +27,7 @@ from book_splitter.translation.runner import GlossaryRow
 
 
 def _prompt(**overrides) -> str:
-    values = {
+    values: dict[str, Any] = {
         "chunk_index": 3,
         "total_chunks": 183,
         "chunk_filename": "00042-08-chapter-1-0003.md",

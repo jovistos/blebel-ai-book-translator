@@ -1,11 +1,18 @@
 # Development-only dependencies for the book splitter.
 #
-# The lint/type/test versions are pinned: the CI workflow and the golden
-# snapshots in tests/snapshots/ are only meaningful against a known toolchain.
-pytest==9.1.1
-ruff==0.17.0
-mypy==2.4.0
+# Canonical dependency definitions live in pyproject.toml. This file is kept as
+# a compatibility shim for:
+#
+#   pip install -r requirements-dev.txt
+#
+# which is now equivalent to an editable install with the dev extra:
+#
+#   pip install -e ".[dev]"
+#
+# The lint/type/test versions are pinned in pyproject.toml: the CI workflow and
+# the golden snapshots in tests/snapshots/ are only meaningful against a known
+# toolchain. The dev extra also includes chonkie, tiktoken, rapidfuzz and
+# markdown-it-py, so the whole offline suite runs without the heavy convert /
+# dictionary extras (their tests stub docling and the NER taggers).
 
-# The EPUB stage imports markdown-it-py lazily, so it is optional at runtime but
-# required by the end-to-end fixture test, which runs stages 0 through 11.
-markdown-it-py>=3.0
+-e .[dev]

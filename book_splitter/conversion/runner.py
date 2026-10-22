@@ -329,7 +329,7 @@ def _read_pdf_page_texts(path: Path, sample_pages: int) -> tuple[int, list[str]]
     PyMuPDF is the fallback for a splitter-only environment that already had it.
     """
     try:
-        import pypdfium2 as pdfium  # type: ignore
+        import pypdfium2 as pdfium
     except ImportError:
         return _read_pdf_page_texts_fitz(path, sample_pages)
 
@@ -353,7 +353,7 @@ def _read_pdf_page_texts(path: Path, sample_pages: int) -> tuple[int, list[str]]
 
 def _read_pdf_page_texts_fitz(path: Path, sample_pages: int) -> tuple[int, list[str]]:
     try:
-        import fitz  # type: ignore  # PyMuPDF
+        import fitz  # PyMuPDF
     except ImportError as exc:
         raise MissingDependencyError(
             "reading a PDF's text layer needs pypdfium2 (installed with docling) or "
@@ -548,7 +548,7 @@ def _sha256(path: Path) -> str:
 
 def _docling_version() -> str | None:
     try:
-        import docling  # type: ignore
+        import docling
     except ImportError:
         return None
     return getattr(docling, "__version__", None)

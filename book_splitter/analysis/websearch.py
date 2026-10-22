@@ -73,7 +73,7 @@ def _default_fetch(url: str, timeout: float) -> tuple[int, str, str | None, str]
             "Accept-Language": "en-US,en;q=0.9",
         },
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+    with urllib.request.urlopen(request, timeout=timeout) as response:
         raw = response.read(MAX_WEB_BYTES + 1)[:MAX_WEB_BYTES]
         content_type = response.headers.get("Content-Type", "") or ""
         charset = response.headers.get_content_charset()

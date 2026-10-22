@@ -41,7 +41,7 @@ def fake_docling(monkeypatch, markdown: str = "# Chapter One\n\nSome converted t
 def fake_pdf_pages(monkeypatch, texts: list[str], pages: int | None = None):
     """Replace the PDF text-layer reader with fixed page texts."""
 
-    def _read(path, sample_pages):  # noqa: ARG001
+    def _read(path, sample_pages):
         return (pages if pages is not None else len(texts)), list(texts)
 
     monkeypatch.setattr(conversion_runner, "_read_pdf_page_texts", _read)
@@ -144,7 +144,7 @@ def test_an_image_based_pdf_is_rejected_and_docling_is_never_asked(tmp_path, mon
     # Page numbers only: not a text layer worth converting.
     fake_pdf_pages(monkeypatch, ["18", "19", "", "20", ""] * 2, pages=400)
 
-    def _must_not_run(path, kind, **_kwargs):  # noqa: ARG001
+    def _must_not_run(path, kind, **_kwargs):
         raise AssertionError("docling must not run for an image-based PDF")
 
     monkeypatch.setattr(conversion_runner, "_convert_with_docling", _must_not_run)
@@ -406,7 +406,7 @@ def test_a_dry_run_validates_without_writing(tmp_path, monkeypatch):
     pdf.write_bytes(b"%PDF-1.7 fake")
     fake_pdf_pages(monkeypatch, ["A text page. " * 10] * 3)
 
-    def _must_not_run(path, kind, **_kwargs):  # noqa: ARG001
+    def _must_not_run(path, kind, **_kwargs):
         raise AssertionError("a dry run must not invoke docling")
 
     monkeypatch.setattr(conversion_runner, "_convert_with_docling", _must_not_run)
@@ -462,14 +462,14 @@ def test_split_converts_a_non_markdown_source_before_slicing(tmp_path, monkeypat
 
     real_convert = cli.legacy.run_conversion
 
-    def converted_into_tmp(src, out=None, **kwargs):  # noqa: ARG001
+    def converted_into_tmp(src, out=None, **kwargs):
         return real_convert(src, tmp_path / "md", **kwargs)
 
     monkeypatch.setattr(cli.legacy, "run_conversion", converted_into_tmp)
 
     seen: dict = {}
 
-    def fake_split(source_path, output_dir, **kwargs):  # noqa: ARG001
+    def fake_split(source_path, output_dir, **kwargs):
         seen["source"] = source_path
         return SplitterResult(
             ok=True,

@@ -1227,7 +1227,7 @@ class _TranslationBar:
         usage = record.get("tokens") or {}
         elapsed = float(record.get("elapsed_seconds") or 0.0)
         return (
-            f"  [{done:>3}/{total}] {flag} {str(record.get('filename') or '?'):<46} "
+            f"  [{done:>3}/{total}] {flag} {record.get('filename') or '?'!s:<46} "
             f"{int(record.get('source_chars') or 0):>6,} -> "
             f"{int(record.get('translation_chars') or 0):>6,} chars · "
             f"{int(usage.get('total_tokens') or 0):>7,} tok · "
@@ -1421,8 +1421,8 @@ def _matter_progress(chunk: dict, done: int, total: int) -> None:
         flag = "FAIL "
     usage = chunk.get("usage") or {}
     print(
-        f"  [{done:>3}/{total}] {flag} {str(chunk.get('filename') or '?'):<46} "
-        f"{str(chunk.get('section_kind') or '?'):<5} "
+        f"  [{done:>3}/{total}] {flag} {chunk.get('filename') or '?'!s:<46} "
+        f"{chunk.get('section_kind') or '?'!s:<5} "
         f"{int(chunk.get('source_chars') or 0):>6,} -> "
         f"{int(chunk.get('translation_chars') or 0):>6,} chars · "
         f"{int(usage.get('total_tokens') or 0):>7,} tok · "

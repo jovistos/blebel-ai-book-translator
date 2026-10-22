@@ -111,31 +111,29 @@ def records_from_dicts(
     records: list[dict[str, Any]], chapter: Chapter, chapter_index: int
 ) -> list[ChunkRecord]:
     """Rebuild typed records from a previous manifest for the result/trace."""
-    rebuilt: list[ChunkRecord] = []
-    for entry in sorted(records, key=lambda item: int(item.get("chunk_index") or 0)):
-        rebuilt.append(
-            ChunkRecord(
-                global_index=int(entry.get("global_index") or 0),
-                chapter_index=chapter_index,
-                chunk_index=int(entry.get("chunk_index") or 0),
-                chapter_id=chapter.chapter_id,
-                chapter_filename=chapter.filename,
-                filename=str(entry.get("filename") or ""),
-                path=str(entry.get("path") or ""),
-                start_char=int(entry.get("start_char") or 0),
-                end_char=int(entry.get("end_char") or 0),
-                start_line=int(entry.get("start_line") or 0),
-                end_line=int(entry.get("end_line") or 0),
-                token_count=int(entry.get("token_count") or 0),
-                bytes=int(entry.get("bytes") or 0),
-                sha256=str(entry.get("sha256") or ""),
-                boundary_before=str(entry.get("boundary_before") or ""),
-                boundary_after=str(entry.get("boundary_after") or ""),
-                first_line=str(entry.get("first_line") or ""),
-                last_line=str(entry.get("last_line") or ""),
-            )
+    return [
+        ChunkRecord(
+            global_index=int(entry.get("global_index") or 0),
+            chapter_index=chapter_index,
+            chunk_index=int(entry.get("chunk_index") or 0),
+            chapter_id=chapter.chapter_id,
+            chapter_filename=chapter.filename,
+            filename=str(entry.get("filename") or ""),
+            path=str(entry.get("path") or ""),
+            start_char=int(entry.get("start_char") or 0),
+            end_char=int(entry.get("end_char") or 0),
+            start_line=int(entry.get("start_line") or 0),
+            end_line=int(entry.get("end_line") or 0),
+            token_count=int(entry.get("token_count") or 0),
+            bytes=int(entry.get("bytes") or 0),
+            sha256=str(entry.get("sha256") or ""),
+            boundary_before=str(entry.get("boundary_before") or ""),
+            boundary_after=str(entry.get("boundary_after") or ""),
+            first_line=str(entry.get("first_line") or ""),
+            last_line=str(entry.get("last_line") or ""),
         )
-    return rebuilt
+        for entry in sorted(records, key=lambda item: int(item.get("chunk_index") or 0))
+    ]
 
 
 # --------------------------------------------------------------------------- #

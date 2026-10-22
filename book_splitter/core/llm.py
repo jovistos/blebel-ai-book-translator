@@ -29,7 +29,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar, cast
 
 from .errors import ToolError
 
@@ -298,7 +298,7 @@ def _default_coerce(schema: type[T], parsed: Any) -> T:
     """
     if isinstance(parsed, schema):
         return parsed
-    return schema.model_validate(parsed)  # type: ignore[attr-defined]
+    return cast(T, schema.model_validate(parsed))  # type: ignore[attr-defined]
 
 
 def _no_validation(_value: Any, _context: Any) -> str | None:
