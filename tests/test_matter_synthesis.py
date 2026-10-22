@@ -274,3 +274,36 @@ def test_existing_matter_without_a_chunk_gets_one(tmp_path: Path):
     assert any(
         entry["chapter_filename"] == "99-back-matter.md" for entry in chunk_files(chunks)
     )
+
+
+def test_generated_section_text_has_stable_fallbacks():
+    from book_splitter.documents.book import BookMetadata
+    from book_splitter.matter.generate import back_matter_text, front_matter_text
+
+    assert front_matter_text(BookMetadata()) == "# Untitled\n\n*Translated by BleBel*\n"
+    assert front_matter_text(BookMetadata(title="T", author="A")) == (
+        "# T\n\nA\n\n*Translated by BleBel*\n"
+    )
+    assert back_matter_text(BookMetadata()) == (
+        "# About the Author\n\nthis book was published in translation by BleBel.\n"
+    )
+    assert back_matter_text(BookMetadata(title="T", author="A")) == (
+        "# About the Author\n\nA is the author of T.\n"
+    )
+
+
+def test_existing_matter_entries_are_found_by_kind_then_by_name():
+    from book_splitter.matter.records import existing_matter_entries
+
+    split = {
+        "files": [
+            {"filename": "00-front-matter.md", "kind": "frontmatter"},
+            {"filename": "01-body.md", "kind": "chapter"},
+            {"filename": "99-back-matter.md"},
+        ]
+    }
+
+    front, back = existing_matter_entries(split)
+
+    assert front is not None and front["filename"] == "00-front-matter.md"
+    assert back is not None and back["filename"] == "99-back-matter.md"
