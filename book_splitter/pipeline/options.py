@@ -54,27 +54,11 @@ from ..dictionary.reduce import DEFAULT_EXAMPLE_LIMIT
 from ..dictionary.unique import DEFAULT_UNIQUE_EXAMPLES
 from ..paths import default_input_dir, default_output_dir
 from .paths import StagePaths
+from .phases import NEEDS_CHAPTERS, PHASES
 from .sources import StageSources
 
 #: The phases, in the order they must run. ``convert`` is dropped for a Markdown
 #: source; every other phase keeps its position so the numbering is stable.
-PHASES: tuple[str, ...] = (
-    "convert",
-    "recon",
-    "split",
-    "scan",
-    "preprocess",
-    "dictionary",
-    "chunk",
-    "chunk_glossary",
-    "matter",
-    "translate",
-    "concatenate",
-    "postprocess",
-    "bind",
-    "epub",
-)
-
 #: Feature defaults. These used to live in ``scripts/run_pipeline.py``; keeping
 #: them here means the driver and the CLI cannot disagree about what is on.
 PREPROCESS_ENABLED = True
@@ -85,23 +69,6 @@ CHUNK_GLOSSARY_ENABLED = True
 MATTER_ENABLED = True
 TRANSLATE_ENABLED = False
 POSTPROCESS_ENABLED = False
-
-#: Phases that read the chapter folder stage 1 writes.
-NEEDS_CHAPTERS: frozenset[str] = frozenset(
-    {
-        "scan",
-        "dictionary",
-        "preprocess",
-        "chunk",
-        "chunk_glossary",
-        "matter",
-        "translate",
-        "concatenate",
-        "postprocess",
-        "bind",
-        "epub",
-    }
-)
 
 #: Stage name -> (module, function). Resolved lazily by :func:`resolve_runner`.
 _RUNNERS: dict[str, tuple[str, str]] = {
