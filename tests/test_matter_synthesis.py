@@ -123,6 +123,20 @@ def test_missing_front_and_back_matter_are_created_with_chunks(tmp_path: Path):
     assert result.metadata.author == "Alexander McCall Smith"
     assert (chapters / "00-front-matter.md").is_file()
     assert (chapters / "99-back-matter.md").is_file()
+    # The generated text is an artifact: the matter agent localises exactly these
+    # facts, so a split of this module must not change one byte of them.
+    assert (chapters / "00-front-matter.md").read_text(encoding="utf-8") == (
+        "# Tea for the Traditionally Built\n"
+        "\n"
+        "Alexander McCall Smith\n"
+        "\n"
+        "*Translated by BleBel*\n"
+    )
+    assert (chapters / "99-back-matter.md").read_text(encoding="utf-8") == (
+        "# About the Author\n"
+        "\n"
+        "Alexander McCall Smith is the author of Tea for the Traditionally Built.\n"
+    )
 
     sections = discover_matter_sections(chapters, chunks)
     assert [(s.filename, s.kind) for s in sections] == [

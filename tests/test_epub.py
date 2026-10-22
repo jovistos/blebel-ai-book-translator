@@ -640,3 +640,36 @@ def test_a_navigation_document_without_a_toc_is_not_reported_as_ok():
 
     assert problems
     assert report["nav_ok"] is False
+
+
+def test_the_verification_report_shape_is_stable() -> None:
+    problems, report = _verify(b"not a zip", documents=[], images=[], cover=None)
+
+    assert len(problems) == 1
+    assert problems[0].startswith("the package is not a readable zip file:")
+    assert list(report) == [
+        "entries",
+        "documents",
+        "images",
+        "cover",
+        "mimetype_first",
+        "container_ok",
+        "opf_ok",
+        "nav_ok",
+        "spine_count",
+        "xhtml_valid",
+        "image_links_ok",
+    ]
+    assert report == {
+        "entries": 0,
+        "documents": 0,
+        "images": 0,
+        "cover": None,
+        "mimetype_first": False,
+        "container_ok": False,
+        "opf_ok": False,
+        "nav_ok": False,
+        "spine_count": 0,
+        "xhtml_valid": 0,
+        "image_links_ok": 0,
+    }
