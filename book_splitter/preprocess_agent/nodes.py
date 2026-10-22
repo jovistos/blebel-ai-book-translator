@@ -27,6 +27,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 
 from ..agent.tools import PREPROCESS_TOOL_BY_NAME
 from ..agent.tools.registry import PREPROCESS_WRITE_TOOLS
+from ..core.artifacts import write_text
 from ..documents.chapters import preprocessed_dir
 from ..documents.text import jdump, short_args, summarise_payload
 from ..preprocess.corpus import DAMAGE_PATTERNS
@@ -301,7 +302,7 @@ def make_apply_node():
         target = target_dir / Path(chapter).name
 
         result = apply_cleaning_plan(chapter, operations, text_fixes)
-        target.write_text(text_of(result), encoding="utf-8")
+        write_text(target, text_of(result))
         verification = verify_cleaning_plan(chapter, operations, text_fixes)
         payload = {
             "ok": bool(verification.get("ok")),

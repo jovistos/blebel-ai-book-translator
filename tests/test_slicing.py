@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from book_splitter.documents.io import load_lines
 from book_splitter.documents.text import normalize_filename
 from book_splitter.slicing.plan import plan_files

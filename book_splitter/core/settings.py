@@ -44,7 +44,7 @@ Nothing is ever written back or logged.
 from __future__ import annotations
 
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -533,7 +533,7 @@ def _resolve_provider(
     config: LLMConfig,
     overrides: Mapping[str, Any],
     shared: Mapping[str, Any],
-    allowed: Sequence[str] | None,
+    allowed: Collection[str] | None,
 ) -> tuple[str, bool]:
     """The stage's provider and whether a stage-specific source named it."""
     stage_section = config.stages.get(stage, {})
@@ -620,7 +620,7 @@ def resolve_settings(
     config_path: str | Path | None = None,
     overrides: Mapping[str, Any] | None = None,
     shared: Mapping[str, Any] | None = None,
-    allowed: Sequence[str] | None = None,
+    allowed: Collection[str] | None = None,
     require_key: bool = True,
     discover_model: bool = True,
     timeout: float | None = None,
@@ -820,7 +820,7 @@ def stage_model_label(
     config_path: str | Path | None = None,
     overrides: Mapping[str, Any] | None = None,
     shared: Mapping[str, Any] | None = None,
-    allowed: Sequence[str] | None = None,
+    allowed: Collection[str] | None = None,
 ) -> str:
     """``deepseek/deepseek-flash`` or ``lmstudio/auto`` for a banner, never raises.
 

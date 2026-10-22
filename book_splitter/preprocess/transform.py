@@ -156,8 +156,12 @@ def validate_text_fixes(
             issues.append(f"text fix #{index + 1} is not an object")
             continue
         kind = str(raw.get("fix") or raw.get("kind") or "").strip()
+        raw_line_number = raw.get("line_number")
+        if raw_line_number is None:
+            issues.append(f"text fix #{index + 1}: line_number must be an integer")
+            continue
         try:
-            line_number = int(raw.get("line_number"))
+            line_number = int(raw_line_number)
         except (TypeError, ValueError):
             issues.append(f"text fix #{index + 1}: line_number must be an integer")
             continue
@@ -228,8 +232,12 @@ def validate_cleaning_plan(
         if not isinstance(raw, dict):
             issues.append(f"operation #{index + 1} is not an object")
             continue
+        raw_line_number = raw.get("line_number")
+        if raw_line_number is None:
+            issues.append(f"operation #{index + 1}: line_number must be an integer")
+            continue
         try:
-            line_number = int(raw.get("line_number"))
+            line_number = int(raw_line_number)
         except (TypeError, ValueError):
             issues.append(f"operation #{index + 1}: line_number must be an integer")
             continue
@@ -297,7 +305,8 @@ def validate_cleaning_plan(
             if len(lines[line_number - 1].rstrip("\n")) > 400:
                 warnings.append(f"{label}: merging a long line; check the result by eye")
         if decision == REMOVE:
-            body = header_of(current)[1] if header_of(current) else current.strip()
+            head = header_of(current)
+            body = head[1] if head else current.strip()
             if not looks_like_page_artefact(body):
                 issues.append(
                     f"{label}: remove is only allowed for a line that is only a printed "
@@ -494,8 +503,8 @@ def apply_cleaning_plan(
             idx += 1
             continue
 
-        op = by_line.get(number)
-        decision = (op or {}).get("decision", KEEP)
+        line_op = by_line.get(number)
+        decision = (line_op or {}).get("decision", KEEP)
         # Refuse an edit aimed at a picture even if apply is called directly with
         # a plan that never went through validate_cleaning_plan.
         if has_images(plain[number - 1]) and decision != KEEP:
@@ -505,8 +514,9 @@ def apply_cleaning_plan(
             nxt = next_content_line(plain, number)
             if nxt is not None and nxt in headers:
                 span = list(range(number, nxt + 1))
+                next_head = header_of(plain[nxt - 1])
                 part, merged_digits = strip_leading_page_number(
-                    header_of(plain[nxt - 1])[1] if header_of(plain[nxt - 1]) else ""
+                    next_head[1] if next_head else ""
                 )
                 result.merged_digits[number] = merged_digits
                 merged = f"{working[number - 1].rstrip()} {part}"
@@ -522,7 +532,8 @@ def apply_cleaning_plan(
 
         if decision in {REMOVE, REMOVE_CAPTION}:
             source = plain[number - 1]
-            body = header_of(source)[1] if header_of(source) else source.strip()
+            source_head = header_of(source)
+            body = source_head[1] if source_head else source.strip()
             if decision == REMOVE and looks_like_page_artefact(body):
                 result.provenance.append(
                     LineEdit(len(result.lines) + 1, "removed_page_number", [number])
@@ -548,7 +559,10 @@ def apply_cleaning_plan(
                 continue
 
         if decision == DEMOTE and number in headers:
-            demoted, digits = strip_leading_page_number(header_of(plain[number - 1])[1])
+            demote_head = header_of(plain[number - 1])
+            demoted, digits = strip_leading_page_number(
+                demote_head[1] if demote_head else ""
+            )
             result.lines.append(demoted)
             result.provenance.append(
                 LineEdit(len(result.lines), "demoted_header", [number], detail=demoted)
@@ -593,8 +607,11 @@ def _index_fixes(text_fixes: list[dict] | None) -> list[dict]:
     for raw in text_fixes or []:
         if not isinstance(raw, dict):
             continue
+        raw_line_number = raw.get("line_number")
+        if raw_line_number is None:
+            continue
         try:
-            number = int(raw.get("line_number"))
+            number = int(raw_line_number)
         except (TypeError, ValueError):
             continue
         kind = str(raw.get("fix") or raw.get("kind") or "")
@@ -736,7 +753,8 @@ def verify_cleaning_plan(
             continue
         first, last = entry.source_lines[0], entry.source_lines[-1]
         left = lines[first - 1].rstrip()
-        right = header_of(lines[last - 1])[1] if header_of(lines[last - 1]) else ""
+        line_head = header_of(lines[last - 1])
+        right = line_head[1] if line_head else ""
         right, _ = strip_leading_page_number(right)
         expected = f"{left} {right}".strip()
         if expected not in output:

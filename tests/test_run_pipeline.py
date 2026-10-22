@@ -180,15 +180,17 @@ def install_translate(monkeypatch, *, ok: bool = True):
     def fake_run_translation(chunks_path, output_dir=None, **kwargs):
         calls.append({"chunks_path": str(chunks_path), "output_dir": output_dir, **kwargs})
         out = Path(output_dir or chunks_path)
-        out.mkdir(parents=True, exist_ok=True)
         prompts = Path(kwargs.get("prompts_dir") or out.parent / "07-translation-prompts")
-        prompts.mkdir(parents=True, exist_ok=True)
-        (out / "00000-01-a-0000.md").write_text("PREVEDENO\n", encoding="utf-8")
-        (prompts / "00000-01-a-0000.md.json").write_text("{}", encoding="utf-8")
         manifest = out / "_translation_manifest.json"
-        manifest.write_text("{}", encoding="utf-8")
         trace = out / "_translation_trace.json"
-        trace.write_text("{}", encoding="utf-8")
+        dry_run = bool(kwargs.get("dry_run"))
+        if not dry_run:
+            out.mkdir(parents=True, exist_ok=True)
+            prompts.mkdir(parents=True, exist_ok=True)
+            (out / "00000-01-a-0000.md").write_text("PREVEDENO\n", encoding="utf-8")
+            (prompts / "00000-01-a-0000.md.json").write_text("{}", encoding="utf-8")
+            manifest.write_text("{}", encoding="utf-8")
+            trace.write_text("{}", encoding="utf-8")
         return TranslationResult(
             ok=ok,
             chunks_path=str(chunks_path),
@@ -204,6 +206,7 @@ def install_translate(monkeypatch, *, ok: bool = True):
             chunk_count=1,
             ok_count=1 if ok else 0,
             processed_count=1,
+            dry_run=dry_run,
             tokens={
                 "input_tokens": 100,
                 "output_tokens": 50,
@@ -220,8 +223,8 @@ def install_translate(monkeypatch, *, ok: bool = True):
             timing={"run_seconds": 0.1, "model_seconds": 0.1, "seconds_per_chunk": 0.1},
             chunks=[],
             errors=[] if ok else ["00000-01-a-0000.md: boom"],
-            manifest_path=str(manifest),
-            trace_path=str(trace),
+            manifest_path=None if dry_run else str(manifest),
+            trace_path=None if dry_run else str(trace),
         )
 
     monkeypatch.setattr("book_splitter.translation.run_translation", fake_run_translation)
@@ -927,7 +930,8 @@ def install_glossary(monkeypatch, *, ok: bool = True):
 
     def fake_run_glossary(chapters_path, output_dir=None, **kwargs):
         calls.append(Path(chapters_path))
-        if output_dir:
+        dry_run = bool(kwargs.get("dry_run"))
+        if output_dir and not dry_run:
             out = Path(output_dir)
             out.mkdir(parents=True, exist_ok=True)
             for name in (
@@ -951,6 +955,7 @@ def install_glossary(monkeypatch, *, ok: bool = True):
             ok_count=len(DAMAGED) if ok else 0,
             processed_count=len(DAMAGED),
             entry_count=7,
+            dry_run=dry_run,
             categories={"character": 5, "location": 2},
             tokens={
                 "input_tokens": 900,
@@ -1020,7 +1025,7 @@ def test_the_dictionary_phase_builds_the_glossary_by_default(
 
 
 @requires_sample
-def test_a_glossary_dry_run_skips_the_phase_without_spending(
+def test_a_glossary_dry_run_runs_without_writing(
     script, tmp_path, monkeypatch, capsys, run
 ):
     install_split(monkeypatch, writes=DAMAGED)
@@ -1037,8 +1042,12 @@ def test_a_glossary_dry_run_skips_the_phase_without_spending(
     )
     captured = capsys.readouterr()
     assert code == 0
-    assert glossary_calls == []
-    assert "glossary skipped: a --dry-run does not spend tokens" in captured.out
+    # The glossary plan is the model's answer, so validating it means asking;
+    # the dry run only suppresses the artifacts.
+    assert len(glossary_calls) == 1
+    assert "dry run" in captured.out
+    glossary_dir = tmp_path / "out" / SAMPLE.stem / "04-glossary"
+    assert not (glossary_dir / "glossary.json").exists()
 
 
 @requires_sample
@@ -1075,6 +1084,38 @@ def _chapter_folder(tmp_path: Path) -> Path:
     (folder / "01-a.md").write_text("## A\n\ntext\n", encoding="utf-8")
     (folder / "02-b.md").write_text("## B\n\ntext\n", encoding="utf-8")
     return folder
+
+
+@requires_sample
+def test_a_preprocess_dry_run_writes_no_manifest_or_trace(tmp_path, monkeypatch):
+    final = {
+        "applied": {"ok": True, "source_lines": 3, "output_lines": 3},
+        "verification": {"ok": True},
+        "validation": {"ok": True, "text_fixes": []},
+        "operations": [],
+        "attempts": 1,
+        "usage": {"total_tokens": 7},
+        "log": [],
+    }
+    monkeypatch.setattr(
+        preprocess_runner,
+        "build_preprocess_graph",
+        lambda *args, **kwargs: _FakePreprocessApp(final),
+    )
+
+    result = preprocess_runner.run_preprocess(
+        str(_chapter_folder(tmp_path)),
+        str(tmp_path / "clean"),
+        dry_run=True,
+        # The default is True, as the CLI passes it; the runner must still not
+        # write a manifest or trace for a run that wrote no chapter.
+    )
+
+    assert result.ok and result.dry_run
+    assert result.manifest_path is None
+    assert result.trace_path is None
+    assert not (tmp_path / "clean" / "_preprocess_manifest.json").exists()
+    assert not (tmp_path / "clean" / "_preprocess_trace.json").exists()
 
 
 @requires_sample
@@ -1324,7 +1365,7 @@ def test_translate_is_dropped_by_no_translate(script, tmp_path, monkeypatch, cap
 
 
 @requires_sample
-def test_translate_does_not_spend_on_a_dry_run(
+def test_a_dry_run_without_chunks_skips_translate_without_calling_it(
     script, tmp_path, monkeypatch, capsys, run
 ):
     install_split(monkeypatch, writes=DAMAGED)
@@ -1343,8 +1384,11 @@ def test_translate_does_not_spend_on_a_dry_run(
     captured = capsys.readouterr()
 
     assert code == 0
+    # A dry-run chunk phase writes no chunks, so there is nothing to translate.
+    # When chunks do exist, a dry run calls the stage (which writes nothing).
     assert calls == []
-    assert "does not spend tokens" in captured.out
+    assert "no chunks on disk to translate" in captured.out
+    assert "dry run" in captured.out
 
 
 # --------------------------------------------------------------------------- #

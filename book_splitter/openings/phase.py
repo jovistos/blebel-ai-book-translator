@@ -28,6 +28,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..core.artifacts import write_text
 from ..core.errors import ToolError
 from ..documents.io import load_lines
 from .inspect import OpeningAudit, chapter_files_in, inspect_opening_lines
@@ -104,8 +105,38 @@ def _chapter_record(
     }
 
 
-def _write_chapter(path: Path, repair: OpeningRepair) -> None:
-    path.write_text("".join(line + "\n" for line in repair.lines), encoding="utf-8")
+def _line_endings(path: Path) -> tuple[str, bool]:
+    """The file's newline convention and whether it ended with one.
+
+    ``load_lines`` opens in universal-newline mode, so the line list alone cannot
+    tell CRLF from LF or whether the last line had a terminator. Rewriting a
+    repaired chapter must not change either: the rest of the pipeline compares
+    source hashes and reconstructs books byte for byte.
+    """
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return "\n", True
+    if b"\r\n" in data:
+        newline = "\r\n"
+    elif b"\r" in data:
+        newline = "\r"
+    else:
+        newline = "\n"
+    return newline, data.endswith((b"\n", b"\r"))
+
+
+def _write_chapter(
+    path: Path,
+    repair: OpeningRepair,
+    *,
+    newline: str = "\n",
+    terminal_newline: bool = True,
+) -> None:
+    text = newline.join(repair.lines)
+    if terminal_newline:
+        text += newline
+    write_text(path, text)
 
 
 def audit_openings(
@@ -160,7 +191,13 @@ def audit_openings(
         elif fixes:
             repair = apply_opening_fixes(lines, fixes, keep_blank_slot=keep_blank_slot)
             try:
-                _write_chapter(chapter_path, repair)
+                newline, terminal_newline = _line_endings(chapter_path)
+                _write_chapter(
+                    chapter_path,
+                    repair,
+                    newline=newline,
+                    terminal_newline=terminal_newline,
+                )
             except OSError as exc:
                 result.errors.append(f"{name}: {type(exc).__name__}: {exc}")
                 result.ok = False

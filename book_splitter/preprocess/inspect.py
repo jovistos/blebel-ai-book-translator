@@ -425,7 +425,7 @@ def inspect_chapter(
         counts[record.recommendation] = counts.get(record.recommendation, 0) + 1
 
     body_candidates = inspect_body_candidates(lines, set(numbers), filename=p.name)
-    review = [
+    review: list[dict[str, Any]] = [
         {
             "line_number": r.line_number,
             "text": r.preview,

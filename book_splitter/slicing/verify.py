@@ -6,11 +6,11 @@ partially written or since-edited output directory — not just a bad plan.
 
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import Any
 
+from ..core.artifacts import Sha256
 from ..core.constants import MANIFEST_FILENAME
 from ..documents.io import load_lines
 from .hashing import sha256_lines
@@ -31,7 +31,7 @@ def verify_output(manifest: dict[str, Any]) -> dict[str, Any]:
     problems: list[str] = []
     missing: list[str] = []
     lines_total = 0
-    concatenated = hashlib.sha256()
+    concatenated = Sha256()
     contiguous = True
     expected_next = None
 
@@ -41,7 +41,7 @@ def verify_output(manifest: dict[str, Any]) -> dict[str, Any]:
             missing.append(f["filename"])
             contiguous = False
             continue
-        digest = hashlib.sha256()
+        digest = Sha256()
         n_bytes = 0
         n_lines = 0
         with path.open("rb") as fh:

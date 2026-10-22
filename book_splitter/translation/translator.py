@@ -37,15 +37,15 @@ from typing import Any, Protocol, runtime_checkable
 
 from ..core.constants import DEFAULT_TRANSLATION_RAW_CHARS
 from ..core.errors import TranslationError
-from ..documents.images import image_token_problems, image_tokens
-from ..glossary.extract import (
+from ..core.llm import (
+    JSON_ONLY_NOTE,
+    METHODS,
+    StructuredCaller,
     TokenUsage,
-    message_text,
-    parse_json_object,
-    structured_unsupported,
-    usage_from_message,
+    build_chat_model,
+    model_label,
 )
-from ..glossary.prompts import JSON_ONLY_NOTE
+from ..documents.images import image_token_problems, image_tokens
 from .models import ChunkTranslationAnswer
 from .prompts import build_repair_note
 
@@ -54,7 +54,6 @@ from .prompts import build_repair_note
 #: ``structured`` insists on native structured output; ``json`` starts in JSON
 #: mode. There is deliberately no last-attempt JSON switch: this answer is a
 #: single ``translation`` field, and a retry is a retry of the same task.
-METHODS = ("auto", "structured", "json")
 
 #: A whole answer wrapped in a code fence is stripped: models do it even when the
 #: schema asks them not to. Only a fence that wraps the *entire* translation is
@@ -303,22 +302,6 @@ class ChunkTranslator(Protocol):
 # --------------------------------------------------------------------------- #
 # the translator
 # --------------------------------------------------------------------------- #
-@dataclass
-class _Attempt:
-    """One model call's result: a validated answer, or the reason it was unusable.
-
-    Usage is carried on both paths on purpose — a rejected answer still cost
-    tokens, and the run's token report must include the calls that failed.
-    """
-
-    usage: TokenUsage = field(default_factory=TokenUsage)
-    answer: ChunkTranslationAnswer | None = None
-    text: str = ""
-    error: str | None = None
-    #: True when the answer was recovered from malformed JSON instead of parsed.
-    recovered: bool = False
-
-
 class LangChainTranslator:
     """Ask a chat model to translate one chunk, and insist on a valid answer.
 
@@ -338,107 +321,32 @@ class LangChainTranslator:
         method: str = "auto",
         raw_limit: int = DEFAULT_TRANSLATION_RAW_CHARS,
     ) -> None:
-        method = str(method or "auto").lower()
-        if method not in METHODS:
-            raise ValueError(f"unknown translation method {method!r}; pick one of {METHODS}")
-        self._llm = llm
-        self.name = str(name)
-        self.max_attempts = max(1, int(max_attempts))
-        self.method = method
-        self.raw_limit = max(0, int(raw_limit))
-        self._structured: Any = None
-        self._json_llm: Any = None
-        #: Set as soon as the provider proves it cannot fill a schema, so every
-        #: later chunk goes straight to JSON mode.
-        self.json_only = False
-
-    # -- provider plumbing -------------------------------------------------- #
-    def _structured_llm(self) -> Any:
-        if self._structured is None:
-            self._structured = self._llm.with_structured_output(
-                ChunkTranslationAnswer, include_raw=True
-            )
-        return self._structured
-
-    def _json_mode_llm(self) -> Any:
-        if self._json_llm is None:
-            try:
-                self._json_llm = self._llm.bind(response_format={"type": "json_object"})
-            except Exception:  # a provider that has no JSON mode: ask in the prompt
-                self._json_llm = self._llm
-        return self._json_llm
-
-    def _messages(self, system_prompt: str, user_prompt: str) -> list[Any]:
-        try:
-            from langchain_core.messages import HumanMessage, SystemMessage
-        except ImportError:  # pragma: no cover - langchain is a core dependency
-            return [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ]
-        return [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
-
-    # -- the loop ----------------------------------------------------------- #
-    def _use_json(self) -> bool:
-        return self.method == "json" or self.json_only
-
-    def _call_structured(self, system_prompt: str, user_prompt: str) -> _Attempt:
-        """One native structured-output call.
-
-        A provider-level failure raises (there is no answer, so nothing to
-        charge). An answer that arrived but did not fill the schema is returned
-        as a failed attempt *with its usage*, because those tokens were spent.
-        """
-        result = self._structured_llm().invoke(self._messages(system_prompt, user_prompt))
-        raw = result.get("raw") if isinstance(result, dict) else result
-        usage = usage_from_message(raw) if raw is not None else TokenUsage(calls=1)
-        text = message_text(raw) if raw is not None else ""
-        if isinstance(result, dict):
-            parsed = result.get("parsed")
-            if parsed is None:
-                error = result.get("parsing_error") or "empty answer"
-                return _Attempt(
-                    usage=usage,
-                    text=text,
-                    error=f"structured output not filled: {error}",
-                )
-            try:
-                answer = _as_answer(parsed)
-            except Exception as exc:
-                return _Attempt(usage=usage, text=text, error=f"{type(exc).__name__}: {exc}")
-            return _Attempt(answer=answer, usage=usage, text=text)
-        try:
-            answer = _as_answer(result)
-        except Exception as exc:
-            return _Attempt(usage=usage, text=text, error=f"{type(exc).__name__}: {exc}")
-        return _Attempt(answer=answer, usage=usage, text=text)
-
-    def _call_json(self, system_prompt: str, user_prompt: str) -> _Attempt:
-        """One JSON-mode call, parsed into the same Pydantic model.
-
-        Strict JSON is tried first. When it fails only because the translation
-        carried an unescaped quote, the answer is recovered instead of thrown
-        away: the text is complete, and the alternative is a whole chunk's
-        tokens spent on a retry the model may refuse.
-        """
-        response = self._json_mode_llm().invoke(
-            self._messages(system_prompt, user_prompt + JSON_ONLY_NOTE)
+        self._caller: StructuredCaller[ChunkTranslationAnswer] = StructuredCaller(
+            llm,
+            ChunkTranslationAnswer,
+            name=name,
+            max_attempts=max_attempts,
+            method=method,
+            raw_limit=raw_limit,
+            json_note=JSON_ONLY_NOTE,
+            repair_note=build_repair_note,
+            validator=lambda answer, source: translation_problem(
+                answer.translation, str(source or "")
+            ),
+            recovery=_recover_answer,
+            coerce=_as_answer,
+            failure=_failure,
+            json_on_last_attempt=False,
         )
-        usage = usage_from_message(response)
-        text = message_text(response)
-        try:
-            parsed = ChunkTranslationAnswer.model_validate(parse_json_object(text))
-        except Exception as exc:
-            recovered = recover_translation(text)
-            if recovered is None:
-                return _Attempt(usage=usage, text=text, error=f"{type(exc).__name__}: {exc}")
-            return _Attempt(
-                answer=ChunkTranslationAnswer(translation=recovered),
-                usage=usage,
-                text=text,
-                recovered=True,
-            )
-        return _Attempt(answer=parsed, usage=usage, text=text)
+        self.name = self._caller.name
+        self.max_attempts = self._caller.max_attempts
+        self.method = self._caller.method
+        self.raw_limit = self._caller.raw_limit
+
+    @property
+    def json_only(self) -> bool:
+        """True once the provider proved it cannot fill a schema."""
+        return self._caller.json_only
 
     def translate(
         self,
@@ -448,46 +356,20 @@ class LangChainTranslator:
         source_text: str = "",
     ) -> TranslationOutcome:
         """One chunk, up to ``max_attempts`` calls, all of them counted."""
-        total = TokenUsage()
-        last_error: str | None = None
-        for attempt in range(1, self.max_attempts + 1):
-            use_json = self._use_json()
-            prompt = (
-                user_prompt
-                if attempt == 1
-                else user_prompt + build_repair_note(last_error or "")
-            )
-            try:
-                result = (
-                    self._call_json(system_prompt, prompt)
-                    if use_json
-                    else self._call_structured(system_prompt, prompt)
-                )
-            except Exception as exc:  # no answer at all: nothing to charge
-                last_error = f"{type(exc).__name__}: {exc}"
-                if not use_json and self.method == "auto" and structured_unsupported(exc):
-                    # The provider cannot do this at all. Stop asking, for this
-                    # chunk and for every one after it.
-                    self.json_only = True
-                continue
-            total += result.usage
-            if result.error or result.answer is None:
-                last_error = result.error or "the answer held no translation"
-                continue
-            problem = translation_problem(result.answer.translation, source_text)
-            if problem:
-                last_error = problem
-                continue
-            return TranslationOutcome(
-                answer=result.answer,
-                usage=total,
-                attempts=attempt,
-                method="json" if use_json else "structured",
-                error=last_error,
-                recovered=result.recovered,
-                raw_text=result.text[: self.raw_limit] if self.raw_limit else "",
-            )
-        raise _failure(total, self.max_attempts, last_error)
+        outcome = self._caller.call(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            validation_context=source_text,
+        )
+        return TranslationOutcome(
+            answer=outcome.value,
+            usage=outcome.usage,
+            attempts=outcome.attempts,
+            method=outcome.method,
+            error=outcome.error,
+            recovered=outcome.recovered,
+            raw_text=outcome.raw_text,
+        )
 
 
 def _failure(usage: TokenUsage, attempts: int, last_error: str | None) -> TranslationError:
@@ -511,6 +393,14 @@ def _as_answer(parsed: Any) -> ChunkTranslationAnswer:
     return ChunkTranslationAnswer(translation=translation if translation is not None else "")
 
 
+def _recover_answer(text: str) -> ChunkTranslationAnswer | None:
+    """The recovered translation, wrapped for the shared structured loop."""
+    recovered = recover_translation(text)
+    if recovered is None:
+        return None
+    return ChunkTranslationAnswer(translation=recovered)
+
+
 def make_translator(
     settings: Any,
     *,
@@ -518,27 +408,11 @@ def make_translator(
     method: str = "auto",
     max_tokens: int | None = None,
 ) -> LangChainTranslator:
-    """Build the DeepSeek (or any OpenAI-compatible) chat model behind the translator.
-
-    Imported here rather than at module import so the rest of the package — and
-    the offline tests — never need a provider client to read the translation code.
-    """
-    from langchain_openai import ChatOpenAI
-
-    kwargs: dict[str, Any] = {
-        "model": settings.model,
-        "base_url": settings.base_url,
-        "api_key": settings.api_key,
-        "temperature": getattr(settings, "temperature", 0.0),
-        "timeout": getattr(settings, "timeout", 180.0),
-        "max_retries": getattr(settings, "max_retries", 3),
-    }
-    if max_tokens:
-        kwargs["max_tokens"] = int(max_tokens)
-    llm = ChatOpenAI(**kwargs)
+    """Build the DeepSeek (or any OpenAI-compatible) chat model behind the translator."""
+    llm = build_chat_model(settings, max_tokens=max_tokens)
     return LangChainTranslator(
         llm,
-        name=f"{getattr(settings, 'provider', 'llm')}/{getattr(settings, 'model', '')}",
+        name=model_label(settings),
         max_attempts=max_attempts,
         method=method,
     )

@@ -217,7 +217,9 @@ def _ensure_back_title(text: str, title: str) -> str:
         return clean
     lines = clean.split("\n") if clean else []
     first_index = next((i for i, line in enumerate(lines) if line.strip()), None)
-    first_line = lines[first_index] if first_index is not None else ""
+    if first_index is None:
+        return clean_markdown(f"# {title}\n\n{clean}")
+    first_line = lines[first_index]
     match = _HEADING_RE.match(first_line)
     if match:
         # The plan's section title is binding: an agent that headed the section

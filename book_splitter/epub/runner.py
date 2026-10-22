@@ -36,17 +36,15 @@ never needs it.
 
 from __future__ import annotations
 
-import hashlib
 import io
-import json
 import posixpath
 import zipfile
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from xml.etree import ElementTree as ET
 
+from ..core.artifacts import sha256_bytes, timestamp, write_manifest, write_trace
 from ..core.constants import (
     EPUB_IMAGES_DIRNAME,
     EPUB_MANIFEST_FILENAME,
@@ -244,7 +242,7 @@ def run_epub(
         image_count=len(assets),
         chars=chars,
         bytes=len(written),
-        sha256=hashlib.sha256(written).hexdigest(),
+        sha256=sha256_bytes(written),
         toc_dropped=_has_toc_page(source),
         cover=cover_asset.href if cover_asset is not None else None,
         dry_run=dry_run,
@@ -340,7 +338,7 @@ def _embed_images(
                 media_type=media_type_for(filename),
                 data=data,
                 source=str(path),
-                sha256=hashlib.sha256(data).hexdigest(),
+                sha256=sha256_bytes(data),
             )
             if asset.media_type == "application/octet-stream":
                 warnings.append(f"{name}: unknown picture type, declared as bytes: {src}")
@@ -371,7 +369,7 @@ def _cover_asset(
         media_type=media_type_for(filename),
         data=data,
         source=str(path),
-        sha256=hashlib.sha256(data).hexdigest(),
+        sha256=sha256_bytes(data),
     )
     if asset.media_type == "application/octet-stream":
         warnings.append(f"cover picture type is unknown, declared as bytes: {path}")
@@ -548,6 +546,8 @@ def _check_opf(
     problems: list[str],
     report: dict[str, Any],
 ) -> None:
+    before = len(problems)
+    report["opf_ok"] = False
     try:
         opf = ET.fromstring(contents.get(opf_path) or b"")
     except ET.ParseError as exc:
@@ -575,6 +575,7 @@ def _check_opf(
     manifest = opf.find(f"{_NS_OPF}manifest")
     items = list(manifest) if manifest is not None else []
     by_id: dict[str, str] = {}
+    by_href: set[str] = set()
     for item in items:
         item_id = item.get("id") or ""
         href = item.get("href") or ""
@@ -583,7 +584,10 @@ def _check_opf(
             continue
         if item_id in by_id:
             problems.append(f"two manifest items share the id {item_id!r}")
+        if href in by_href:
+            problems.append(f"two manifest items point at the same file: {href}")
         by_id[item_id] = href
+        by_href.add(href)
         target = posixpath.join(base, href) if base != "." else href
         if target not in names:
             problems.append(f"the manifest lists a file the package does not contain: {href}")
@@ -598,7 +602,7 @@ def _check_opf(
     nav = next((item for item in items if "nav" in (item.get("properties") or "")), None)
     if nav is None:
         problems.append('the manifest has no navigation document (properties="nav")')
-    report["opf_ok"] = True
+    report["opf_ok"] = len(problems) == before
 
 
 def _check_nav(
@@ -608,6 +612,8 @@ def _check_nav(
     problems: list[str],
     report: dict[str, Any],
 ) -> None:
+    before = len(problems)
+    report["nav_ok"] = False
     try:
         nav = ET.fromstring(contents.get(nav_path) or b"")
     except ET.ParseError as exc:
@@ -638,7 +644,7 @@ def _check_nav(
         )
         if target not in names:
             problems.append(f"a navigation entry points at a missing document: {href}")
-    report["nav_ok"] = True
+    report["nav_ok"] = len(problems) == before
 
 
 def _missing_picture_links(
@@ -661,10 +667,9 @@ def _missing_picture_links(
 # records
 # --------------------------------------------------------------------------- #
 def write_epub_manifest(output_path: Path, result: EpubResult) -> Path:
-    path = output_path.parent / EPUB_MANIFEST_FILENAME
     payload = {
         "stage": "epub",
-        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "generated_at": timestamp(),
         "ok": result.ok,
         "dry_run": result.dry_run,
         "chapters_path": result.chapters_path,
@@ -692,17 +697,11 @@ def write_epub_manifest(output_path: Path, result: EpubResult) -> Path:
         "warnings": result.warnings,
         "errors": result.errors,
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
+    return write_manifest(output_path.parent, EPUB_MANIFEST_FILENAME, payload)
 
 
 def write_epub_trace(output_path: Path, result: EpubResult) -> Path:
-    path = output_path.parent / EPUB_TRACE_FILENAME
-    path.write_text(
-        json.dumps(result.to_dict(), ensure_ascii=False, indent=2, default=str),
-        encoding="utf-8",
-    )
-    return path
+    return write_trace(output_path.parent, EPUB_TRACE_FILENAME, result.to_dict())
 
 
 __all__ = [

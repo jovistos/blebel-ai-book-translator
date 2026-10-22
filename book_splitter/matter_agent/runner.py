@@ -31,17 +31,21 @@ dictionary-driven.
 from __future__ import annotations
 
 import contextlib
-import hashlib
-import json
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from ..agent.tools.matter import reset_matter_scope, set_matter_scope
-from ..chunk_glossary.runner import ChunkInput, discover_chunk_inputs
+from ..core.artifacts import (
+    sha256_text,
+    timestamp,
+    write_json,
+    write_manifest,
+    write_text,
+    write_trace,
+)
 from ..core.constants import (
     CHUNKS_DIRNAME,
     DEFAULT_MATTER_ATTEMPTS,
@@ -57,6 +61,8 @@ from ..documents.chapters import (
     matter_prompts_dir,
     translations_dir,
 )
+from ..documents.chunks import ChunkInput, discover_chunk_inputs
+from ..documents.manifest import load_matter_manifest
 from ..matter.inspect import MatterBook, MatterSection, build_matter_book
 from ..matter.plan import fallback_matter_plan, validate_matter_plan
 from ..matter.synthesize import MatterSynthesisError, ensure_matter_sections
@@ -193,20 +199,8 @@ def resolve_chunks_path(chunks_path: str | Path | None, chapters: Path) -> Path:
     return chapters.parent / CHUNKS_DIRNAME
 
 
-def load_matter_manifest(matter_path: str | Path) -> dict[str, Any]:
-    """Read ``_matter_manifest.json`` from the stage folder."""
-    path = Path(matter_path).expanduser() / MATTER_MANIFEST_FILENAME
-    if not path.is_file():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
 def _chunk_sha256(chunk: ChunkInput) -> str:
-    return hashlib.sha256(chunk.text.encode("utf-8")).hexdigest()
+    return sha256_text(chunk.text)
 
 
 def _is_reusable(
@@ -294,9 +288,7 @@ def _write_prompt_files(
     }
     json_path = prompts_dir / f"{chunk.filename}.json"
     md_path = prompts_dir / f"{chunk.filename}.prompt.md"
-    json_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
-    )
+    write_json(json_path, payload, default=str)
     lines = [f"# {chunk.filename}", "", "## Messages", ""]
     for message in messages:
         lines.append(f"### {message.get('type')}")
@@ -306,7 +298,7 @@ def _write_prompt_files(
         for call in message.get("tool_calls") or []:
             lines.append(f"- tool `{call.get('name')}` args: `{call.get('args')}`")
         lines.append("")
-    md_path.write_text("\n".join(lines), encoding="utf-8")
+    write_text(md_path, "\n".join(lines))
     result.prompt_path = str(json_path)
     result.debug_path = str(md_path)
 
@@ -321,19 +313,15 @@ def _write_book_plan_files(
     final: dict[str, Any],
 ) -> None:
     matter_path.mkdir(parents=True, exist_ok=True)
-    (matter_path / "book-plan.json").write_text(
-        json.dumps(
-            {
-                "stage": "matter",
-                "book": book.to_dict(),
-                "plan": plan,
-                "validation": validation,
-            },
-            ensure_ascii=False,
-            indent=2,
-            default=str,
-        ),
-        encoding="utf-8",
+    write_json(
+        matter_path / "book-plan.json",
+        {
+            "stage": "matter",
+            "book": book.to_dict(),
+            "plan": plan,
+            "validation": validation,
+        },
+        default=str,
     )
     messages = _serialise_messages(final.get("messages") or [])
     payload = {
@@ -345,16 +333,14 @@ def _write_book_plan_files(
         "validation": validation,
     }
     prompts_dir.mkdir(parents=True, exist_ok=True)
-    (prompts_dir / "_book-plan.json").write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
-    )
+    write_json(prompts_dir / "_book-plan.json", payload, default=str)
     lines = ["# Book localization plan", ""]
     for message in messages:
         lines.append(f"## {message.get('type')}")
         lines.append("")
         lines.append(str(message.get("content") or ""))
         lines.append("")
-    (prompts_dir / "_book-plan.prompt.md").write_text("\n".join(lines), encoding="utf-8")
+    write_text(prompts_dir / "_book-plan.prompt.md", "\n".join(lines))
 
 
 # --------------------------------------------------------------------------- #
@@ -411,19 +397,20 @@ def run_matter(
     source_lang = str(source_language or "")
     target_lang = str(target_language or "")
     synthesis = None
-    try:
-        synthesis = ensure_matter_sections(
-            chapters,
-            chunks,
-            book_title=book_title,
-            book_author=book_author,
-            create_front=True,
-            create_back=True,
-        )
-    except MatterSynthesisError:
-        # A folder without a split manifest is still readable by the older
-        # discovery path; creating matter there is not safe.
-        pass
+    # A folder without a split manifest is still readable by the older
+    # discovery path; creating matter there is not safe. A dry run must also
+    # write nothing, so synthesis (which writes chapter and chunk records) is
+    # skipped there; sections created by an earlier real run are still read.
+    if not dry_run:
+        with contextlib.suppress(MatterSynthesisError):
+            synthesis = ensure_matter_sections(
+                chapters,
+                chunks,
+                book_title=book_title,
+                book_author=book_author,
+                create_front=True,
+                create_back=True,
+            )
     book = build_matter_book(
         chapters,
         chunks,
@@ -657,19 +644,15 @@ def run_matter(
                 )
         elif not (stage_dir / "book-plan.json").is_file():
             with contextlib.suppress(OSError):
-                (stage_dir / "book-plan.json").write_text(
-                    json.dumps(
-                        {
-                            "stage": "matter",
-                            "book": book.to_dict(),
-                            "plan": plan,
-                            "validation": validation,
-                        },
-                        ensure_ascii=False,
-                        indent=2,
-                        default=str,
-                    ),
-                    encoding="utf-8",
+                write_json(
+                    stage_dir / "book-plan.json",
+                    {
+                        "stage": "matter",
+                        "book": book.to_dict(),
+                        "plan": plan,
+                        "validation": validation,
+                    },
+                    default=str,
                 )
 
     if not resume_enabled:
@@ -977,11 +960,9 @@ def _maybe_write_trace(
 
 def write_matter_manifest(out_dir: str | Path, result: MatterResult) -> Path:
     """Write ``_matter_manifest.json``: the plan and the per-chunk index."""
-    path = Path(out_dir).expanduser() / MATTER_MANIFEST_FILENAME
-    path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "stage": "matter",
-        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "generated_at": timestamp(),
         "ok": result.ok,
         "skipped": result.skipped,
         "dry_run": result.dry_run,
@@ -1008,19 +989,12 @@ def write_matter_manifest(out_dir: str | Path, result: MatterResult) -> Path:
         ],
         "errors": result.errors,
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
+    return write_manifest(out_dir, MATTER_MANIFEST_FILENAME, payload)
 
 
 def write_matter_trace(out_dir: str | Path, result: MatterResult) -> Path:
     """Write ``_matter_trace.json``: the same run, for debugging."""
-    path = Path(out_dir).expanduser() / MATTER_TRACE_FILENAME
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(result.to_dict(), ensure_ascii=False, indent=2, default=str),
-        encoding="utf-8",
-    )
-    return path
+    return write_trace(out_dir, MATTER_TRACE_FILENAME, result.to_dict())
 
 
 __all__ = [

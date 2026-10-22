@@ -825,7 +825,7 @@ def scan_book_structure(
     label_counts: dict[str, int] = {}
     for label in labels:
         label_counts[label] = label_counts.get(label, 0) + 1
-    dominant = max(label_counts, key=label_counts.get) if label_counts else ""
+    dominant = max(label_counts, key=lambda label: label_counts[label]) if label_counts else ""
     consistent = bool(body) and all(
         _title_label(s.title) == dominant for s in body if _title_label(s.title)
     )

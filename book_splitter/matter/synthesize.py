@@ -17,20 +17,19 @@ English text; the generated section only supplies the facts it must not lose.
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..chunking.runner import load_chunk_manifest
+from ..core.artifacts import sha256_text, write_manifest, write_text
 from ..core.constants import (
     CHUNK_MANIFEST_FILENAME,
     CHUNKS_DIRNAME,
     FRONT_MATTER_FILENAME,
     MANIFEST_FILENAME,
 )
-from ..documents.chapters import chapters_dir, load_split_manifest
+from ..documents.chapters import chapters_dir
+from ..documents.manifest import load_chunk_manifest, load_split_manifest
 from ..postprocess.inspect import matter_kind
 from .metadata import BookMetadata, parse_book_metadata
 
@@ -62,7 +61,7 @@ class MatterSynthesis:
 
 
 def _sha256(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return sha256_text(text)
 
 
 def _lines(text: str) -> int:
@@ -141,7 +140,7 @@ def _chunk_record(
     """Write one synthetic chunk file and return its file + chapter records."""
     chunk_name = f"{global_index:05d}-{chapter_id}-0000.md"
     path = chunks / chunk_name
-    path.write_text(text, encoding="utf-8")
+    write_text(path, text)
     digest = _sha256(text)
     tokens = _tokens(text)
     file_record = {
@@ -291,7 +290,7 @@ def ensure_matter_sections(
     if create_front and front_entry is None:
         name = _free_name(base, FRONT_MATTER_FILENAME, "01-front-matter.md")
         text = _front_text(metadata)
-        (base / name).write_text(text, encoding="utf-8")
+        write_text(base / name, text)
         front_entry = _entry(
             base=base,
             filename=name,
@@ -307,7 +306,7 @@ def ensure_matter_sections(
         source_lines = int(split.get("source_lines") or 0)
         name = _free_name(base, BACK_MATTER_FILENAME, "98-back-matter.md")
         text = _back_text(metadata)
-        (base / name).write_text(text, encoding="utf-8")
+        write_text(base / name, text)
         back_entry = _entry(
             base=base,
             filename=name,
@@ -341,9 +340,7 @@ def ensure_matter_sections(
                 + [entry["filename"] for entry in (front_entry, back_entry) if entry]
             )
         )
-        (base / MANIFEST_FILENAME).write_text(
-            json.dumps(split, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        write_manifest(base, MANIFEST_FILENAME, split)
 
     chunk_created: list[str] = []
     chunks = (
@@ -411,9 +408,7 @@ def ensure_matter_sections(
         manifest["files"] = chunk_files
         manifest["chapters"] = chapter_files
         _recompute_chunk_totals(manifest)
-        (chunks / CHUNK_MANIFEST_FILENAME).write_text(
-            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        write_manifest(chunks, CHUNK_MANIFEST_FILENAME, manifest)
 
     return MatterSynthesis(
         created=created,

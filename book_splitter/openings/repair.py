@@ -47,8 +47,11 @@ def normalise_fixes(
             continue
         if str(raw.get("action") or "").strip().lower() != "remove":
             continue
+        number_value = raw.get("line_number")
+        if number_value is None:
+            continue
         try:
-            number = int(raw.get("line_number"))
+            number = int(number_value)
         except (TypeError, ValueError):
             continue
         if number < 1 or number > line_count or number in out:

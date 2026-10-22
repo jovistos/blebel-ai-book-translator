@@ -292,3 +292,60 @@ def test_a_failed_split_still_writes_its_trace(monkeypatch, tmp_path, plain):
     assert payload["result"]["ok"] is False
     assert payload["tool_log"], "the agent's own narration must survive a failed run"
     assert not payload["validation"]  # no plan ever reached the validator
+
+
+# --------------------------------------------------------------------------- #
+# tool binding: the splitter sees only its own stage's tools
+# --------------------------------------------------------------------------- #
+class _ToolBinder:
+    """A chat-model double that records what ``bind_tools`` was handed."""
+
+    def __init__(self) -> None:
+        self.tools = []
+        self.kwargs = {}
+
+    def bind_tools(self, tools, **kwargs):
+        self.tools = list(tools)
+        self.kwargs = kwargs
+        return self
+
+
+def test_the_splitter_binds_only_its_stage_toolset():
+    from book_splitter.agent.llm import bind_tools
+    from book_splitter.agent.tools import PREPROCESS_TOOLS, SPLIT_TOOLS
+
+    binder = _ToolBinder()
+    bind_tools(binder)
+
+    assert [tool.name for tool in binder.tools] == [tool.name for tool in SPLIT_TOOLS]
+    assert "collect_chapter_headers" not in {tool.name for tool in binder.tools}
+    assert binder.kwargs.get("parallel_tool_calls") is False
+    # The other stage's tools are real, registered tools; they are just not the
+    # splitter's to bind.
+    assert "collect_chapter_headers" in {tool.name for tool in PREPROCESS_TOOLS}
+
+
+def test_the_splitter_tool_node_dispatches_only_its_stage_table():
+    from book_splitter.agent.nodes.tools import make_tool_node
+
+    state = {
+        "messages": [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": "collect_chapter_headers",
+                        "args": {"chapter_path": "x.md"},
+                        "id": "c1",
+                        "type": "tool_call",
+                    }
+                ],
+            )
+        ],
+        "validation": {},
+    }
+    out = make_tool_node()(state)
+    message = out["messages"][0]
+    assert message.status == "error"
+    assert "unknown tool" in message.content
+    assert any("unknown tool collect_chapter_headers" in line for line in out["log"])

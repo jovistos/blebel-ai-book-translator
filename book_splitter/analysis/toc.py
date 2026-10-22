@@ -72,7 +72,7 @@ def detect_toc_block(
             continue
         blanks = 0
         head = header_of(raw)
-        if head and head[0] <= heading_level and i > heading_idx:
+        if head and head[0] <= heading_level and heading_idx is not None and i > heading_idx:
             break
         if len(clean) > 300:
             break

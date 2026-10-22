@@ -15,15 +15,14 @@ records titles, line numbers, decisions and hashes only.
 from __future__ import annotations
 
 import contextlib
-import json
 import threading
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from ..agent.tools.postprocess import reset_chapter_scope, set_chapter_scope
+from ..core.artifacts import timestamp, write_manifest, write_trace
 from ..core.constants import (
     DEFAULT_POSTPROCESS_ATTEMPTS,
     DEFAULT_RECURSION_LIMIT,
@@ -38,6 +37,7 @@ from ..documents.chapters import (
     postprocessed_chapters_dir,
 )
 from ..documents.io import load_lines
+from ..documents.manifest import load_postprocess_manifest
 from ..documents.text import norm
 from ..documents.window import normalize_limit
 from ..openings import OpeningAuditResult, audit_openings
@@ -116,18 +116,6 @@ class PostprocessResult:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-
-
-def load_postprocess_manifest(output_dir: str | Path) -> dict[str, Any]:
-    """Read ``_postprocess_manifest.json`` from a folder."""
-    path = Path(output_dir).expanduser() / POSTPROCESS_MANIFEST_FILENAME
-    if not path.is_file():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
 
 
 def _selected_files(
@@ -635,12 +623,9 @@ def summarise_chapter(
 
 def write_postprocess_manifest(out_dir: str | Path, result: PostprocessResult) -> Path:
     """Write ``_postprocess_manifest.json``: the book-level index."""
-    folder = Path(out_dir).expanduser()
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / POSTPROCESS_MANIFEST_FILENAME
     payload = {
         "stage": "postprocess",
-        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "generated_at": timestamp(),
         "ok": result.ok,
         "dry_run": result.dry_run,
         "limited": result.limited,
@@ -668,18 +653,12 @@ def write_postprocess_manifest(out_dir: str | Path, result: PostprocessResult) -
         ],
         "errors": result.errors,
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
+    return write_manifest(out_dir, POSTPROCESS_MANIFEST_FILENAME, payload)
 
 
 def write_postprocess_trace(out_dir: str | Path, result: PostprocessResult) -> Path:
     """Write ``_postprocess_trace.json``: the same run, for debugging."""
-    path = Path(out_dir).expanduser() / POSTPROCESS_TRACE_FILENAME
-    path.write_text(
-        json.dumps(result.to_dict(), ensure_ascii=False, indent=2, default=str),
-        encoding="utf-8",
-    )
-    return path
+    return write_trace(out_dir, POSTPROCESS_TRACE_FILENAME, result.to_dict())
 
 
 __all__ = [

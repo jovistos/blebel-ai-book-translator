@@ -259,3 +259,49 @@ def test_the_help_text_states_the_default_pair():
     assert "default: en" in gloss
     assert "default: sr" in gloss
     assert "skipped by default" in gloss
+
+
+# --------------------------------------------------------------------------- #
+# default input: the cleaned folder wins when stage 2 wrote it
+# --------------------------------------------------------------------------- #
+def _stage_folders(tmp_path):
+    book = tmp_path / "book"
+    raw = book / "01-chapters"
+    raw.mkdir(parents=True)
+    (raw / "01-a.md").write_text("# A\n\ntext\n", encoding="utf-8")
+    cleaned = book / "02-preprocessed"
+    cleaned.mkdir()
+    (cleaned / "01-a.md").write_text("# A\n\ntext\n", encoding="utf-8")
+    return book, raw, cleaned
+
+
+def test_the_text_stages_default_to_the_cleaned_folder(tmp_path, monkeypatch):
+    book, raw, cleaned = _stage_folders(tmp_path)
+    (cleaned / "_preprocess_manifest.json").write_text(
+        json.dumps({"stage": "preprocess", "ok": True, "dry_run": False, "files": []}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "resolve_book_path", lambda *a, **k: book / "book.md")
+    monkeypatch.setattr(cli, "resolve_output_dir", lambda *a, **k: raw)
+
+    assert cli._resolve_text_dir(None, None, None) == cleaned
+
+
+def test_the_cleaned_folder_is_ignored_without_a_completed_manifest(tmp_path, monkeypatch):
+    book, raw, cleaned = _stage_folders(tmp_path)
+    # A dry run's folder, or one whose manifest is still missing, is not a
+    # trustworthy default: the raw chapters are used instead.
+    (cleaned / "_preprocess_manifest.json").write_text(
+        json.dumps({"stage": "preprocess", "ok": True, "dry_run": True, "files": []}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cli, "resolve_book_path", lambda *a, **k: book / "book.md")
+    monkeypatch.setattr(cli, "resolve_output_dir", lambda *a, **k: raw)
+
+    assert cli._resolve_text_dir(None, None, None) == raw
+
+
+def test_an_explicit_out_always_wins_over_the_cleaned_folder(tmp_path, monkeypatch):
+    _book, raw, _cleaned = _stage_folders(tmp_path)
+
+    assert cli._resolve_text_dir(None, None, str(raw)) == raw

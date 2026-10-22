@@ -474,3 +474,46 @@ def test_skip_if_present_reuses_finished_chunks_and_only_tags_new_ones(tmp_path:
     assert third.skipped_count == total
     assert third_backend.texts == []
     assert third.totals["chunks"] == total
+
+
+def test_skip_if_present_is_invalidated_by_changed_entity_settings(tmp_path: Path):
+    _, chunks, glossary = _project(tmp_path)
+    glossary_path = glossary / "glossary.json"
+    total = len(discover_chunk_inputs(chunks)[0])
+
+    first = run_chunk_glossary(
+        str(chunks),
+        glossary_path=str(glossary_path),
+        backend=FakeBackend(),
+        keep_types=("PER",),
+        skip_if_present=True,
+    )
+    assert first.skipped_count == 0
+
+    second_backend = FakeBackend()
+    second = run_chunk_glossary(
+        str(chunks),
+        glossary_path=str(glossary_path),
+        backend=second_backend,
+        keep_types=("PER", "LOC"),
+        skip_if_present=True,
+    )
+
+    # The old files answer a different question, so every chunk is tagged again.
+    assert second.skipped_count == 0
+    assert second.processed_count == total
+    assert len(second_backend.texts) == total
+
+
+def test_progress_reports_the_same_total_for_every_chunk(tmp_path: Path):
+    _, chunks, glossary = _project(tmp_path)
+    seen: list[tuple[int, int]] = []
+
+    result, _backend, _ = _run(
+        chunks,
+        glossary,
+        progress=lambda _record, done, total: seen.append((done, total)),
+    )
+
+    assert [done for done, _total in seen] == list(range(1, result.chunk_count + 1))
+    assert {total for _done, total in seen} == {result.chunk_count}

@@ -8,13 +8,12 @@ them, and the result is verified by re-reading it.
 
 from __future__ import annotations
 
-import json
 import re
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from ..core.artifacts import timestamp, write_manifest, write_text, write_trace
 from ..core.constants import (
     BIND_MANIFEST_FILENAME,
     BIND_TRACE_FILENAME,
@@ -133,7 +132,7 @@ def run_bind(
         pass
     else:
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(book, encoding="utf-8")
+        write_text(target, book)
     written = book if dry_run else target.read_text(encoding="utf-8")
     # Verify by re-reading the actual file (or the in-memory text on a dry run):
     # every source chunk must be present once, in order.
@@ -170,10 +169,9 @@ def run_bind(
 
 
 def write_bind_manifest(output_path: Path, result: BindResult) -> Path:
-    path = output_path.parent / BIND_MANIFEST_FILENAME
     payload = {
         "stage": "bind",
-        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "generated_at": timestamp(),
         "ok": result.ok,
         "chapters_path": result.chapters_path,
         "output_path": result.output_path,
@@ -186,17 +184,11 @@ def write_bind_manifest(output_path: Path, result: BindResult) -> Path:
         "files": result.files,
         "errors": result.errors,
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
+    return write_manifest(output_path.parent, BIND_MANIFEST_FILENAME, payload)
 
 
 def write_bind_trace(output_path: Path, result: BindResult) -> Path:
-    path = output_path.parent / BIND_TRACE_FILENAME
-    path.write_text(
-        json.dumps(result.to_dict(), ensure_ascii=False, indent=2, default=str),
-        encoding="utf-8",
-    )
-    return path
+    return write_trace(output_path.parent, BIND_TRACE_FILENAME, result.to_dict())
 
 
 __all__ = [

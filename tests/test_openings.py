@@ -371,6 +371,22 @@ def _tool_call(name, args, call_id="call_1"):
     )
 
 
+def test_a_repair_preserves_crlf_and_a_missing_terminal_newline(tmp_path: Path):
+    folder = tmp_path / "chapters"
+    path = _chapter(folder, "01-chapter.md", "## CHAPTER 1\r\n\r\n2\r\n\r\nText.")
+    before = path.read_bytes()
+    assert before.endswith(b"Text.")  # no terminator to begin with
+
+    result = audit_openings(folder, keep_blank_slot=True)
+
+    assert result.fixed_count == 1
+    after = path.read_bytes()
+    assert b"\r\n" in after
+    assert b"\n" not in after.replace(b"\r\n", b"")  # no bare LF was introduced
+    assert after.endswith(b"Text.")  # still no terminal newline
+    assert after == b"## CHAPTER 1\r\n\r\n\r\n\r\nText."
+
+
 def test_stage_nine_removes_the_stray_number_under_the_title(tmp_path: Path):
     source = tmp_path / "08-translated-chapters"
     _chapter(source, "05-chapter-2.md", "## 2\n\n2\n\nMila laktova dalje.\n")

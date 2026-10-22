@@ -104,7 +104,7 @@ def locate_toc_titles(
     found = [m for m in matches if m["found"]]
     out_of_order = [
         f"{a['title']} -> {b['title']}"
-        for a, b in zip(found, found[1:])
+        for a, b in zip(found, found[1:], strict=False)
         if b["line_number"] < a["line_number"]
     ]
     return {

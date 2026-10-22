@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import SecretStr
+
 from ..agent.llm import bind_tools
 from ..agent.tools import PREPROCESS_TOOLS
 from ..core.settings import LLMSettings
@@ -25,7 +27,8 @@ def make_preprocess_llm(settings: LLMSettings) -> Any:
     llm = ChatOpenAI(
         model=settings.model,
         base_url=settings.base_url,
-        api_key=settings.api_key,
+        # ChatOpenAI requires SecretStr; keep a missing key as None (as before).
+        api_key=SecretStr(settings.api_key) if settings.api_key else None,
         temperature=settings.temperature,
         timeout=settings.timeout,
         max_retries=settings.max_retries,

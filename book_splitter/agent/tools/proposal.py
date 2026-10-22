@@ -78,6 +78,13 @@ def propose_split_map(
         if not isinstance(entry, dict):
             continue
         ln = entry.get("line_number", entry.get("line"))
+        if ln is None:
+            return jdump(
+                {
+                    "accepted": False,
+                    "error": f"line_number must be an integer, got {entry.get('line_number')!r}",
+                }
+            )
         try:
             ln = int(ln)
         except (TypeError, ValueError):

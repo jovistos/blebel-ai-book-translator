@@ -19,14 +19,15 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ..chunking.runner import chunk_files, load_chunk_manifest
 from ..core.constants import (
     CHAPTERS_DIRNAME,
     CHUNKS_DIRNAME,
     MAX_MATTER_READ_CHARS,
 )
 from ..core.errors import ToolError
-from ..documents.chapters import Chapter, discover_chapters, load_split_manifest
+from ..documents.chapters import Chapter, discover_chapters
+from ..documents.chunks import chunk_files
+from ..documents.manifest import load_chunk_manifest, load_split_manifest
 from ..postprocess.inspect import matter_kind, scan_chapter_structure
 from .metadata import parse_book_metadata
 

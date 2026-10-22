@@ -551,7 +551,7 @@ def make_apply_node():
             verification = verify_chapter_plan(
                 chapter, plan, canonical_title=canonical
             )
-            payload = {
+            payload: dict[str, Any] = {
                 "ok": bool(verification.get("ok")),
                 "dry_run": True,
                 "output_path": None,

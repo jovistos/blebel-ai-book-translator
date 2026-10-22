@@ -28,12 +28,10 @@ reuses the output while that hash still matches; ``force`` re-converts anyway.
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
 from pathlib import Path
 
+from ..core.artifacts import read_json, sha256_file, timestamp, write_json, write_text
 from ..core.constants import (
     CHAPTER_IMAGE_PREFIX,
     CONVERT_MANIFEST_FILENAME,
@@ -247,11 +245,11 @@ def run_conversion(
             )
         result.images = len([p for p in image_dir.glob("*") if p.is_file()]) if result.images_dir else 0
         result.image_refs = image_count(markdown)
-        target.write_text(markdown, encoding="utf-8")
+        write_text(target, markdown)
         result.method = _method_for(kind)
         result.written = True
         result.bytes = len(markdown.encode("utf-8"))
-        if result.images:
+        if result.images and result.images_dir:
             result.log.append(
                 f"extracted {result.images} image(s) to "
                 f"{Path(result.images_dir).relative_to(target.parent)}/"
@@ -433,7 +431,10 @@ def _convert_with_docling(
             format_options={
                 InputFormat.EPUB: EpubFormatOption(
                     backend_options=EpubBackendOptions(
-                        fetch_images=True, enable_local_fetch=True
+                        # docling's default: never fetch remote EPUB resources.
+                        enable_remote_fetch=False,
+                        fetch_images=True,
+                        enable_local_fetch=True,
                     )
                 )
             }
@@ -505,18 +506,13 @@ def _write_manifest(
         "images": result.images,
         "image_refs": result.image_refs,
         "images_dir": Path(result.images_dir).name if result.images_dir else None,
-        "created": datetime.now().isoformat(timespec="seconds"),
+        "created": timestamp(),
     }
-    manifest_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    write_json(manifest_path, payload, trailing_newline=True)
 
 
 def _load_manifest(path: Path) -> dict:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
+    payload = read_json(path, default={})
     return payload if isinstance(payload, dict) else {}
 
 
@@ -547,11 +543,7 @@ def _manifest_matches(
 
 
 def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(_READ_CHUNK), b""):
-            digest.update(block)
-    return digest.hexdigest()
+    return sha256_file(path)
 
 
 def _docling_version() -> str | None:

@@ -20,7 +20,7 @@ import pytest
 from book_splitter import cli
 from book_splitter.core.errors import MissingDependencyError, ToolError
 from book_splitter.epub import render_markdown, run_epub
-from book_splitter.epub.runner import _verify
+from book_splitter.epub.runner import _check_nav, _check_opf, _verify
 
 #: A 1x1 transparent PNG: a real picture, small enough to keep the test readable.
 PNG = base64.b64decode(
@@ -341,6 +341,12 @@ def test_a_cover_becomes_the_first_page_of_the_book(tmp_path):
             for item in opf.find("{http://www.idpf.org/2007/opf}manifest")
         }
         assert manifest["cover-image"].get("properties") == "cover-image"
+        # The cover picture is registered once, as cover-image, not again as img-N.
+        cover_href = manifest["cover-image"].get("href")
+        assert sum(1 for item in manifest.values() if item.get("href") == cover_href) == 1
+        assert not any(item_id.startswith("img-") for item_id in manifest)
+        assert result.verification["opf_ok"] is True
+        assert result.verification["nav_ok"] is True
         spine = [
             item.get("idref")
             for item in opf.find("{http://www.idpf.org/2007/opf}spine")
@@ -601,3 +607,36 @@ def test_entries_use_the_newest_chapter_timestamp(tmp_path):
     # The zip stores local time, so compare through the reported ISO timestamp.
     assert result.modified.endswith("Z")
     assert newest <= Path(chapters / "01-prvo.md").stat().st_mtime + 1
+
+
+def test_a_package_document_with_problems_is_not_reported_as_ok():
+    problems: list[str] = []
+    report: dict = {}
+    opf = (
+        b'<?xml version="1.0" encoding="UTF-8"?>'
+        b'<package xmlns="http://www.idpf.org/2007/opf" version="3.0">'
+        b'<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"></metadata>'
+        b"<manifest/><spine/></package>"
+    )
+    contents = {"OEBPS/content.opf": opf}
+
+    _check_opf(contents, ["OEBPS/content.opf"], "OEBPS/content.opf", "OEBPS", problems, report)
+
+    assert problems
+    assert report["opf_ok"] is False
+
+
+def test_a_navigation_document_without_a_toc_is_not_reported_as_ok():
+    problems: list[str] = []
+    report: dict = {}
+    nav = (
+        b'<?xml version="1.0" encoding="UTF-8"?>'
+        b'<html xmlns="http://www.w3.org/1999/xhtml" '
+        b'xmlns:epub="http://www.idpf.org/2007/ops"><body></body></html>'
+    )
+    contents = {"OEBPS/nav.xhtml": nav}
+
+    _check_nav(contents, ["OEBPS/nav.xhtml"], "OEBPS/nav.xhtml", problems, report)
+
+    assert problems
+    assert report["nav_ok"] is False

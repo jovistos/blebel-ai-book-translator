@@ -1,5 +1,18 @@
-"""Cross-cutting foundations: constants, errors and LLM settings."""
+"""Cross-cutting foundations: constants, errors, settings and shared primitives."""
 
+from .artifacts import (
+    read_json,
+    read_manifest,
+    sha256_bytes,
+    sha256_file,
+    sha256_lines,
+    sha256_text,
+    timestamp,
+    write_json,
+    write_manifest,
+    write_text,
+    write_trace,
+)
 from .constants import (
     DEFAULT_FRONT_MATTER_LINES,
     DEFAULT_MAX_CANDIDATES,
@@ -24,6 +37,20 @@ from .constants import (
     TRACE_FILENAME,
 )
 from .errors import ConfigError, ToolError
+from .llm import (
+    JSON_ONLY_NOTE,
+    METHODS,
+    StructuredCaller,
+    StructuredOutcome,
+    TokenUsage,
+    build_chat_model,
+    message_text,
+    model_label,
+    parse_json_object,
+    structured_unsupported,
+    usage_from_message,
+)
+from .run import ItemOutcome, RunContext, run_items
 from .settings import (
     DEFAULT_DEEPSEEK_MODEL,
     DEFAULT_STAGE,
@@ -55,6 +82,31 @@ from .settings import (
 
 __all__ = [
     "ConfigError",
+    "ItemOutcome",
+    "JSON_ONLY_NOTE",
+    "METHODS",
+    "RunContext",
+    "StructuredCaller",
+    "StructuredOutcome",
+    "TokenUsage",
+    "build_chat_model",
+    "message_text",
+    "model_label",
+    "parse_json_object",
+    "read_json",
+    "read_manifest",
+    "run_items",
+    "sha256_bytes",
+    "sha256_file",
+    "sha256_lines",
+    "sha256_text",
+    "structured_unsupported",
+    "timestamp",
+    "usage_from_message",
+    "write_json",
+    "write_manifest",
+    "write_text",
+    "write_trace",
     "DEFAULT_FRONT_MATTER_LINES",
     "DEFAULT_MAX_CANDIDATES",
     "DEFAULT_MAX_HEADERS",

@@ -234,6 +234,10 @@ def test_limit_stops_at_the_first_n_chapters(tmp_path):
     # The first two files are the front matter and chapter 1; only one is mined.
     assert len(extractor.calls) == 1
     assert result.processed_count == 1
+    assert result.limited is True
+    manifest = json.loads(Path(result.manifest_path).read_text(encoding="utf-8"))
+    assert manifest["limited"] is True
+    assert manifest["chapter_count"] == len(result.chapters)
 
 
 # --------------------------------------------------------------------------- #

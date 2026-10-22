@@ -877,7 +877,7 @@ folder whose manifest is missing. `--include-front-matter` /
 in the manifest with the reason, so a dictionary built without them is auditable.
 
 **What one entry holds** — three fields, validated with Pydantic
-(`book_splitter/04-glossary/models.py`):
+(`book_splitter/glossary/models.py`):
 
 | Field | Meaning |
 | --- | --- |
@@ -2188,6 +2188,24 @@ Useful flags: `--in-dir`, `--out`, `--map`, `--preprocessed-out`, `--reduced-out
 stage**, and [scripts/check_layout.py](scripts/check_layout.py) verifies the folder layout and the
 installed dependencies.
 
+### Default input and dry runs
+
+Two rules apply to both the stage commands and `run_pipeline.py`:
+
+* **The text stages read the cleaned text by default.** `dictionary`, `glossary`, `chunk`,
+  `chunk-glossary`, `translate`, `concatenate`, `postprocess`, `bind` and `epub` use
+  `02-preprocessed/` when stage 2 wrote a completed manifest for it, and fall back to
+  `01-chapters/` otherwise. An explicit `--out` (or a book argument that is already a folder) is
+  used as given, so `--out .../01-chapters` asks for the raw text on purpose. `scan` and
+  `preprocess` always read `01-chapters/`, because they run before (or produce) the cleaned copy.
+  `matter` also keeps `01-chapters/`, because it creates synthetic front/back-matter files in that
+  folder and appends them to stage 1's manifest; its chunk text still comes from `05-chunks/`.
+* **`--dry-run` means "do the work, write nothing".** Deterministic stages verify every cut or
+  plan; model-backed stages still call the model, because the plan *is* the model's answer and
+  there is nothing to validate without it. No chapter, chunk, glossary, translation, manifest or
+  trace is written. A dry run is a validation mode, not a free price quote; use `--limit` /
+  `--first-chapters` when the goal is a cheaper sample.
+
 ### One command for the whole pipeline
 
 [scripts/run_pipeline.py](scripts/run_pipeline.py) runs the phases in the only order that works —
@@ -2245,7 +2263,7 @@ python scripts/run_pipeline.py BOOK.md --map map.json --stop-after split   # no 
 # the dictionary phase builds the glossary too; --no-glossary keeps it deterministic
 python scripts/run_pipeline.py --start-at dictionary --skip-if-present   # resume the glossary
 python scripts/run_pipeline.py --no-glossary                             # reduce only, no key needed
-python scripts/run_pipeline.py --limit 2 --dry-run                      # never spends
+python scripts/run_pipeline.py --limit 2 --dry-run                      # validate, write nothing
 ```
 
 Stage 3 stays selected but **reports itself as skipped** when its optional tagger is not
@@ -2319,12 +2337,12 @@ per-chunk glossaries, translations and assembled chapters, and pays only for the
 there as the raw unit limit for a quick look; when both are given, the smaller one wins.
 
 The glossary is not a phase of its own: it is the second half of `dictionary`, because it reads
-exactly what the reduction just wrote. It refuses to run under `--dry-run` (there is nothing to
-validate without asking the model, and a dry run must not spend), and `--no-glossary` drops it so
-the phase stays deterministic. `--skip-if-present` resumes it: a run that stopped after chapter 30
-pays for chapters 30..N and keeps the tokens already spent. The closing report ends with the
-dictionary's path and the token bill. `python -m book_splitter glossary` remains the shorter way to
-run stage 4 on its own.
+exactly what the reduction just wrote. It runs under `--dry-run` like every other selected stage:
+the real plan is validated (which means asking the model), and no glossary, manifest or trace is
+written. `--no-glossary` drops it so the phase stays deterministic. `--skip-if-present` resumes it:
+a run that stopped after chapter 30 pays for chapters 30..N and keeps the tokens already spent. The
+closing report ends with the dictionary's path and the token bill.
+`python -m book_splitter glossary` remains the shorter way to run stage 4 on its own.
 
 It exits `0` only when every phase it ran succeeded, `1` when a phase failed (the phases before it
 stay on disk), and `2` on a setup error such as a missing book or an unresolvable provider.
@@ -2753,11 +2771,17 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_splitter/core/constants.py](book_splitter/core/constants.py) | every guardrail and default in one place |
 | [book_splitter/core/settings.py](book_splitter/core/settings.py) | provider and credential resolution |
 | [book_splitter/core/errors.py](book_splitter/core/errors.py) | `ToolError`, `ConfigError` |
+| [book_splitter/core/llm.py](book_splitter/core/llm.py) | the one structured-call loop shared by stages 4 and 7: `build_chat_model`, `StructuredCaller`, `TokenUsage`, answer parsing and the provider-refusal latch |
+| [book_splitter/core/artifacts.py](book_splitter/core/artifacts.py) | atomic `write_json`/`write_text`, manifest/trace readers and writers, the UTC timestamp convention and the one SHA-256 family |
+| [book_splitter/core/run.py](book_splitter/core/run.py) | `RunContext` (clock, dry-run, limit, progress) and `run_items` with per-item error isolation |
 | [book_splitter/documents/io.py](book_splitter/documents/io.py) | cached source reading |
 | [book_splitter/documents/images.py](book_splitter/documents/images.py) | find/protect/restore Markdown and HTML image references; the `[[IMG_n]]` round-trip every stage shares |
 | [book_splitter/documents/markdown.py](book_splitter/documents/markdown.py) | header/standalone/prose line shapes (both stages) |
 | [book_splitter/documents/bodyline.py](book_splitter/documents/bodyline.py) | body-line *damage* shapes: split words, mid-word page numbers |
-| [book_splitter/documents/chapters.py](book_splitter/documents/chapters.py) | reads `01-chapters/` (or the cleaned `02-preprocessed/`) back as chapter records, from `_manifest.json` or `_preprocess_manifest.json`; resolves the `02-preprocessed/`, `03-reduced/`, `03-reduced-unique/`, `04-glossary/`, `05-chunks/`, `06-chunk-glossary/`, `07-translations/`, `07-translation-prompts/` and `08-translated-chapters/` siblings |
+| [book_splitter/documents/chapters.py](book_splitter/documents/chapters.py) | reads `01-chapters/` (or the cleaned `02-preprocessed/`) back as chapter records, from `_manifest.json` or `_preprocess_manifest.json`, and exposes the stage-folder helpers |
+| [book_splitter/documents/layout.py](book_splitter/documents/layout.py) | the one `STAGE_DIRS` registry and `resolve_stage_dir`: a book folder, a sibling stage folder or a file all resolve to the stage being written |
+| [book_splitter/documents/chunks.py](book_splitter/documents/chunks.py) | the read side of stage 5's folder: `ChunkInput`, `discover_chunk_inputs`, `chunk_files`, chunk order and per-chunk file naming |
+| [book_splitter/documents/manifest.py](book_splitter/documents/manifest.py) | every stage manifest reader (`load_split_manifest`, `load_chunk_manifest`, `load_translation_manifest`, …), so a stage never imports the stage that wrote one |
 | [book_splitter/documents/window.py](book_splitter/documents/window.py) | the `--first-chapters N` window: body-chapter selection, file-count arithmetic for chapter-based stages, and chunk-membership filtering for chunk-based stages |
 | [book_splitter/documents/text.py](book_splitter/documents/text.py) | folding, similarity, slugs, tool-result caps |
 | [book_splitter/analysis/toc.py](book_splitter/analysis/toc.py) | printed-TOC block detection |
@@ -2780,10 +2804,10 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_splitter/dictionary/ner.py](book_splitter/dictionary/ner.py) | stage 3: the CLASSLA/stanza gate, entity rules, GPU selection and the device actually used |
 | [book_splitter/dictionary/unique.py](book_splitter/dictionary/unique.py) | stage 3: the noun key and the first-mention filter (book-wide, in chapter order) |
 | [book_splitter/dictionary/runner.py](book_splitter/dictionary/runner.py) | stage 3: `run_dictionary`, the chapter loop, timings, `03-reduced/` + `03-reduced-unique/` and their manifest |
-| [book_splitter/04-glossary/models.py](book_splitter/04-glossary/models.py) | stage 4: the Pydantic answer (`term` / `category` / `translation`) and category normalisation |
-| [book_splitter/04-glossary/prompts.py](book_splitter/04-glossary/prompts.py) | stage 4: the book-translation system prompt, the incremental chapter prompt, the dictionary renderer |
-| [book_splitter/04-glossary/extract.py](book_splitter/04-glossary/extract.py) | stage 4: one model call, structured output, the retry loop and token accounting |
-| [book_splitter/04-glossary/runner.py](book_splitter/04-glossary/runner.py) | stage 4: `run_glossary`, the ordered chapter walk, the front/back-matter skip, merge rules and the four artifacts |
+| [book_splitter/glossary/models.py](book_splitter/glossary/models.py) | stage 4: the Pydantic answer (`term` / `category` / `translation`) and category normalisation |
+| [book_splitter/glossary/prompts.py](book_splitter/glossary/prompts.py) | stage 4: the book-translation system prompt, the incremental chapter prompt, the dictionary renderer |
+| [book_splitter/glossary/extract.py](book_splitter/glossary/extract.py) | stage 4: the chapter schema and outcome over `core.llm.StructuredCaller` |
+| [book_splitter/glossary/runner.py](book_splitter/glossary/runner.py) | stage 4: `run_glossary`, the ordered chapter walk, the front/back-matter skip, merge rules and the four artifacts |
 | [book_splitter/chunking/boundaries.py](book_splitter/chunking/boundaries.py) | stage 5: names the boundary kind of a cut (paragraph / sentence / line / word / hard) |
 | [book_splitter/chunking/tokenizer.py](book_splitter/chunking/tokenizer.py) | stage 5: resolves the tokenizer and the offline approximation, with the reason recorded |
 | [book_splitter/chunking/runner.py](book_splitter/chunking/runner.py) | stage 5: `run_chunking`, the reversible cut, the manifest, the skip/reuse rules and the reconstruction helpers |
@@ -2793,7 +2817,7 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_splitter/chunk_glossary/__init__.py](book_splitter/chunk_glossary/__init__.py) | stage 6: public surface (`run_chunk_glossary`, the matcher and the per-chunk records) |
 | [book_splitter/translation/models.py](book_splitter/translation/models.py) | stage 7: the Pydantic answer — one `translation` field, non-blank |
 | [book_splitter/translation/prompts.py](book_splitter/translation/prompts.py) | stage 7: the constant translator system prompt and the per-chunk prompt (glossary, optional context, source, task) |
-| [book_splitter/translation/translator.py](book_splitter/translation/translator.py) | stage 7: one model call, native structured output with a JSON-mode fallback, the retry/validation loop and token accounting |
+| [book_splitter/translation/translator.py](book_splitter/translation/translator.py) | stage 7: the translation schema, quality validation and JSON recovery over `core.llm.StructuredCaller` |
 | [book_splitter/translation/runner.py](book_splitter/translation/runner.py) | stage 7: `run_translation`, the ordered chunk walk, `--limit`/resume rules, the translation files and the whole-input debug records |
 | [book_splitter/translation/__init__.py](book_splitter/translation/__init__.py) | stage 7: public surface (`run_translation`, the prompt builders, the translator and the records) |
 | [book_splitter/assembly/runner.py](book_splitter/assembly/runner.py) | stage 8: `run_assembly`, the chapter grouping, all-or-nothing assembly, the resume comparison and the manifest/trace |

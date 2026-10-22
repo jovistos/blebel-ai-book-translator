@@ -211,6 +211,34 @@ def _resolve_chapters_dir(book: str | None, in_dir: str | None, out: str | None)
     return resolve_output_dir(source, None)
 
 
+def _resolve_text_dir(book: str | None, in_dir: str | None, out: str | None) -> Path:
+    """The chapter folder the text stages read: cleaned by default.
+
+    Stage 2 exists to repair conversion damage before the text stages see it, so
+    the command-line default is the same as the pipeline's: ``02-preprocessed/``
+    when a completed stage-2 manifest is there, ``01-chapters/`` otherwise. An
+    explicit ``--out`` or a book argument that is already a folder still wins,
+    which is how a caller asks for the raw text on purpose.
+    """
+    if out:
+        return Path(out).expanduser()
+    if book:
+        candidate = Path(book).expanduser()
+        if candidate.is_dir():
+            return candidate
+    raw = _resolve_chapters_dir(book, in_dir, None)
+    cleaned = preprocessed_dir(raw)
+    manifest = load_split_manifest(cleaned) if cleaned.is_dir() else {}
+    if (
+        has_chapter_files(cleaned)
+        and manifest
+        and not manifest.get("dry_run")
+        and manifest.get("ok", True)
+    ):
+        return cleaned
+    return raw
+
+
 def _ensure_markdown_source(source: Path, out: str | Path | None = None) -> Path:
     """Run stage 0 when the source is not Markdown and return what stage 1 reads.
 
@@ -519,11 +547,10 @@ def cmd_dictionary(args: argparse.Namespace) -> int:
     """Stage 3: reduce each chapter to its entity-bearing sentences, then to first mentions."""
     from .dictionary import run_dictionary
 
-    # Accept either the chapters folder or the book folder that holds it, exactly
-    # like `scan` and `preprocess` do: `--out data/output/<book>` is a natural
-    # thing to type, and `discover_chapters` resolves the nested `01-chapters/`
-    # anyway, so the pre-flight check must agree with it.
-    chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
+    # Accept either the chapters folder or the book folder that holds it: an
+    # explicit ``--out`` is taken as given, while the default prefers the cleaned
+    # ``02-preprocessed/`` folder when stage 2 wrote it.
+    chapters_path = chapters_dir(_resolve_text_dir(args.book, args.in_dir, args.out))
     if not has_chapter_files(chapters_path):
         print(
             f"no chapter files in {chapters_path.expanduser().resolve()} — run `split` first",
@@ -648,6 +675,8 @@ def _print_dictionary_summary(result, dry_run: bool = False) -> None:
 
     print(f"chapters        : {result.ok_count}/{result.chapter_count} ok"
           + (f"  reused: {result.skipped_count}" if result.skipped_count else ""))
+    if getattr(result, "limited", False):
+        print("window          : a limited prefix — the manifest is partial")
     if result.skipped:
         print(
             "nothing to do   : every reduced chapter is already present"
@@ -728,7 +757,7 @@ def cmd_chunk(args: argparse.Namespace) -> int:
     """Stage 5: cut each chapter into chunks that concatenate back exactly."""
     from .chunking import run_chunking
 
-    chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
+    chapters_path = chapters_dir(_resolve_text_dir(args.book, args.in_dir, args.out))
     if not has_chapter_files(chapters_path):
         print(
             f"no chapter files in {chapters_path.expanduser().resolve()} — run `split` first",
@@ -858,7 +887,7 @@ def cmd_chunk_glossary(args: argparse.Namespace) -> int:
     from .chunk_glossary import run_chunk_glossary
     from .chunk_glossary.runner import resolve_chunks_dir
 
-    chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
+    chapters_path = chapters_dir(_resolve_text_dir(args.book, args.in_dir, args.out))
     chunks_path = (
         resolve_chunks_dir(Path(args.chunks_in).expanduser())
         if args.chunks_in
@@ -1192,6 +1221,8 @@ def cmd_matter(args: argparse.Namespace) -> int:
     if args.chapters_in:
         chapters_path = chapters_dir(Path(args.chapters_in).expanduser())
     else:
+        # The matter stage keeps stage 1's folder: it creates synthetic
+        # front/back-matter files and appends them to that stage's manifest.
         chapters_path = chapters_dir(
             _resolve_chapters_dir(args.book, args.in_dir, args.out)
         )
@@ -1404,7 +1435,7 @@ def cmd_translate(args: argparse.Namespace) -> int:
     from .translation import run_translation
     from .translation.runner import resolve_chunk_glossary_dir
 
-    chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
+    chapters_path = chapters_dir(_resolve_text_dir(args.book, args.in_dir, args.out))
     chunks_path = (
         resolve_chunks_dir(Path(args.chunks_in).expanduser())
         if args.chunks_in
@@ -1625,7 +1656,7 @@ def cmd_concatenate(args: argparse.Namespace) -> int:
         chunks_path = resolve_chunks_dir(Path(args.chunks_in).expanduser())
         chapters_path = chunks_path.parent / CHAPTERS_DIRNAME
     else:
-        chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
+        chapters_path = chapters_dir(_resolve_text_dir(args.book, args.in_dir, args.out))
         chunks_path = chunks_dir(chapters_path)
     if not has_chunk_files(chunks_path):
         print(
@@ -1761,7 +1792,7 @@ def cmd_postprocess(args: argparse.Namespace) -> int:
             _resolve_chunks(Path(args.chunks_in).expanduser())
         )
     else:
-        chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
+        chapters_path = chapters_dir(_resolve_text_dir(args.book, args.in_dir, args.out))
         source_path = translated_chapters_dir(chapters_path)
     if not has_translated_chapter_files(source_path):
         print(
@@ -2025,7 +2056,7 @@ def cmd_bind(args: argparse.Namespace) -> int:
         if (source_path / POSTPROCESSED_CHAPTERS_DIRNAME).is_dir():
             source_path = source_path / POSTPROCESSED_CHAPTERS_DIRNAME
     else:
-        chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
+        chapters_path = chapters_dir(_resolve_text_dir(args.book, args.in_dir, args.out))
         source_path = postprocessed_chapters_dir(chapters_path)
     if not has_postprocessed_chapter_files(source_path):
         print(
@@ -2091,7 +2122,7 @@ def cmd_epub(args: argparse.Namespace) -> int:
         if (source_path / POSTPROCESSED_CHAPTERS_DIRNAME).is_dir():
             source_path = source_path / POSTPROCESSED_CHAPTERS_DIRNAME
     else:
-        chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
+        chapters_path = chapters_dir(_resolve_text_dir(args.book, args.in_dir, args.out))
         source_path = postprocessed_chapters_dir(chapters_path)
     if not has_postprocessed_chapter_files(source_path):
         print(
@@ -2181,7 +2212,7 @@ def cmd_glossary(args: argparse.Namespace) -> int:
     from .glossary import run_glossary
     from .glossary.runner import resolve_sentences_dir
 
-    chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
+    chapters_path = chapters_dir(_resolve_text_dir(args.book, args.in_dir, args.out))
     if not has_chapter_files(chapters_path):
         print(
             f"no chapter files in {chapters_path.expanduser().resolve()} — run `split` first",
@@ -2301,6 +2332,8 @@ def _print_glossary_summary(result, dry_run: bool = False) -> None:
         + (f"  reused: {result.reused_count}" if result.reused_count else "")
         + (f"  skipped: {result.skipped_count}" if result.skipped_count else "")
     )
+    if getattr(result, "limited", False):
+        print("window          : a limited prefix — the manifest is partial")
     categories = result.categories or {}
     print(
         f"entries         : {result.entry_count}"
@@ -2787,8 +2820,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters); "
-        "point it at data/output/<book>/02-preprocessed to reduce the cleaned text instead",
+        help="the chapter folder (default: the cleaned data/output/<book>/02-preprocessed "
+        "when stage 2 wrote it, else data/output/<book>/01-chapters); pass "
+        "01-chapters to reduce the raw text instead",
     )
     p_dict.add_argument(
         "--reduced-out",
@@ -2901,8 +2935,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters); "
-        "point it at data/output/<book>/02-preprocessed to chunk the cleaned text instead",
+        help="the chapter folder (default: the cleaned data/output/<book>/02-preprocessed "
+        "when stage 2 wrote it, else data/output/<book>/01-chapters); pass "
+        "01-chapters to chunk the raw text instead",
     )
     p_chunk.add_argument(
         "--chunks-out",
@@ -2970,7 +3005,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters); "
+        help="the chapter folder (default: the cleaned data/output/<book>/02-preprocessed "
+        "when stage 2 wrote it, else data/output/<book>/01-chapters); "
         "the chunks and glossary folders are derived from the book folder",
     )
     p_cg.add_argument(
@@ -3197,7 +3233,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters); "
+        help="the chapter folder (default: the cleaned data/output/<book>/02-preprocessed "
+        "when stage 2 wrote it, else data/output/<book>/01-chapters); "
         "the chunks, glossary and translation folders are derived from the book folder",
     )
     p_tr.add_argument(
@@ -3365,7 +3402,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters); "
+        help="the chapter folder (default: the cleaned data/output/<book>/02-preprocessed "
+        "when stage 2 wrote it, else data/output/<book>/01-chapters); "
         "used to locate the chunks, translations and book folder",
     )
     p_concat.add_argument(
@@ -3425,7 +3463,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters); "
+        help="the chapter folder (default: the cleaned data/output/<book>/02-preprocessed "
+        "when stage 2 wrote it, else data/output/<book>/01-chapters); "
         "the translated-chapters and postprocessed-chapters folders are derived from it",
     )
     p_post.add_argument(
@@ -3528,7 +3567,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters)",
+        help="the chapter folder (default: the cleaned data/output/<book>/02-preprocessed "
+        "when stage 2 wrote it, else data/output/<book>/01-chapters)",
     )
     p_bind.add_argument(
         "--postprocessed-in",
@@ -3566,7 +3606,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters)",
+        help="the chapter folder (default: the cleaned data/output/<book>/02-preprocessed "
+        "when stage 2 wrote it, else data/output/<book>/01-chapters)",
     )
     p_epub.add_argument(
         "--postprocessed-in",
@@ -3633,7 +3674,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters)",
+        help="the chapter folder (default: the cleaned data/output/<book>/02-preprocessed "
+        "when stage 2 wrote it, else data/output/<book>/01-chapters)",
     )
     p_gloss.add_argument(
         "--sentences",

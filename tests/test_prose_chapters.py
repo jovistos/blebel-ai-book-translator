@@ -15,7 +15,6 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from book_splitter.agent import run_split_from_map
 from book_splitter.analysis.prose import (
     PROSE_CHAPTER_ROLE,

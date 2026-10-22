@@ -53,24 +53,22 @@ can be tested and a killed run can be continued without paying twice.
 from __future__ import annotations
 
 import contextlib
-import hashlib
 import json
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from ..chunk_glossary.matching import clean_term, load_glossary, match_key
-from ..chunk_glossary.runner import (
-    ChunkInput,
-    chunk_glossary_filename,
-    discover_chunk_inputs,
-    resolve_chunks_dir,
-    resolve_glossary_path,
+from ..core.artifacts import (
+    sha256_text,
+    timestamp,
+    write_json,
+    write_manifest,
+    write_text,
+    write_trace,
 )
-from ..chunking.runner import load_chunk_manifest
 from ..core.constants import (
     CHAPTERS_DIRNAME,
     CHUNK_GLOSSARY_DIRNAME,
@@ -87,11 +85,19 @@ from ..core.constants import (
     TRANSLATION_TRACE_FILENAME,
 )
 from ..core.errors import ConfigError, ToolError, TranslationError
+from ..core.llm import TokenUsage
+from ..core.run import RunContext
 from ..documents.chapters import (
     chunk_glossary_dir,
-    load_split_manifest,
     translation_prompts_dir,
     translations_dir,
+)
+from ..documents.chunks import (
+    ChunkInput,
+    chunk_glossary_filename,
+    discover_chunk_inputs,
+    resolve_chunks_dir,
+    resolve_glossary_path,
 )
 from ..documents.images import (
     IMAGE_TOKEN_RE,
@@ -99,7 +105,11 @@ from ..documents.images import (
     restore_images,
     strip_images,
 )
-from ..glossary.extract import TokenUsage
+from ..documents.manifest import (
+    load_chunk_manifest,
+    load_split_manifest,
+    load_translation_manifest,
+)
 from .prompts import build_chunk_prompt, build_system_prompt
 from .translator import ChunkTranslator, make_translator
 
@@ -141,6 +151,9 @@ class ChunkTranslation:
     source_chars: int = 0
     translation_chars: int = 0
     translation_sha256: str = ""
+    #: The exact inputs that produced this translation (glossary, context,
+    #: method, model). A resume only reuses the file when this still matches.
+    resume_key: str = ""
     attempts: int = 0
     method: str = ""
     usage: TokenUsage = field(default_factory=TokenUsage)
@@ -174,6 +187,7 @@ class ChunkTranslation:
             "source_chars": self.source_chars,
             "translation_chars": self.translation_chars,
             "translation_sha256": self.translation_sha256,
+            "resume_key": self.resume_key,
             "attempts": self.attempts,
             "method": self.method,
             "tokens": self.usage.to_dict(),
@@ -389,6 +403,10 @@ def run_translation(
     translator: ChunkTranslator | None = None,
     settings: Any = None,
     settings_factory: Callable[[], Any] | None = None,
+    #: The provider/model a resume should compare against, for a caller that
+    #: knows the label without resolving (and possibly needing a key for) the
+    #: whole settings object. The translator's own name wins when it was built.
+    model_identity: str = "",
     max_attempts: int = DEFAULT_TRANSLATION_ATTEMPTS,
     method: str = "auto",
     max_tokens: int | None = DEFAULT_TRANSLATION_MAX_TOKENS,
@@ -413,8 +431,11 @@ def run_translation(
     call, so a fully resumed run needs no key).
 
     ``resume`` reuses a translation an earlier run wrote when the manifest records
-    it as successful, the chunk has not changed (its SHA-256 matches), and the
-    language pair is the same. ``chapter_files`` restricts the run to chunks
+    it as successful, the chunk has not changed (its SHA-256 matches), the
+    glossary rows, context window, method and model still match, and the language
+    pair is the same. ``model_identity`` lets a caller supply that model label
+    without resolving a key (the pipeline does this for a fully resumed run).
+    ``chapter_files`` restricts the run to chunks
     belonging to those chapter filenames (the chapter-aligned window); ``limit``
     then translates only the first N of the filtered chunks. ``dry_run`` still
     calls the model — the answer *is* the artifact, so there is nothing to
@@ -425,7 +446,6 @@ def run_translation(
     without the dictionary. Pass ``include_matter=True`` only to reproduce the
     older behaviour for a book whose matter the caller has already handled.
     """
-    run_started = clock()
     scope = str(glossary_scope or "chunk").strip().lower()
     if scope not in TRANSLATION_GLOSSARY_SCOPES:
         raise ToolError(
@@ -474,9 +494,16 @@ def run_translation(
     # manifest remembered: a chunk file edited on disk must be translated again,
     # even when its old manifest entry still carries the old hash.
     for chunk in all_inputs:
-        chunk.sha256 = hashlib.sha256(chunk.text.encode("utf-8")).hexdigest()
+        chunk.sha256 = sha256_text(chunk.text)
     limited = limit is not None and 0 < _int(limit) < len(all_inputs)
     inputs = all_inputs[: _int(limit)] if limit is not None and _int(limit) > 0 else all_inputs
+    context = RunContext(
+        clock=clock,
+        dry_run=dry_run,
+        settings=settings,
+        limited=limited,
+        progress=progress,
+    )
 
     out_dir = (
         Path(output_dir).expanduser() if output_dir else translations_dir(source_dir)
@@ -521,7 +548,7 @@ def run_translation(
             },
             tokens={"calls": 0, "chunks": 0},
             totals={"translated_chunks": 0, "matter_skipped": matter_skipped},
-            timing={"run_seconds": round(clock() - run_started, 4)},
+            timing={"run_seconds": round(context.elapsed(), 4)},
             chunks=[],
             errors=[],
         )
@@ -564,8 +591,33 @@ def run_translation(
     #: does not lose the resume record of the rest of the book. A different
     #: language pair invalidates the whole manifest, so nothing is carried then.
     carried_from = previous_files if same_pair else {}
+    model_identity = _model_identity(settings, translator, previous_manifest, label=model_identity)
+    resume_keys = {
+        chunk.filename: _translation_resume_key(
+            chunk,
+            scope=scope,
+            glossary_sha256=_glossary_fingerprint(
+                chunk,
+                scope=scope,
+                chunk_glossary_dir=resolved_chunk_glossary,
+                glossary_path=resolved_glossary,
+            ),
+            context_chars=context_size,
+            method=method,
+            model_identity=model_identity,
+            max_tokens=max_tokens,
+            source_language=str(source_language),
+            target_language=str(target_language),
+        )
+        for chunk in inputs
+    }
     reused: list[bool] = [
-        _is_reusable(chunk, previous_files.get(chunk.filename), out_dir)
+        _is_reusable(
+            chunk,
+            previous_files.get(chunk.filename),
+            out_dir,
+            resume_keys[chunk.filename],
+        )
         if resume_enabled
         else False
         for chunk in inputs
@@ -585,6 +637,45 @@ def run_translation(
             settings, max_attempts=attempts, method=method, max_tokens=max_tokens
         )
     translator_name = getattr(translator, "name", "injected") if translator is not None else ""
+    # ``settings_factory`` is deliberately not resolved for a fully resumed run,
+    # so the model identity may have been taken from the previous manifest. Now
+    # that a translator exists, confirm it: if the config names a different
+    # model, the old translations were produced by a different translator and
+    # cannot be reused.
+    actual_identity = _model_identity(settings, translator, previous_manifest, label=model_identity)
+    if resume_enabled and actual_identity and actual_identity != model_identity:
+        model_identity = actual_identity
+        resume_keys = {
+            chunk.filename: _translation_resume_key(
+                chunk,
+                scope=scope,
+                glossary_sha256=_glossary_fingerprint(
+                    chunk,
+                    scope=scope,
+                    chunk_glossary_dir=resolved_chunk_glossary,
+                    glossary_path=resolved_glossary,
+                ),
+                context_chars=context_size,
+                method=method,
+                model_identity=model_identity,
+                max_tokens=max_tokens,
+                source_language=str(source_language),
+                target_language=str(target_language),
+            )
+            for chunk in inputs
+        }
+        reused = [
+            _is_reusable(
+                chunk,
+                previous_files.get(chunk.filename),
+                out_dir,
+                resume_keys[chunk.filename],
+            )
+            for chunk in inputs
+        ]
+        pending = [
+            chunk for chunk, is_reused in zip(inputs, reused, strict=True) if not is_reused
+        ]
 
     settings_payload = {
         "glossary_scope": scope,
@@ -592,6 +683,7 @@ def run_translation(
         "method": method,
         "max_tokens": int(max_tokens) if max_tokens else None,
         "context_chars": context_size,
+        "model_identity": model_identity,
         "save": bool(save),
         "write_prompts": bool(write_prompts),
         "limit": int(limit) if limit is not None else None,
@@ -637,6 +729,7 @@ def run_translation(
             glossary_missing=glossary_missing,
             context_chars=len(context_text),
             source_chars=len(chunk.text),
+            resume_key=resume_keys[chunk.filename],
         )
         # The model never sees a real image path: each reference becomes a
         # [[IMG_n]] marker, and the marker is restored before the file is written.
@@ -661,10 +754,11 @@ def run_translation(
                 target_language=target_language,
                 tokens=totals,
                 enabled=write_manifest and save and not dry_run,
+                extra_files=_carried_records(
+                    carried_from, {record.chunk.filename for record in records}, out_dir
+                ),
             )
-            if progress is not None:
-                with contextlib.suppress(Exception):
-                    progress(record.to_dict(), completed, len(inputs))
+            context.emit(record.to_dict(), completed, len(inputs))
             continue
 
         image_only = bool(image_map) and not any(ch.isalnum() for ch in prose_text)
@@ -686,10 +780,11 @@ def run_translation(
                 target_language=target_language,
                 tokens=totals,
                 enabled=write_manifest and save and not dry_run,
+                extra_files=_carried_records(
+                    carried_from, {record.chunk.filename for record in records}, out_dir
+                ),
             )
-            if progress is not None:
-                with contextlib.suppress(Exception):
-                    progress(record.to_dict(), completed, len(inputs))
+            context.emit(record.to_dict(), completed, len(inputs))
             continue
 
         user_prompt = build_chunk_prompt(
@@ -811,9 +906,7 @@ def run_translation(
                 carried_from, {record.chunk.filename for record in records}, out_dir
             ),
         )
-        if progress is not None:
-            with contextlib.suppress(Exception):
-                progress(record.to_dict(), completed, len(inputs))
+        context.emit(record.to_dict(), completed, len(inputs))
 
     totals_payload = _totals(records)
     # A provider that rejected the schema mid-run leaves the translator in JSON
@@ -847,7 +940,7 @@ def run_translation(
         settings=settings_payload,
         tokens={**totals.to_dict(), "chunks": len(pending)},
         totals=totals_payload,
-        timing=_timing(records, run_seconds=clock() - run_started),
+        timing=_timing(records, run_seconds=context.elapsed()),
         chunks=[record.record() for record in records],
         errors=errors,
     )
@@ -863,24 +956,115 @@ def run_translation(
             write_translation_manifest(out_dir, result, records, extra_files=carried)
         )
         result.trace_path = str(write_translation_trace(out_dir, result, records))
-    return result
+    return context.finish(result)
 
 
 # --------------------------------------------------------------------------- #
 # resume helpers
 # --------------------------------------------------------------------------- #
-def _is_reusable(chunk: ChunkInput, previous: dict[str, Any] | None, out_dir: Path) -> bool:
+def _glossary_fingerprint(
+    chunk: ChunkInput,
+    *,
+    scope: str,
+    chunk_glossary_dir: Path,
+    glossary_path: Path,
+) -> str:
+    """A stable digest of the glossary rows this chunk's prompt would receive.
+
+    Chunk scope hashes the chunk's own rows, so a change to one chunk's terms
+    invalidates that chunk only; book scope hashes the whole dictionary, which is
+    the same input for every chunk. The rows are hashed, not the files: a
+    per-chunk JSON also records absolute paths and timestamps that do not change
+    the prompt, and hashing them would make a resumed run depend on where the
+    book folder lives.
+    """
+    if scope == "chunk":
+        rows = load_chunk_glossary_rows(
+            chunk_glossary_dir / chunk_glossary_filename(chunk.filename)
+        )
+    else:
+        rows = load_book_glossary_rows(glossary_path)
+    payload = [row.to_dict() for row in rows or []]
+    return sha256_text(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+
+
+def _model_identity(
+    settings: Any | None,
+    translator: ChunkTranslator | None,
+    previous_manifest: dict[str, Any],
+    *,
+    label: str = "",
+) -> str:
+    """Who would answer this run's calls, as a stable string.
+
+    The real translator's ``name`` is ``provider/model``. A caller that knows the
+    configured label (the pipeline does, without resolving a key) can pass it as
+    ``label``. When a fully resumed run has neither, the previous manifest's
+    identity stands in: nothing will be called, and treating the old answer as
+    the current model is what lets a resume finish without a key.
+    """
+    if translator is not None:
+        return str(getattr(translator, "name", "") or "")
+    if label:
+        return str(label)
+    if settings is not None:
+        provider = str(getattr(settings, "provider", "") or "")
+        model = str(getattr(settings, "model", "") or "")
+        if provider or model:
+            return f"{provider}/{model}" if provider and model else provider or model
+    recorded = previous_manifest.get("settings") or {}
+    return str(recorded.get("model_identity") or "")
+
+
+def _translation_resume_key(
+    chunk: ChunkInput,
+    *,
+    scope: str,
+    glossary_sha256: str,
+    context_chars: int,
+    method: str,
+    model_identity: str,
+    max_tokens: int | None,
+    source_language: str,
+    target_language: str,
+) -> str:
+    """A digest of every input that changes what the model would be asked."""
+    payload = {
+        "chunk_sha256": chunk.sha256,
+        "glossary_scope": scope,
+        "glossary_sha256": glossary_sha256,
+        "context_chars": int(context_chars),
+        "method": str(method),
+        "model": str(model_identity),
+        "max_tokens": int(max_tokens) if max_tokens else None,
+        "source_language": str(source_language),
+        "target_language": str(target_language),
+    }
+    return sha256_text(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+
+
+def _is_reusable(
+    chunk: ChunkInput,
+    previous: dict[str, Any] | None,
+    out_dir: Path,
+    resume_key: str,
+) -> bool:
     """True when an earlier run's translation can stand in for this chunk.
 
     The manifest is the record of *why* a file can be trusted: a file that exists
     but is not recorded as successful (or was translated from a different chunk,
-    or an older chunk hash) is translated again. A file with no manifest is not
-    reused at all — a stray empty file would otherwise become a silent hole.
+    an older chunk hash, or with different glossary/context/model settings) is
+    translated again. A file with no manifest is not reused at all — a stray
+    empty file would otherwise become a silent hole. A manifest written before
+    ``resume_key`` existed is also translated again: it does not record the
+    settings that produced the text, so reuse cannot be proven safe.
     """
     if not previous or not previous.get("ok"):
         return False
     recorded_sha = str(previous.get("sha256") or "")
     if recorded_sha and recorded_sha != chunk.sha256:
+        return False
+    if str(previous.get("resume_key") or "") != resume_key:
         return False
     path = out_dir / chunk.filename
     return path.is_file() and path.stat().st_size > 0
@@ -920,7 +1104,7 @@ def _load_existing_translation(record: ChunkTranslation, path: Path) -> None:
         record.log.append(f"could not read the reused translation: {record.error}")
         return
     record.translation_chars = len(record.translation)
-    record.translation_sha256 = hashlib.sha256(record.translation.encode("utf-8")).hexdigest()
+    record.translation_sha256 = sha256_text(record.translation)
     record.method = "reused"
     record.log.append("reused: the chunk is already translated and unchanged")
 
@@ -943,7 +1127,7 @@ def _context_tail(text: str, size: int) -> str:
 
 def _finish_record(record: ChunkTranslation, translation: str) -> None:
     record.translation_chars = len(translation)
-    record.translation_sha256 = hashlib.sha256(translation.encode("utf-8")).hexdigest()
+    record.translation_sha256 = sha256_text(translation)
 
 
 # --------------------------------------------------------------------------- #
@@ -980,7 +1164,7 @@ def debug_filename(chunk_filename: str) -> str:
 def _write_translation_file(out_dir: Path, record: ChunkTranslation) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / record.chunk.filename
-    path.write_text(record.translation, encoding="utf-8")
+    write_text(path, record.translation)
     record.output_path = str(path)
     return path
 
@@ -994,8 +1178,7 @@ def _prompt_messages(system_prompt: str, user_prompt: str) -> list[dict[str, str
 
 
 def _prompt_sha256(system_prompt: str, user_prompt: str) -> str:
-    payload = f"{system_prompt}\n\u0000\n{user_prompt}".encode()
-    return hashlib.sha256(payload).hexdigest()
+    return sha256_text(f"{system_prompt}\n\u0000\n{user_prompt}")
 
 
 def _debug_payload(
@@ -1016,7 +1199,7 @@ def _debug_payload(
     """Everything one model call was made of: the whole input, plus its answer."""
     return {
         "stage": "translate",
-        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "generated_at": timestamp(),
         "chunk": record.chunk.to_dict(),
         "language": {"source": source_language, "target": target_language},
         "provider": provider,
@@ -1080,9 +1263,7 @@ def _write_prompt_files(prompt_dir: Path, record: ChunkTranslation) -> tuple[Pat
     _update_debug_answer(record)
     payload = record.debug or {}
     debug_path = prompt_dir / debug_filename(record.chunk.filename)
-    debug_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    write_json(debug_path, payload)
     record.debug_path = str(debug_path)
 
     prompt = payload.get("prompt") or {}
@@ -1096,7 +1277,7 @@ def _write_prompt_files(prompt_dir: Path, record: ChunkTranslation) -> tuple[Pat
         f"# User prompt\n\n{user_prompt}\n"
     )
     prompt_path = prompt_dir / prompt_filename(record.chunk.filename)
-    prompt_path.write_text(readable, encoding="utf-8")
+    write_text(prompt_path, readable)
     record.prompt_path = str(prompt_path)
     payload["output_path"] = record.output_path
     payload["debug_path"] = record.debug_path
@@ -1188,8 +1369,7 @@ def _snapshot_manifest(
         "files": [record.record() for record in records] + list(extra_files),
     }
     with contextlib.suppress(OSError):  # a snapshot must never end the run
-        path = Path(out_dir) / TRANSLATION_MANIFEST_FILENAME
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        write_manifest(out_dir, TRANSLATION_MANIFEST_FILENAME, payload)
 
 
 def write_translation_manifest(
@@ -1200,7 +1380,6 @@ def write_translation_manifest(
     extra_files: Sequence[dict[str, Any]] = (),
 ) -> Path:
     """Write ``_translation_manifest.json``: the book-level index of the run."""
-    path = Path(out_dir) / TRANSLATION_MANIFEST_FILENAME
     files = (
         [record.record() for record in records]
         if records is not None
@@ -1237,8 +1416,7 @@ def write_translation_manifest(
         "files": files,
         "errors": result.errors,
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
+    return write_manifest(out_dir, TRANSLATION_MANIFEST_FILENAME, payload)
 
 
 def write_translation_trace(
@@ -1247,27 +1425,10 @@ def write_translation_trace(
     records: Sequence[ChunkTranslation] | None = None,
 ) -> Path:
     """Write the audit trail: the run plus each chunk's terms, log and raw answer."""
-    path = Path(out_dir) / TRANSLATION_TRACE_FILENAME
     payload = result.to_dict()
     if records is not None:
         payload["detail"] = [record.to_dict() for record in records]
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
-    )
-    return path
-
-
-def load_translation_manifest(translations_path: str | Path) -> dict[str, Any]:
-    """Read ``_translation_manifest.json`` from an output folder (or a file)."""
-    path = Path(translations_path).expanduser()
-    manifest = path / TRANSLATION_MANIFEST_FILENAME if path.is_dir() else path
-    if not manifest.is_file():
-        return {}
-    try:
-        payload = json.loads(manifest.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
+    return write_trace(out_dir, TRANSLATION_TRACE_FILENAME, payload)
 
 
 __all__ = [

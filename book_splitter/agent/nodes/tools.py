@@ -17,7 +17,7 @@ from langchain_core.messages import ToolMessage
 
 from ...documents.text import jdump, short_args, summarise_payload
 from ..state import SplitterState
-from ..tools import TOOL_BY_NAME, blocked_payload, is_blocked
+from ..tools import SPLIT_TOOL_BY_NAME, blocked_payload, is_blocked
 
 
 def make_tool_node():
@@ -48,12 +48,12 @@ def make_tool_node():
                 log.append(f"tools: BLOCKED {name} (no validated plan yet)")
                 continue
 
-            tool = TOOL_BY_NAME.get(name)
+            tool = SPLIT_TOOL_BY_NAME.get(name)
             if tool is None:
                 out_messages.append(
                     ToolMessage(
                         content=jdump(
-                            {"error": f"unknown tool {name!r}", "available": list(TOOL_BY_NAME)}
+                            {"error": f"unknown tool {name!r}", "available": list(SPLIT_TOOL_BY_NAME)}
                         ),
                         tool_call_id=call_id,
                         name=name or "unknown",

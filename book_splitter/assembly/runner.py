@@ -31,24 +31,28 @@ assembles the new chapters.
 
 from __future__ import annotations
 
-import contextlib
-import hashlib
-import json
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ..chunking.runner import chunk_files
+from ..core.artifacts import (
+    sha256_text,
+    timestamp,
+    write_manifest,
+    write_text,
+    write_trace,
+)
 from ..core.constants import (
     ASSEMBLY_MANIFEST_FILENAME,
     ASSEMBLY_TRACE_FILENAME,
-    CHUNKS_DIRNAME,
 )
 from ..core.errors import ToolError
+from ..core.run import RunContext
 from ..documents.chapters import translated_chapters_dir, translations_dir
+from ..documents.chunks import chunk_files, resolve_chunks_dir
+from ..documents.manifest import load_assembly_manifest
 from ..documents.window import (
     body_chapter_names,
     chunk_chapter_names,
@@ -121,19 +125,6 @@ class AssemblyResult:
 # --------------------------------------------------------------------------- #
 # paths
 # --------------------------------------------------------------------------- #
-def resolve_chunks_dir(path: str | Path) -> Path:
-    """Resolve a chunks folder, the book folder that holds it, or its manifest."""
-    candidate = Path(path).expanduser()
-    if candidate.is_file():
-        return candidate.parent
-    if candidate.name == CHUNKS_DIRNAME:
-        return candidate
-    nested = candidate / CHUNKS_DIRNAME
-    if nested.is_dir():
-        return nested
-    return candidate
-
-
 def resolve_translations_dir(
     translations_path: str | Path | None,
     chunks_path: str | Path,
@@ -152,23 +143,6 @@ def resolve_output_dir(
     if output_dir is not None and str(output_dir).strip():
         return Path(output_dir).expanduser()
     return translated_chapters_dir(resolve_chunks_dir(chunks_path))
-
-
-def load_assembly_manifest(output_dir: str | Path) -> dict[str, Any]:
-    """Read ``_translated_chapters_manifest.json`` from a folder or a file."""
-    path = Path(output_dir).expanduser()
-    manifest_path = (path / ASSEMBLY_MANIFEST_FILENAME) if path.is_dir() else path
-    if not manifest_path.is_file():
-        return {}
-    try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def _sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _chapter_records(
@@ -245,7 +219,7 @@ def run_assembly(
     write only the five new chapters. ``dry_run`` reads and verifies everything
     but writes no chapter, manifest or trace.
     """
-    run_started = clock()
+    context = RunContext(clock=clock, dry_run=dry_run, limited=False, progress=progress)
     chunk_folder = resolve_chunks_dir(chunks_path)
     translations_folder = resolve_translations_dir(translations_path, chunk_folder)
     out_dir = resolve_output_dir(output_dir, chunk_folder)
@@ -258,6 +232,7 @@ def run_assembly(
     limit = normalize_limit(first_chapters)
     body_names = body_chapter_names(all_names)
     limited = limit is not None and limit < len(body_names)
+    context.limited = limited
     # A window limits the *body* chapters, never the front/back matter: a book
     # built from the first N chapters still needs its title page and its back
     # page, and the matter stage localizes them for exactly this assembly.
@@ -322,7 +297,7 @@ def run_assembly(
                 errors.append(f"{name}: {record.error}")
             else:
                 record.translation_chars = len(text)
-                record.sha256 = _sha256_text(text)
+                record.sha256 = sha256_text(text)
                 target = out_dir / name
                 record.output_path = str(target)
                 if dry_run:
@@ -343,7 +318,7 @@ def run_assembly(
                             record.reused = True
                             reused_count += 1
                         else:
-                            target.write_text(text, encoding="utf-8")
+                            write_text(target, text)
                             record.reused = False
                             assembled_count += 1
                     except OSError as exc:
@@ -354,9 +329,7 @@ def run_assembly(
         if record.ok and not record.skipped:
             written_ok += 1
         records.append(record)
-        if progress is not None:
-            with contextlib.suppress(Exception):  # reporting must not break a run
-                progress(record.to_dict(), index + 1, len(names))
+        context.emit(record.to_dict(), index + 1, len(names))
 
     totals = {
         "chapters": len(records),
@@ -389,12 +362,12 @@ def run_assembly(
         totals=totals,
         chapters=[record.to_dict() for record in records],
         errors=errors,
-        timing={"run_seconds": round(clock() - run_started, 4)},
+        timing={"run_seconds": round(context.elapsed(), 4)},
     )
     if write_manifest and not dry_run:
         result.manifest_path = str(write_assembly_manifest(out_dir, result))
         result.trace_path = str(write_assembly_trace(out_dir, result))
-    return result
+    return context.finish(result)
 
 
 # --------------------------------------------------------------------------- #
@@ -405,10 +378,9 @@ def write_assembly_manifest(
     result: AssemblyResult,
 ) -> Path:
     """Write ``_translated_chapters_manifest.json``: the book-level index."""
-    path = Path(out_dir) / ASSEMBLY_MANIFEST_FILENAME
     payload = {
         "stage": "assembly",
-        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "generated_at": timestamp(),
         "ok": result.ok,
         "dry_run": result.dry_run,
         "limited": result.limited,
@@ -428,8 +400,7 @@ def write_assembly_manifest(
         "files": result.chapters,
         "errors": result.errors,
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
+    return write_manifest(out_dir, ASSEMBLY_MANIFEST_FILENAME, payload)
 
 
 def write_assembly_trace(
@@ -437,12 +408,7 @@ def write_assembly_trace(
     result: AssemblyResult,
 ) -> Path:
     """Write ``_translated_chapters_trace.json``: the same run, for debugging."""
-    path = Path(out_dir) / ASSEMBLY_TRACE_FILENAME
-    path.write_text(
-        json.dumps(result.to_dict(), ensure_ascii=False, indent=2, default=str),
-        encoding="utf-8",
-    )
-    return path
+    return write_trace(out_dir, ASSEMBLY_TRACE_FILENAME, result.to_dict())
 
 
 __all__ = [

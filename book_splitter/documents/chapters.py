@@ -11,34 +11,21 @@ count and hashes.
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from ..core.artifacts import sha256_file
 from ..core.constants import (
     CHAPTERS_DIRNAME,
-    CHUNK_GLOSSARY_DIRNAME,
-    CHUNKS_DIRNAME,
-    GLOSSARY_DIRNAME,
-    MANIFEST_FILENAME,
-    MATTER_DIRNAME,
-    MATTER_PROMPTS_DIRNAME,
-    POSTPROCESSED_CHAPTERS_DIRNAME,
-    PREPROCESS_MANIFEST_FILENAME,
-    PREPROCESSED_DIRNAME,
-    REDUCED_DIRNAME,
     TOC_FILENAME,
     TRANSLATED_BOOK_FILENAME,
-    TRANSLATED_CHAPTERS_DIRNAME,
     TRANSLATED_EPUB_FILENAME,
-    TRANSLATION_PROMPTS_DIRNAME,
-    TRANSLATIONS_DIRNAME,
-    UNIQUE_DIRNAME,
 )
 from ..core.errors import ToolError
 from .io import load_lines
+from .layout import book_root, resolve_stage_dir
+from .manifest import load_split_manifest
 
 
 @dataclass
@@ -73,10 +60,7 @@ def chapters_dir(output_dir: str | Path) -> Path:
 
 def preprocessed_dir(output_dir: str | Path) -> Path:
     """Default stage-2 output: a sibling of ``01-chapters/``, never over it."""
-    out = Path(output_dir).expanduser()
-    if out.name == CHAPTERS_DIRNAME:
-        out = out.parent
-    return out / PREPROCESSED_DIRNAME
+    return resolve_stage_dir(output_dir, "preprocessed")
 
 
 def reduced_dir(output_dir: str | Path) -> Path:
@@ -88,27 +72,19 @@ def reduced_dir(output_dir: str | Path) -> Path:
     Handed a ``02-preprocessed/`` folder it still writes beside it, in the same
     book folder, so the cleaned text and its reduction stay siblings.
     """
-    out = Path(output_dir).expanduser()
-    if out.name in {CHAPTERS_DIRNAME, PREPROCESSED_DIRNAME}:
-        out = out.parent
-    return out / REDUCED_DIRNAME
+    return resolve_stage_dir(output_dir, "reduced")
 
 
 def unique_dir(output_dir: str | Path) -> Path:
     """Default stage-3b output: the further-reduced chapters, a sibling of ``03-reduced/``.
 
     The second funnel step keeps the same filenames as ``03-reduced/`` and
-    ``01-chapters/``, so the three folders line up one to one and can be diffed while
-    the extra filter is tuned. The folder is derived from wherever the reduced
-    chapters went — an explicit ``--reduced-out`` moves it too, so the two outputs
-    stay next to each other.
+    ``01-chapters/``, so the three folders line up one to one and can be diffed
+    while the extra filter is tuned. The folder is derived from wherever the
+    reduced chapters went — an explicit ``--reduced-out`` moves it too, so the two
+    outputs stay next to each other.
     """
-    out = Path(output_dir).expanduser()
-    if out.name == CHAPTERS_DIRNAME:
-        # Handed the chapters folder instead of the reduced one (``--out`` does
-        # this), so step over to the sibling the stage would actually write.
-        out = out.parent / REDUCED_DIRNAME
-    return out.parent / UNIQUE_DIRNAME
+    return resolve_stage_dir(output_dir, "unique")
 
 
 def glossary_dir(output_dir: str | Path) -> Path:
@@ -116,12 +92,10 @@ def glossary_dir(output_dir: str | Path) -> Path:
 
     The glossary is one book-level artifact (plus its manifest), not one file per
     chapter, so the folder is a plain home for it rather than a third parallel
-    folder of chapter files.
+    folder of chapter files. Handed the cleaned ``02-preprocessed/`` folder it
+    still writes beside it, in the same book folder.
     """
-    out = Path(output_dir).expanduser()
-    if out.name == CHAPTERS_DIRNAME:
-        out = out.parent
-    return out / GLOSSARY_DIRNAME
+    return resolve_stage_dir(output_dir, "glossary")
 
 
 def chunks_dir(output_dir: str | Path) -> Path:
@@ -133,21 +107,7 @@ def chunks_dir(output_dir: str | Path) -> Path:
     ``02-preprocessed/`` folder it puts ``05-chunks/`` beside it, in the same book
     folder, which is where a translation run expects to find it.
     """
-    out = Path(output_dir).expanduser()
-    if out.name in {
-        CHAPTERS_DIRNAME,
-        PREPROCESSED_DIRNAME,
-        REDUCED_DIRNAME,
-        UNIQUE_DIRNAME,
-        GLOSSARY_DIRNAME,
-        CHUNK_GLOSSARY_DIRNAME,
-        TRANSLATIONS_DIRNAME,
-        TRANSLATION_PROMPTS_DIRNAME,
-        TRANSLATED_CHAPTERS_DIRNAME,
-        POSTPROCESSED_CHAPTERS_DIRNAME,
-    }:
-        out = out.parent
-    return out / CHUNKS_DIRNAME
+    return resolve_stage_dir(output_dir, "chunks")
 
 
 def chunk_glossary_dir(output_dir: str | Path) -> Path:
@@ -159,24 +119,7 @@ def chunk_glossary_dir(output_dir: str | Path) -> Path:
     it puts ``06-chunk-glossary/`` beside it, in the same book folder; handed the
     book folder it does the same.
     """
-    out = Path(output_dir).expanduser()
-    if out.name == CHUNK_GLOSSARY_DIRNAME:
-        return out
-    if out.name in {
-        CHAPTERS_DIRNAME,
-        PREPROCESSED_DIRNAME,
-        REDUCED_DIRNAME,
-        UNIQUE_DIRNAME,
-        GLOSSARY_DIRNAME,
-        CHUNKS_DIRNAME,
-        CHUNK_GLOSSARY_DIRNAME,
-        TRANSLATIONS_DIRNAME,
-        TRANSLATION_PROMPTS_DIRNAME,
-        TRANSLATED_CHAPTERS_DIRNAME,
-        POSTPROCESSED_CHAPTERS_DIRNAME,
-    }:
-        out = out.parent
-    return out / CHUNK_GLOSSARY_DIRNAME
+    return resolve_stage_dir(output_dir, "chunk_glossary")
 
 
 def translations_dir(output_dir: str | Path) -> Path:
@@ -188,23 +131,7 @@ def translations_dir(output_dir: str | Path) -> Path:
     ``07-translations/`` in it; handed ``05-chunks/`` (or any other sibling artifact
     folder) it steps over to the book folder first.
     """
-    out = Path(output_dir).expanduser()
-    if out.name == TRANSLATIONS_DIRNAME:
-        return out
-    if out.name in {
-        CHAPTERS_DIRNAME,
-        PREPROCESSED_DIRNAME,
-        REDUCED_DIRNAME,
-        UNIQUE_DIRNAME,
-        GLOSSARY_DIRNAME,
-        CHUNKS_DIRNAME,
-        CHUNK_GLOSSARY_DIRNAME,
-        TRANSLATION_PROMPTS_DIRNAME,
-        TRANSLATED_CHAPTERS_DIRNAME,
-        POSTPROCESSED_CHAPTERS_DIRNAME,
-    }:
-        out = out.parent
-    return out / TRANSLATIONS_DIRNAME
+    return resolve_stage_dir(output_dir, "translations")
 
 
 def translation_prompts_dir(output_dir: str | Path) -> Path:
@@ -215,22 +142,7 @@ def translation_prompts_dir(output_dir: str | Path) -> Path:
     for a human debugging one call. Handed the translations folder it puts the
     debug folder beside it.
     """
-    out = Path(output_dir).expanduser()
-    if out.name == TRANSLATION_PROMPTS_DIRNAME:
-        return out
-    if out.name in {
-        CHAPTERS_DIRNAME,
-        PREPROCESSED_DIRNAME,
-        REDUCED_DIRNAME,
-        UNIQUE_DIRNAME,
-        GLOSSARY_DIRNAME,
-        CHUNKS_DIRNAME,
-        CHUNK_GLOSSARY_DIRNAME,
-        TRANSLATIONS_DIRNAME,
-        TRANSLATED_CHAPTERS_DIRNAME,
-    }:
-        out = out.parent
-    return out / TRANSLATION_PROMPTS_DIRNAME
+    return resolve_stage_dir(output_dir, "translation_prompts")
 
 
 def matter_dir(output_dir: str | Path) -> Path:
@@ -240,47 +152,12 @@ def matter_dir(output_dir: str | Path) -> Path:
     stage 8 needs no new join rule). Handed any stage folder it steps over to the
     book folder first.
     """
-    out = Path(output_dir).expanduser()
-    if out.name == MATTER_DIRNAME:
-        return out
-    if out.name in {
-        CHAPTERS_DIRNAME,
-        PREPROCESSED_DIRNAME,
-        REDUCED_DIRNAME,
-        UNIQUE_DIRNAME,
-        GLOSSARY_DIRNAME,
-        CHUNKS_DIRNAME,
-        CHUNK_GLOSSARY_DIRNAME,
-        TRANSLATIONS_DIRNAME,
-        TRANSLATION_PROMPTS_DIRNAME,
-        TRANSLATED_CHAPTERS_DIRNAME,
-        POSTPROCESSED_CHAPTERS_DIRNAME,
-    }:
-        out = out.parent
-    return out / MATTER_DIRNAME
+    return resolve_stage_dir(output_dir, "matter")
 
 
 def matter_prompts_dir(output_dir: str | Path) -> Path:
     """Default matter-agent debug output: the whole input of every localization."""
-    out = Path(output_dir).expanduser()
-    if out.name == MATTER_PROMPTS_DIRNAME:
-        return out
-    if out.name in {
-        CHAPTERS_DIRNAME,
-        PREPROCESSED_DIRNAME,
-        REDUCED_DIRNAME,
-        UNIQUE_DIRNAME,
-        GLOSSARY_DIRNAME,
-        CHUNKS_DIRNAME,
-        CHUNK_GLOSSARY_DIRNAME,
-        MATTER_DIRNAME,
-        TRANSLATIONS_DIRNAME,
-        TRANSLATION_PROMPTS_DIRNAME,
-        TRANSLATED_CHAPTERS_DIRNAME,
-        POSTPROCESSED_CHAPTERS_DIRNAME,
-    }:
-        out = out.parent
-    return out / MATTER_PROMPTS_DIRNAME
+    return resolve_stage_dir(output_dir, "matter_prompts")
 
 
 def translated_chapters_dir(output_dir: str | Path) -> Path:
@@ -292,22 +169,7 @@ def translated_chapters_dir(output_dir: str | Path) -> Path:
     separate folder on purpose: ``01-chapters/`` is the source text and must never be
     overwritten by the translation.
     """
-    out = Path(output_dir).expanduser()
-    if out.name == TRANSLATED_CHAPTERS_DIRNAME:
-        return out
-    if out.name in {
-        CHAPTERS_DIRNAME,
-        PREPROCESSED_DIRNAME,
-        REDUCED_DIRNAME,
-        UNIQUE_DIRNAME,
-        GLOSSARY_DIRNAME,
-        CHUNKS_DIRNAME,
-        CHUNK_GLOSSARY_DIRNAME,
-        TRANSLATIONS_DIRNAME,
-        TRANSLATION_PROMPTS_DIRNAME,
-    }:
-        out = out.parent
-    return out / TRANSLATED_CHAPTERS_DIRNAME
+    return resolve_stage_dir(output_dir, "translated_chapters")
 
 
 def postprocessed_chapters_dir(output_dir: str | Path) -> Path:
@@ -318,25 +180,7 @@ def postprocessed_chapters_dir(output_dir: str | Path) -> Path:
     ``05-chunks/``…) it steps over to the book folder first. The translated chapter
     files are input and are never edited in place.
     """
-    out = Path(output_dir).expanduser()
-    if out.is_file() or out.suffix.lower() == ".md":
-        out = out.parent
-    if out.name == POSTPROCESSED_CHAPTERS_DIRNAME:
-        return out
-    if out.name in {
-        CHAPTERS_DIRNAME,
-        PREPROCESSED_DIRNAME,
-        REDUCED_DIRNAME,
-        UNIQUE_DIRNAME,
-        GLOSSARY_DIRNAME,
-        CHUNKS_DIRNAME,
-        CHUNK_GLOSSARY_DIRNAME,
-        TRANSLATIONS_DIRNAME,
-        TRANSLATION_PROMPTS_DIRNAME,
-        TRANSLATED_CHAPTERS_DIRNAME,
-    }:
-        out = out.parent
-    return out / POSTPROCESSED_CHAPTERS_DIRNAME
+    return resolve_stage_dir(output_dir, "postprocessed_chapters")
 
 
 def is_toc_filename(name: str) -> bool:
@@ -366,11 +210,9 @@ def translated_book_path(output_dir: str | Path) -> Path:
     concatenation source, while the single file is the reading copy.
     """
     out = Path(output_dir).expanduser()
-    if out.name in {POSTPROCESSED_CHAPTERS_DIRNAME, TRANSLATED_CHAPTERS_DIRNAME}:
-        out = out.parent
-    elif out.suffix.lower() == ".md":
+    if out.suffix.lower() == ".md":
         return out
-    return out / TRANSLATED_BOOK_FILENAME
+    return book_root(out) / TRANSLATED_BOOK_FILENAME
 
 
 def translated_epub_path(output_dir: str | Path) -> Path:
@@ -381,11 +223,9 @@ def translated_epub_path(output_dir: str | Path) -> Path:
     ``.epub`` path is returned unchanged.
     """
     out = Path(output_dir).expanduser()
-    if out.name in {POSTPROCESSED_CHAPTERS_DIRNAME, TRANSLATED_CHAPTERS_DIRNAME}:
-        out = out.parent
-    elif out.suffix.lower() == ".epub":
+    if out.suffix.lower() == ".epub":
         return out
-    return out / TRANSLATED_EPUB_FILENAME
+    return book_root(out) / TRANSLATED_EPUB_FILENAME
 
 
 def has_translation_files(path: str | Path) -> bool:
@@ -471,32 +311,6 @@ def chapter_filenames(path: str | Path) -> set[str]:
     }
 
 
-def load_split_manifest(chapters_path: str | Path) -> dict:
-    """Read a folder's chapter manifest, or return ``{}``.
-
-    Stage 1 writes ``_manifest.json``; stage 2 writes
-    ``_preprocess_manifest.json`` beside the cleaned chapters in the same shape
-    (same filenames and order, same titles and source line ranges, plus a hash of
-    the cleaned file). Reading either with one function is what lets a downstream
-    stage treat ``02-preprocessed/`` exactly like ``01-chapters/``. Stage 1's
-    manifest wins when both are present.
-    """
-    path = Path(chapters_path).expanduser()
-    if path.is_dir():
-        candidates = [path / MANIFEST_FILENAME, path / PREPROCESS_MANIFEST_FILENAME]
-    else:
-        candidates = [path]
-    for manifest_path in candidates:
-        if not manifest_path.is_file():
-            continue
-        try:
-            data = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {}
-        return data if isinstance(data, dict) else {}
-    return {}
-
-
 def _resolve_manifest_entry(entry: dict, base: Path) -> Path:
     """Resolve a manifest filename against the manifest folder, then its parent."""
     name = str(entry.get("filename") or entry.get("file") or "")
@@ -508,11 +322,7 @@ def _resolve_manifest_entry(entry: dict, base: Path) -> Path:
 
 def file_sha256(path: str | Path) -> str:
     """SHA-256 of a file's bytes."""
-    digest = hashlib.sha256()
-    with Path(path).expanduser().open("rb") as fh:
-        for chunk in iter(lambda: fh.read(65536), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+    return sha256_file(path)
 
 
 def discover_chapters(

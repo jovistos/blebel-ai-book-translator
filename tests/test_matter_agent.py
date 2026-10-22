@@ -432,3 +432,23 @@ def test_a_fully_localized_book_resumes_without_a_model(tmp_path: Path):
     assert second.resumed is True
     assert second.reused_count == second.chunk_count
     assert second.processed_count == 0
+
+
+def test_a_dry_run_does_not_synthesize_front_or_back_matter(tmp_path: Path):
+    """Synthesis writes chapter and chunk records; a dry run must write none."""
+    folder, chunks = _book(tmp_path, {"02-chapter-one.md": BODY})
+    before = {path.name for path in folder.iterdir()}
+    chunk_before = {path.name for path in chunks.iterdir()}
+
+    result = run_matter(
+        str(folder),
+        str(chunks),
+        source_language="en",
+        target_language="sr",
+        dry_run=True,
+    )
+
+    assert result.ok
+    assert result.synthetic_sections == []
+    assert {path.name for path in folder.iterdir()} == before
+    assert {path.name for path in chunks.iterdir()} == chunk_before

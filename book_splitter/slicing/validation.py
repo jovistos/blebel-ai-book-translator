@@ -66,6 +66,9 @@ def validate_split_map(
             issues.append(f"entry is not an object: {raw!r}")
             continue
         ln = raw.get("line_number", raw.get("line"))
+        if ln is None:
+            issues.append(f"line_number is not an integer: {raw.get('line_number')!r}")
+            continue
         try:
             ln = int(ln)
         except (TypeError, ValueError):
@@ -143,7 +146,7 @@ def validate_split_map(
         elif is_prose:
             point["role"] = "prose-chapter"
 
-        if line_in_toc(toc_block, ln):
+        if toc_block is not None and line_in_toc(toc_block, ln):
             issues.append(
                 f"line {ln} is inside the printed table of contents "
                 f"({toc_block.get('start_line')}-{toc_block.get('end_line')}), not a chapter start"

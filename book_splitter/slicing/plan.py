@@ -133,7 +133,7 @@ def plan_files(
 
 def describe_first_line(lines: list[str], start: int, end: int) -> str:
     """Short excerpt of the first non-blank line in a range (never prose)."""
-    return next((excerpt(l, 80) for l in lines[start - 1 : end + 3] if l.strip()), "")
+    return next((excerpt(line, 80) for line in lines[start - 1 : end + 3] if line.strip()), "")
 
 
 def gap_warnings(points: list[dict[str, Any]], max_gap_lines: int = MAX_GAP_LINES) -> list[str]:

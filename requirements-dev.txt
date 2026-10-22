@@ -1,6 +1,11 @@
 # Development-only dependencies for the book splitter.
-pytest>=8.0
+#
+# The lint/type/test versions are pinned: the CI workflow and the golden
+# snapshots in tests/snapshots/ are only meaningful against a known toolchain.
+pytest==9.1.1
+ruff==0.17.0
+mypy==2.4.0
 
-# Optional, for the lint/type config in pyproject.toml.
-# ruff>=0.6
-# mypy>=1.11
+# The EPUB stage imports markdown-it-py lazily, so it is optional at runtime but
+# required by the end-to-end fixture test, which runs stages 0 through 11.
+markdown-it-py>=3.0

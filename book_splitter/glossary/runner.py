@@ -41,14 +41,21 @@ is the number the run reports last.
 from __future__ import annotations
 
 import contextlib
-import json
 import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from ..core.artifacts import (
+    read_json,
+    read_manifest,
+    timestamp,
+    write_json,
+    write_manifest,
+    write_text,
+    write_trace,
+)
 from ..core.constants import (
     DEFAULT_GLOSSARY_ATTEMPTS,
     DEFAULT_GLOSSARY_CHUNK_CHARS,
@@ -61,16 +68,18 @@ from ..core.constants import (
     GLOSSARY_TRACE_FILENAME,
 )
 from ..core.errors import ConfigError, ExtractionError, ToolError
+from ..core.llm import TokenUsage
+from ..core.run import ItemOutcome, RunContext, run_items
 from ..documents.chapters import (
     Chapter,
     discover_chapters,
     glossary_dir,
-    load_split_manifest,
     reduced_dir,
     unique_dir,
 )
 from ..documents.io import load_lines
-from .extract import GlossaryExtractor, TokenUsage, make_extractor
+from ..documents.manifest import load_split_manifest
+from .extract import GlossaryExtractor, make_extractor
 from .models import GlossaryEntry, TermCategory, entry_key
 from .prompts import build_chapter_prompt, build_system_prompt
 
@@ -446,6 +455,8 @@ class GlossaryResult:
     reused_count: int = 0
     entry_count: int = 0
     dry_run: bool = False
+    #: True when ``limit`` kept this run to a prefix of the chapters.
+    limited: bool = False
     save: bool = True
     resumed: bool = False
     settings: dict[str, Any] = field(default_factory=dict)
@@ -515,8 +526,15 @@ def run_glossary(
     ``dry_run`` still calls the model — the answer *is* the artifact, so there is
     nothing to validate without asking — but writes no file.
     """
-    run_started = clock()
     chapters = discover_chapters(chapters_path)
+    limited = bool(limit is not None and 0 < int(limit) < len(chapters))
+    context = RunContext(
+        clock=clock,
+        dry_run=dry_run,
+        settings=settings,
+        limited=limited,
+        progress=progress,
+    )
     if limit is not None and int(limit) > 0:
         chapters = chapters[: int(limit)]
     plans = select_chapters(
@@ -606,7 +624,6 @@ def run_glossary(
         out_dir.mkdir(parents=True, exist_ok=True)
 
     records: list[ChapterGlossary] = []
-    completed = 0
     pending_names = {plan.chapter.filename for plan in pending}
     extras: dict[str, Any] = {"extractor_name": extractor_name}
 
@@ -646,13 +663,14 @@ def run_glossary(
             reused_count=sum(1 for r in records if r.reused),
             entry_count=len(book),
             dry_run=dry_run,
+            limited=limited,
             save=save,
             resumed=resumed,
             settings=chosen_settings,
             tokens={**totals.to_dict(), "chapters": called_chapters},
             categories=book.categories(),
             conflicts=previous_conflicts + list(book.conflicts),
-            timing=_timing(records, run_seconds=clock() - run_started),
+            timing=_timing(records, run_seconds=context.elapsed()),
             chapters=[r.record() for r in records],
             entries=book.to_list(),
             errors=errors,
@@ -668,14 +686,15 @@ def run_glossary(
             write_glossary_markdown(out_dir, partial, book)
             write_glossary_manifest(out_dir, partial, list(records))
 
-    for plan in plans:
+    processed = 0
+
+    def _work(plan: ChapterPlan) -> ChapterGlossary:
+        """One plan's outcome, with the model call isolated by ``run_items``."""
         chapter = plan.chapter
         if not plan.will_process:
-            records.append(_skipped_record(plan))
-            continue
+            return _skipped_record(plan)
         if chapter.filename not in pending_names:
-            records.append(_reused_record(plan, previous_files.get(chapter.filename)))
-            continue
+            return _reused_record(plan, previous_files.get(chapter.filename))
         if chapter_start is not None:
             with contextlib.suppress(Exception):  # a reporting hook must never break a run
                 chapter_start(
@@ -684,38 +703,48 @@ def run_glossary(
                         "body_index": plan.body_index,
                         "filename": chapter.filename,
                         "title": plan.title,
-                        "done": completed,
+                        "done": processed,
                         "total": len(pending),
                     }
                 )
-        try:
-            record = _extract_chapter(
-                plan,
-                sentences_path=sentences_path,
-                extractor=extractor,
-                system_prompt=system_prompt,
-                book=book,
-                chunk_chars=int(chunk_chars),
-                max_context_entries=int(max_context_entries),
-                clock=clock,
-            )
-        except Exception as exc:  # one bad chapter must not stop the book
-            record = ChapterGlossary(
-                index=plan.index,
-                chapter_id=chapter.chapter_id,
-                filename=chapter.filename,
-                title=plan.title,
-                kind=plan.kind,
-                ok=False,
-                error=f"{type(exc).__name__}: {exc}",
-            )
+        return _extract_chapter(
+            plan,
+            sentences_path=sentences_path,
+            extractor=extractor,
+            system_prompt=system_prompt,
+            book=book,
+            chunk_chars=int(chunk_chars),
+            max_context_entries=int(max_context_entries),
+            clock=clock,
+        )
+
+    def _failed(plan: ChapterPlan, exc: Exception) -> ChapterGlossary:
+        chapter = plan.chapter
+        return ChapterGlossary(
+            index=plan.index,
+            chapter_id=chapter.chapter_id,
+            filename=chapter.filename,
+            title=plan.title,
+            kind=plan.kind,
+            ok=False,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+
+    def _collect(outcome: ItemOutcome, _completed: int, _total: int) -> None:
+        """Record every plan, price the ones that were asked, snapshot the book."""
+        nonlocal processed, totals
+        record = outcome.value
+        if record is None:  # pragma: no cover - _failed always supplies a record
+            return
         records.append(record)
+        if record.skipped or record.reused:
+            return
         totals += record.usage
-        completed += 1
-        if progress is not None:
-            with contextlib.suppress(Exception):  # a reporting hook must never break a run
-                progress(record.to_dict(), completed, len(pending))
+        processed += 1
+        context.emit(record.to_dict(), processed, len(pending))
         snapshot()
+
+    run_items(plans, _work, on_error=_failed, on_item=_collect)
 
     result = build_result()
     if save and not dry_run and not book and result.processed_count and not result.ok_count:
@@ -730,7 +759,7 @@ def run_glossary(
         result.markdown_path = str(write_glossary_markdown(out_dir, result, book))
         result.manifest_path = str(write_glossary_manifest(out_dir, result, records))
         result.trace_path = str(write_glossary_trace(out_dir, result, records))
-    return result
+    return context.finish(result)
 
 
 # --------------------------------------------------------------------------- #
@@ -944,14 +973,7 @@ def _reused_record(plan: ChapterPlan, previous: dict[str, Any] | None) -> Chapte
 # resuming
 # --------------------------------------------------------------------------- #
 def _previous_manifest(out_dir: Path) -> dict[str, Any]:
-    path = Path(out_dir) / GLOSSARY_MANIFEST_FILENAME
-    if not path.is_file():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return read_manifest(out_dir, GLOSSARY_MANIFEST_FILENAME)
 
 
 def _resume_state(
@@ -972,10 +994,7 @@ def _resume_state(
 
     glossary_path = Path(out_dir) / GLOSSARY_FILENAME
     if glossary_path.is_file():
-        try:
-            data = json.loads(glossary_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            data = {}
+        data = read_json(glossary_path, default={})
         for entry in (data.get("entries") if isinstance(data, dict) else None) or []:
             if isinstance(entry, dict) and entry.get("term"):
                 book.lock(GlossaryTerm.from_dict(entry))
@@ -1004,7 +1023,7 @@ def glossary_payload(result: GlossaryResult, book: GlossaryBook) -> dict[str, An
     """The dictionary itself — the file the translation stage consumes."""
     return {
         "stage": "glossary",
-        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "generated_at": timestamp(),
         "book_title": result.book_title,
         "source_file": result.source_file,
         "source_language": result.source_language,
@@ -1022,12 +1041,7 @@ def glossary_payload(result: GlossaryResult, book: GlossaryBook) -> dict[str, An
 
 
 def write_glossary(out_dir: Path, result: GlossaryResult, book: GlossaryBook) -> Path:
-    path = Path(out_dir) / GLOSSARY_FILENAME
-    path.write_text(
-        json.dumps(glossary_payload(result, book), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    return path
+    return write_json(Path(out_dir) / GLOSSARY_FILENAME, glossary_payload(result, book))
 
 
 def write_glossary_markdown(out_dir: Path, result: GlossaryResult, book: GlossaryBook) -> Path:
@@ -1036,7 +1050,6 @@ def write_glossary_markdown(out_dir: Path, result: GlossaryResult, book: Glossar
     Meant to be read in a diff or an editor while the book is being translated —
     ``glossary.json`` is the machine's copy, this is the reviewer's.
     """
-    path = Path(out_dir) / GLOSSARY_MARKDOWN_FILENAME
     lines = [
         f"# Glossary — {result.book_title or 'the book'}",
         "",
@@ -1063,8 +1076,7 @@ def write_glossary_markdown(out_dir: Path, result: GlossaryResult, book: Glossar
             translation = entry.translation.replace("|", "\\|")
             lines.append(f"| {term} | {translation} | {entry.chapter_filename} |")
         lines.append("")
-    path.write_text("\n".join(lines), encoding="utf-8")
-    return path
+    return write_text(Path(out_dir) / GLOSSARY_MARKDOWN_FILENAME, "\n".join(lines))
 
 
 def write_glossary_manifest(
@@ -1073,13 +1085,13 @@ def write_glossary_manifest(
     records: Sequence[ChapterGlossary] | None = None,
 ) -> Path:
     """The run's bookkeeping: per chapter, what it cost and what it added."""
-    path = Path(out_dir) / GLOSSARY_MANIFEST_FILENAME
     if records is None:
         records = []
     payload = {
         "stage": "glossary",
         "ok": result.ok,
         "dry_run": result.dry_run,
+        "limited": result.limited,
         "resumed": result.resumed,
         "book_title": result.book_title,
         "source_file": result.source_file,
@@ -1104,8 +1116,7 @@ def write_glossary_manifest(
         "files": [record.record() for record in records],
         "errors": result.errors,
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
+    return write_manifest(out_dir, GLOSSARY_MANIFEST_FILENAME, payload)
 
 
 def write_glossary_trace(
@@ -1114,14 +1125,10 @@ def write_glossary_trace(
     records: Sequence[ChapterGlossary] | None = None,
 ) -> Path:
     """The audit trail: per chapter, the entries it added and the answers it gave."""
-    path = Path(out_dir) / GLOSSARY_TRACE_FILENAME
     payload = result.to_dict()
     if records is not None:
         payload["detail"] = [record.to_dict() for record in records]
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
-    )
-    return path
+    return write_trace(out_dir, GLOSSARY_TRACE_FILENAME, payload)
 
 
 def _timing(records: Sequence[ChapterGlossary], *, run_seconds: float) -> dict[str, float]:

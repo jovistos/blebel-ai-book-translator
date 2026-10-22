@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 from ..analysis.toc import detect_toc_block
+from ..core.artifacts import write_trace as write_trace_artifact
 from ..core.constants import (
     DEFAULT_FRONT_MATTER_LINES,
     DEFAULT_MIN_CHAPTERS,
@@ -241,23 +241,16 @@ def write_trace(out_dir: Path, result: SplitterResult, final: dict) -> Path:
     has no output folder yet, and that is exactly the run whose trace — the
     proposed map, the validation issues, the tool log — explains the failure.
     """
-    trace = Path(out_dir) / TRACE_FILENAME
-    trace.parent.mkdir(parents=True, exist_ok=True)
-    trace.write_text(
-        json.dumps(
-            {
-                "result": result.to_dict(),
-                "toc_block": final.get("toc_block"),
-                "proposed_splits": final.get("proposed_splits"),
-                "validation": final.get("validation"),
-                "manifest": final.get("manifest"),
-                "verification": final.get("verification"),
-                "tool_log": final.get("log", []),
-            },
-            ensure_ascii=False,
-            indent=2,
-            default=str,
-        ),
-        encoding="utf-8",
+    return write_trace_artifact(
+        out_dir,
+        TRACE_FILENAME,
+        {
+            "result": result.to_dict(),
+            "toc_block": final.get("toc_block"),
+            "proposed_splits": final.get("proposed_splits"),
+            "validation": final.get("validation"),
+            "manifest": final.get("manifest"),
+            "verification": final.get("verification"),
+            "tool_log": final.get("log", []),
+        },
     )
-    return trace

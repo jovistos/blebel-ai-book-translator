@@ -42,6 +42,7 @@ from typing import Any
 from ..core.constants import FRONT_MATTER_FILENAME
 from ..core.errors import ToolError
 from .chapters import Chapter
+from .chunks import chunk_chapter_names, chunk_files
 
 #: A limit value below one means "no limit", which is how the stage runners have
 #: always read ``0`` (and how ``--limit 0`` has behaved).
@@ -168,36 +169,6 @@ def chapter_window_limit_for_path(
     return chapter_window_limit(chapters, first, unit_limit)
 
 
-def chunk_chapter_names(chunks_path: str | Path) -> list[str]:
-    """The chapter filenames recorded by stage 5, in reading order.
-
-    The chunk manifest's ``chapters`` list is authoritative and includes a
-    chapter with zero chunks. A manifest without that list falls back to the
-    unique ``chapter_filename`` values of the chunk files in global order.
-    """
-    from ..chunking.runner import chunk_files, load_chunk_manifest
-
-    manifest = load_chunk_manifest(chunks_path)
-    names: list[str] = []
-    seen: set[str] = set()
-    for record in manifest.get("chapters") or []:
-        if not isinstance(record, dict):
-            continue
-        name = str(record.get("filename") or "")
-        if name and name not in seen:
-            seen.add(name)
-            names.append(name)
-    if names:
-        return names
-
-    for entry in chunk_files(chunks_path):
-        name = str(entry.get("chapter_filename") or "")
-        if name and name not in seen:
-            seen.add(name)
-            names.append(name)
-    return names
-
-
 def chapter_files_for_window(
     chunks_path: str | Path, first_chapters: Any
 ) -> list[str] | None:
@@ -240,8 +211,6 @@ def chunk_limit_for_chapters(chunks_path: str | Path, first_chapters: Any) -> Li
     limit = normalize_limit(first_chapters)
     if limit is None:
         return None
-
-    from ..chunking.runner import chunk_files
 
     entries = chunk_files(chunks_path)
     if not entries:

@@ -23,6 +23,7 @@ from typing import Any
 
 from ..analysis.patterns import TOC_WORDS
 from ..analysis.toc import detect_toc_block
+from ..core.artifacts import write_text
 from ..core.constants import (
     DEFAULT_TOC_HEADING,
     MAX_TOC_ENTRIES,
@@ -392,7 +393,7 @@ def apply_toc(
         target = Path(str(toc["path"]))
         changed = not target.is_file() or target.read_text(encoding="utf-8") != rendered
         if changed and not dry_run:
-            target.write_text(rendered, encoding="utf-8")
+            write_text(target, rendered)
         return {
             "ok": True,
             "action": "update",
@@ -422,7 +423,7 @@ def apply_toc(
         text = "\n".join(new_lines).rstrip("\n") + "\n"
         changed = text != "".join(line + "\n" for line in lines)
         if changed and not dry_run:
-            target.write_text(text, encoding="utf-8")
+            write_text(target, text)
         return {
             "ok": True,
             "action": "update",
@@ -438,7 +439,7 @@ def apply_toc(
     target = folder / TOC_FILENAME
     changed = not target.is_file() or target.read_text(encoding="utf-8") != rendered
     if changed and not dry_run:
-        target.write_text(rendered, encoding="utf-8")
+        write_text(target, rendered)
     return {
         "ok": True,
         "action": "create",

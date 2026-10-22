@@ -34,9 +34,6 @@ says so, rather than failing a run over a vocabulary download.
 from __future__ import annotations
 
 import bisect
-import contextlib
-import hashlib
-import json
 import re
 import time
 from collections.abc import Callable, Iterable
@@ -44,6 +41,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..core.artifacts import read_manifest, sha256_text, write_manifest, write_trace
 from ..core.constants import (
     CHUNK_INDEX_DIGITS,
     CHUNK_MANIFEST_FILENAME,
@@ -53,15 +51,17 @@ from ..core.constants import (
     DEFAULT_CHUNK_TOKENS,
 )
 from ..core.errors import MissingDependencyError, ToolError
+from ..core.run import RunContext
 from ..documents.chapters import (
     Chapter,
     chapters_dir,
     chunks_dir,
     discover_chapters,
-    load_split_manifest,
 )
+from ..documents.chunks import chunk_files
 from ..documents.images import image_spans
 from ..documents.io import load_lines
+from ..documents.manifest import load_chunk_manifest, load_split_manifest
 from .boundaries import (
     PARAGRAPH_SAFE,
     SENTENCE_SAFE,
@@ -502,10 +502,10 @@ def run_chunking(
     if int(chunk_size) <= 0:
         raise ValueError("chunk_size must be greater than 0")
 
-    run_started = clock()
     all_chapters = discover_chapters(chapters_path)
     limited = limit is not None and int(limit) > 0 and int(limit) < len(all_chapters)
     chapters = all_chapters[: int(limit)] if limit is not None and int(limit) > 0 else all_chapters
+    context = RunContext(clock=clock, dry_run=dry_run, limited=limited, progress=progress)
     source_dir = chapters_dir(chapters_path)
     out_dir = Path(output_dir).expanduser() if output_dir else chunks_dir(source_dir)
     previous = _previous_manifest(out_dir)
@@ -537,21 +537,21 @@ def run_chunking(
         texts[chapter.filename] = text
         if not reusable:
             continue
-        records = previous_files.get(chapter.filename)
-        if records and _records_match_chapter(records, text, out_dir):
-            candidates[chapter.filename] = records
+        previous_records = previous_files.get(chapter.filename)
+        if previous_records and _records_match_chapter(previous_records, text, out_dir):
+            candidates[chapter.filename] = previous_records
     simulated_index = 0
     all_reusable = True
     for chapter in chapters:
-        records = candidates.get(chapter.filename)
-        if not records:
+        candidate_records = candidates.get(chapter.filename)
+        if not candidate_records:
             all_reusable = False
             break
         expected = simulated_index
-        if not _records_are_ordered(records, expected):
+        if not _records_are_ordered(candidate_records, expected):
             all_reusable = False
             break
-        simulated_index += len(records)
+        simulated_index += len(candidate_records)
 
     if all_reusable and chapters:
         result = _reused_result(
@@ -577,7 +577,7 @@ def run_chunking(
             else None
         )
         result.timing = {
-            "run_seconds": round(clock() - run_started, 4),
+            "run_seconds": round(context.elapsed(), 4),
             "chapter_seconds": 0.0,
             "chunk_seconds": 0.0,
         }
@@ -648,9 +648,7 @@ def run_chunking(
                 errors.append(f"{chapter.filename}: {chapter_record.error}")
         chapter_record.elapsed_seconds = clock() - chapter_started
         records.append(chapter_record)
-        if progress is not None:
-            with contextlib.suppress(Exception):  # a reporting hook must never break a run
-                progress(chapter_record.to_dict(), len(records), len(chapters))
+        context.emit(chapter_record.to_dict(), len(records), len(chapters))
 
     result = _build_result(
         records=records,
@@ -670,13 +668,13 @@ def run_chunking(
         timing={
             "chapter_seconds": round(sum(record.elapsed_seconds for record in records), 4),
             "chunk_seconds": round(timing_chunk_seconds, 4),
-            "run_seconds": round(clock() - run_started, 4),
+            "run_seconds": round(context.elapsed(), 4),
         },
     )
     if write_manifest and not dry_run:
         result.manifest_path = str(write_chunk_manifest(out_dir, result))
         result.trace_path = str(write_chunk_trace(out_dir, result))
-    return result
+    return context.finish(result)
 
 
 # --------------------------------------------------------------------------- #
@@ -695,7 +693,7 @@ def _chunk_one_chapter(
 ) -> tuple[ChapterChunks, list[ChunkRecord]]:
     """Write (or plan) one chapter's chunk files and describe them."""
     newlines = [index for index, char in enumerate(text) if char == "\n"]
-    source_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    source_hash = sha256_text(text)
     record = ChapterChunks(
         chapter_id=chapter.chapter_id,
         filename=chapter.filename,
@@ -736,7 +734,7 @@ def _chunk_one_chapter(
             end_line=end_line,
             token_count=token_count,
             bytes=len(payload),
-            sha256=hashlib.sha256(payload).hexdigest(),
+            sha256=sha256_text(piece),
             boundary_before=before,
             boundary_after=after,
             first_line=_preview(piece),
@@ -744,7 +742,7 @@ def _chunk_one_chapter(
         )
         chunk_records.append(record_payload)
     reconstructed = "".join(pieces)
-    record.reconstructed_sha256 = hashlib.sha256(reconstructed.encode("utf-8")).hexdigest()
+    record.reconstructed_sha256 = sha256_text(reconstructed)
     record.reconstructs_byte_for_byte = reconstructed == text
     record.chunk_tokens = sum(span[2] for span in spans)
     record.boundary_counts = boundary_counts(boundary_kinds)
@@ -767,7 +765,7 @@ def _reused_chapter(
     token_count: int | None = None,
 ) -> ChapterChunks:
     """Describe a chapter whose chunk files are being reused unchanged."""
-    source_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    source_hash = sha256_text(text)
     chunks = sorted(records, key=lambda entry: int(entry.get("chunk_index") or 0))
     reconstructed = "".join(
         (out_dir / str(entry["filename"])).read_text(encoding="utf-8") for entry in chunks
@@ -792,7 +790,7 @@ def _reused_chapter(
         ),
         chunk_tokens=sum(int(entry.get("token_count") or 0) for entry in chunks),
         source_sha256=source_hash,
-        reconstructed_sha256=hashlib.sha256(reconstructed.encode("utf-8")).hexdigest(),
+        reconstructed_sha256=sha256_text(reconstructed),
         reconstructs_byte_for_byte=reconstructed == text,
         first_global_index=global_start,
         last_global_index=global_start + len(chunks) - 1 if chunks else None,
@@ -1034,14 +1032,7 @@ def _reused_result(
 # reuse and prior runs
 # --------------------------------------------------------------------------- #
 def _previous_manifest(out_dir: Path) -> dict[str, Any]:
-    path = Path(out_dir) / CHUNK_MANIFEST_FILENAME
-    if not path.is_file():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return read_manifest(out_dir, CHUNK_MANIFEST_FILENAME)
 
 
 def _previous_chapter_tokens(manifest: dict[str, Any]) -> dict[str, int]:
@@ -1084,13 +1075,18 @@ def _previous_settings_match(
     return not bool(recorded.get("fallback"))
 
 
+def _global_index_or_sentinel(item: dict[str, Any]) -> int:
+    """The record's ``global_index`` as an int, or ``-1`` when it has none."""
+    value = item.get("global_index")
+    return int(value) if value is not None else -1
+
+
 def _records_are_ordered(records: list[dict[str, Any]], expected_start: int) -> bool:
     ordered = sorted(records, key=lambda item: int(item.get("chunk_index") or 0))
     if [int(item.get("chunk_index") or 0) for item in ordered] != list(range(len(ordered))):
         return False
     return all(
-        int(item.get("global_index") if item.get("global_index") is not None else -1)
-        == expected_start + position
+        _global_index_or_sentinel(item) == expected_start + position
         for position, item in enumerate(ordered)
     )
 
@@ -1151,7 +1147,6 @@ def chunk_filename(global_index: int, chapter_id: str, chunk_index: int) -> str:
 # --------------------------------------------------------------------------- #
 def write_chunk_manifest(out_dir: str | Path, result: ChunkingResult) -> Path:
     """Write ``_chunk_manifest.json``: the book's chunk index and its proof."""
-    path = Path(out_dir) / CHUNK_MANIFEST_FILENAME
     payload = {
         "stage": "chunk",
         "chapters_path": result.chapters_path,
@@ -1172,60 +1167,12 @@ def write_chunk_manifest(out_dir: str | Path, result: ChunkingResult) -> Path:
         "files": result.files,
         "errors": result.errors,
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
+    return write_manifest(out_dir, CHUNK_MANIFEST_FILENAME, payload)
 
 
 def write_chunk_trace(out_dir: str | Path, result: ChunkingResult) -> Path:
     """Write the audit trail: the same run, plus each chapter's own log."""
-    path = Path(out_dir) / CHUNK_TRACE_FILENAME
-    path.write_text(
-        json.dumps(result.to_dict(), ensure_ascii=False, indent=2, default=str),
-        encoding="utf-8",
-    )
-    return path
-
-
-def load_chunk_manifest(chunks_path: str | Path) -> dict[str, Any]:
-    """Read ``_chunk_manifest.json`` from a chunks folder (or the file itself)."""
-    path = Path(chunks_path).expanduser()
-    manifest_path = (path / CHUNK_MANIFEST_FILENAME) if path.is_dir() else path
-    if not manifest_path.is_file():
-        return {}
-    try:
-        data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def chunk_files(chunks_path: str | Path) -> list[dict[str, Any]]:
-    """Every chunk record, in reading order.
-
-    The manifest is authoritative. Without one, the folder is read by sorted file
-    name — which is exactly why the global index is the first part of every name.
-    """
-    folder = Path(chunks_path).expanduser()
-    manifest = load_chunk_manifest(folder)
-    if folder.is_file():
-        folder = folder.parent
-    if manifest.get("files"):
-        return sorted(
-            (entry for entry in manifest["files"] if isinstance(entry, dict)),
-            key=lambda entry: int(entry.get("global_index") or 0),
-        )
-    return [
-        {
-            "global_index": index,
-            "chunk_index": index,
-            "filename": path.name,
-            "path": str(path),
-            "chapter_filename": "",
-            "chapter_id": "",
-        }
-        for index, path in enumerate(sorted(folder.glob("*.md")))
-        if not path.name.startswith("_")
-    ]
+    return write_trace(out_dir, CHUNK_TRACE_FILENAME, result.to_dict())
 
 
 def reconstruct_chapter(chunks_path: str | Path, chapter: str) -> str:

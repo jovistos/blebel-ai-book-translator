@@ -29,6 +29,7 @@ from typing import Any
 
 from langchain_core.tools import tool
 
+from ...core.artifacts import write_text
 from ...core.constants import (
     DEFAULT_MAX_HEADERS,
     PREPROCESS_MANIFEST_FILENAME,
@@ -51,6 +52,17 @@ from ...preprocess.transform import (
     verify_cleaning_plan,
 )
 from .registry import preprocess_stage
+
+
+def _line_number_of(entry: dict[str, Any]) -> int | None:
+    """The entry's line number as an int, or None when it is missing or invalid."""
+    value = entry.get("line_number", entry.get("line"))
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 @preprocess_stage
@@ -227,9 +239,8 @@ def report_chapter_cleaning(
     for entry in list(operations or []):
         if not isinstance(entry, dict):
             continue
-        try:
-            line_number = int(entry.get("line_number", entry.get("line")))
-        except (TypeError, ValueError):
+        line_number = _line_number_of(entry)
+        if line_number is None:
             return jdump(
                 {
                     "accepted": False,
@@ -253,9 +264,8 @@ def report_chapter_cleaning(
     for entry in list(text_fixes or []):
         if not isinstance(entry, dict):
             continue
-        try:
-            line_number = int(entry.get("line_number", entry.get("line")))
-        except (TypeError, ValueError):
+        line_number = _line_number_of(entry)
+        if line_number is None:
             return jdump(
                 {
                     "accepted": False,
@@ -319,7 +329,7 @@ def apply_chapter_cleaning(
 
     fixes = list(text_fixes or [])
     result = apply_cleaning_plan(path, operations, fixes)
-    target.write_text(text_of(result), encoding="utf-8")
+    write_text(target, text_of(result))
 
     verification = verify_cleaning_plan(path, operations, fixes)
     payload = {

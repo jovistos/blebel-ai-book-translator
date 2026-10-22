@@ -109,9 +109,7 @@ def _name_score(text: str) -> int:
             continue
         if lowered in _TITLE_WORDS:
             return 0
-        if core[0].isupper():
-            score += 2
-        elif core.isupper() and len(core) > 1:
+        if core[0].isupper() or (core.isupper() and len(core) > 1):
             score += 2
         else:
             return 0
@@ -126,9 +124,7 @@ def _title_score(text: str) -> int:
     score = 0
     for word in words:
         lowered = word.casefold().strip(".,")
-        if lowered in _TITLE_WORDS:
-            score += 1
-        elif any(ch.islower() for ch in word.strip(".,")):
+        if lowered in _TITLE_WORDS or any(ch.islower() for ch in word.strip(".,")):
             score += 1
     return score
 

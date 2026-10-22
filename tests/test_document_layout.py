@@ -11,14 +11,13 @@ from __future__ import annotations
 import json
 
 import pytest
-from langchain_core.messages import AIMessage
-
 from book_splitter import paths
 from book_splitter.agent import build_graph
 from book_splitter.agent.runner import summarise_run
 from book_splitter.analysis.locate import locate_toc_titles
 from book_splitter.documents.io import load_lines
 from book_splitter.slicing.verify import verify_output_dir
+from langchain_core.messages import AIMessage
 
 from _fixtures import SAMPLE, SAMPLE_TOC_TITLES, requires_sample
 
@@ -61,7 +60,7 @@ def _canonical_plan(book) -> list[dict]:
     assert all(m["found"] for m in matches), "the locator must find every sample chapter"
     return [
         {"line_number": m["line_number"], "filename": name, "title": m["title"]}
-        for m, name in zip(matches, CHAPTER_NAMES)
+        for m, name in zip(matches, CHAPTER_NAMES, strict=True)
     ]
 
 

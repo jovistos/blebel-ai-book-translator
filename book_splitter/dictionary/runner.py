@@ -38,15 +38,19 @@ reused chapter still count towards the book-wide set.
 
 from __future__ import annotations
 
-import contextlib
-import hashlib
-import json
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..core.artifacts import (
+    read_manifest,
+    sha256_text,
+    write_manifest,
+    write_text,
+    write_trace,
+)
 from ..core.constants import (
     DEFAULT_KEEP_ENTITY_TYPES,
     DEFAULT_MIN_SENTENCE_WORDS,
@@ -55,15 +59,16 @@ from ..core.constants import (
     REDUCED_TRACE_FILENAME,
 )
 from ..core.errors import MissingDependencyError, ToolError
+from ..core.run import RunContext
 from ..documents.chapters import (
     Chapter,
     discover_chapters,
     file_sha256,
-    load_split_manifest,
     reduced_dir,
     unique_dir,
 )
 from ..documents.io import load_lines
+from ..documents.manifest import load_split_manifest
 from .language import LanguageDetector, detect_language
 from .ner import (
     NerBackend,
@@ -250,6 +255,8 @@ class DictionaryResult:
     skipped_count: int = 0
     skipped: bool = False
     dry_run: bool = False
+    #: True when ``limit`` kept this run to a prefix of the chapters.
+    limited: bool = False
     save_reduced: bool = True
     save_unique: bool = True
     gpu: int | None = None
@@ -418,8 +425,9 @@ def run_dictionary(
     (model load, the tagger itself, the chapter loop, the whole run); it is
     injectable so a test can assert exact numbers.
     """
-    run_started = clock()
     chapters = discover_chapters(chapters_path)
+    limited = bool(limit is not None and 0 < int(limit) < len(chapters))
+    context = RunContext(clock=clock, dry_run=dry_run, limited=limited, progress=progress)
     if limit is not None and int(limit) > 0:
         chapters = chapters[: int(limit)]
     source_dir = Path(chapters_path).expanduser()
@@ -477,6 +485,7 @@ def run_dictionary(
             skipped=True,
             skipped_count=skipped_count,
             dry_run=dry_run,
+            limited=limited,
             save_reduced=save_reduced,
             save_unique=save_unique,
             settings=settings,
@@ -581,9 +590,7 @@ def run_dictionary(
             errors.append(f"{chapter.filename}: {record.error}")
         records.append(record)
         completed += 1
-        if progress is not None:
-            with contextlib.suppress(Exception):  # a reporting hook must never break a run
-                progress(record.to_dict(), completed, len(pending))
+        context.emit(record.to_dict(), completed, len(pending))
 
     result = DictionaryResult(
         ok=bool(records) and all(r.ok for r in records),
@@ -597,6 +604,7 @@ def run_dictionary(
         processed_count=len(pending),
         skipped_count=skipped_count,
         dry_run=dry_run,
+        limited=limited,
         save_reduced=save_reduced,
         save_unique=save_unique,
         gpu=resolved_gpu,
@@ -608,7 +616,7 @@ def run_dictionary(
         timing=_timing(
             records,
             backend_load_seconds=backend_load_seconds,
-            run_seconds=clock() - run_started,
+            run_seconds=context.elapsed(),
         ),
         chapters=[r.record() for r in records],
         errors=errors,
@@ -616,7 +624,7 @@ def run_dictionary(
     if write_manifest and not dry_run:
         result.manifest_path = str(write_reduced_manifest(out_dir, result, chapters, records))
         result.trace_path = str(write_reduced_trace(out_dir, result, records))
-    return result
+    return context.finish(result)
 
 
 def _previous_manifest(out_dir: Path) -> dict[str, Any]:
@@ -626,14 +634,7 @@ def _previous_manifest(out_dir: Path) -> dict[str, Any]:
     files already on disk without loading them, and to recover each reused
     chapter's noun index so the book-wide first-mention set stays correct.
     """
-    path = Path(out_dir) / REDUCED_MANIFEST_FILENAME
-    if not path.is_file():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+    return read_manifest(out_dir, REDUCED_MANIFEST_FILENAME)
 
 
 def _manifest_files(manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -668,7 +669,7 @@ def _reusable(
     if not (unique_out_dir / chapter.filename).is_file():
         return False
     entry = previous_files.get(chapter.filename)
-    return bool(entry) and isinstance(entry.get("noun_keys"), list)
+    return entry is not None and isinstance(entry.get("noun_keys"), list)
 
 
 def _reduce_chapter(
@@ -727,10 +728,10 @@ def _reduce_chapter(
     if save_reduced and not dry_run:
         path = Path(out_dir) / chapter.filename
         payload = reduced_payload(reduction.kept)
-        path.write_text(payload, encoding="utf-8")
+        write_text(path, payload)
         record.output_path = str(path)
         record.output_bytes = len(payload.encode("utf-8"))
-        record.sha256 = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        record.sha256 = sha256_text(payload)
     elif save_reduced:
         record.output_path = str(Path(out_dir) / chapter.filename)
 
@@ -751,10 +752,10 @@ def _reduce_chapter(
         if not dry_run:
             path = Path(unique_out_dir) / chapter.filename
             payload = reduced_payload(selection.kept)
-            path.write_text(payload, encoding="utf-8")
+            write_text(path, payload)
             record.unique_path = str(path)
             record.unique_bytes = len(payload.encode("utf-8"))
-            record.unique_sha256 = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+            record.unique_sha256 = sha256_text(payload)
         else:
             record.unique_path = str(Path(unique_out_dir) / chapter.filename)
 
@@ -905,7 +906,6 @@ def write_reduced_manifest(
     and the first-mention one — plus the chapter's noun index, so one manifest
     describes both folders and a rerun can resume either.
     """
-    path = Path(out_dir) / REDUCED_MANIFEST_FILENAME
     if records is None:
         records = [
             ChapterReduction(
@@ -922,6 +922,7 @@ def write_reduced_manifest(
         "source_file": stage_one.get("source_file", ""),
         "ok": result.ok,
         "dry_run": result.dry_run,
+        "limited": result.limited,
         "language": result.language,
         "backend": result.backend,
         "gpu": result.gpu,
@@ -947,8 +948,7 @@ def write_reduced_manifest(
         ],
         "errors": result.errors,
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
+    return write_manifest(out_dir, REDUCED_MANIFEST_FILENAME, payload)
 
 
 def _source_lines(chapters: list[Chapter], record: ChapterReduction) -> int:
@@ -962,12 +962,10 @@ def write_reduced_trace(
     out_dir: Path, result: DictionaryResult, records: list[ChapterReduction] | None = None
 ) -> Path:
     """Write the audit trail: per chapter, what was dropped and why."""
-    path = Path(out_dir) / REDUCED_TRACE_FILENAME
     payload = result.to_dict()
     if records is not None:
         payload["detail"] = [record.to_dict() for record in records]
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-    return path
+    return write_trace(out_dir, REDUCED_TRACE_FILENAME, payload)
 
 
 __all__ = [

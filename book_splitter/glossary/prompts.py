@@ -32,6 +32,8 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from typing import Any
 
+from ..core.llm import JSON_ONLY_NOTE
+
 #: ISO code -> the name the prompt uses for it. Codes outside this table are
 #: passed through unchanged, so an unusual pair still produces a usable prompt.
 LANGUAGE_NAMES: dict[str, str] = {
@@ -102,11 +104,8 @@ DEFAULT_TARGET_NOTE = (
 )
 
 #: Appended to the user prompt of the last attempt, when the provider is asked for
-#: plain JSON mode instead of native structured output.
-JSON_ONLY_NOTE = (
-    "\n\nReturn ONLY the JSON object. No prose, no explanation, no Markdown code fence "
-    "around it — the first character of your answer must be `{` and the last must be `}`."
-)
+#: plain JSON mode instead of native structured output. The constant itself lives
+#: in :mod:`book_splitter.core.llm`, next to the loop that appends it.
 
 #: Headers of the two blocks of a chapter prompt. Kept as constants so the tests
 #: (and the trace) can name the same strings the model sees.

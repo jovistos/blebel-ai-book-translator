@@ -466,6 +466,92 @@ def test_a_limited_resume_does_not_drop_manifest_entries_beyond_the_limit(tmp_pa
     assert {record["filename"] for record in manifest["files"]} == set(_files(chunks))
 
 
+def test_a_reused_chunk_snapshot_keeps_the_records_beyond_the_window(tmp_path: Path):
+    """An interruption during a limited *resume* must not drop the other chunks.
+
+    The reused and image-only branches write a snapshot too; they need the same
+    carried records as the model-call branch, or the next resume has to pay for
+    the chunks that were already translated.
+    """
+    book, _chapters, chunks, _chunk_glossary = _project(tmp_path)
+    run_translation(str(chunks), translator=FakeTranslator())
+
+    def stop_after_first(record: dict, done: int, total: int) -> None:
+        if done == 1:
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        run_translation(
+            str(chunks),
+            translator=None,
+            limit=1,
+            resume=True,
+            progress=stop_after_first,
+        )
+
+    manifest = load_translation_manifest(book / "07-translations")
+    assert {record["filename"] for record in manifest["files"]} == set(_files(chunks))
+
+
+def test_resume_is_invalidated_by_a_changed_context_window(tmp_path: Path):
+    _book, _chapters, chunks, _chunk_glossary = _project(tmp_path)
+    run_translation(str(chunks), translator=FakeTranslator(), context_chars=0)
+
+    translator = FakeTranslator()
+    result = run_translation(
+        str(chunks), translator=translator, context_chars=12, resume=True
+    )
+
+    assert result.reused_count == 0
+    assert len(translator.calls) == result.chunk_count
+
+
+def test_resume_is_invalidated_by_a_changed_glossary(tmp_path: Path):
+    _book, _chapters, chunks, chunk_glossary = _project(tmp_path)
+    run_translation(str(chunks), translator=FakeTranslator())
+
+    victim = _files(chunks)[0]
+    glossary_file = chunk_glossary / f"{victim}.json"
+    payload = json.loads(glossary_file.read_text(encoding="utf-8"))
+    payload["matched_terms"].append(
+        {"term": "New", "glossary_term": "New", "translation": "Novo", "category": "term"}
+    )
+    glossary_file.write_text(json.dumps(payload), encoding="utf-8")
+
+    translator = FakeTranslator()
+    result = run_translation(str(chunks), translator=translator, resume=True)
+
+    assert result.reused_count == result.chunk_count - 1
+    assert [call["source"] for call in translator.calls] == [
+        (chunks / victim).read_text(encoding="utf-8")
+    ]
+
+
+def test_resume_is_invalidated_by_a_changed_model(tmp_path: Path):
+    class AnotherTranslator(FakeTranslator):
+        name = "another/model"
+
+    _book, _chapters, chunks, _chunk_glossary = _project(tmp_path)
+    run_translation(str(chunks), translator=FakeTranslator())
+
+    translator = AnotherTranslator()
+    result = run_translation(str(chunks), translator=translator, resume=True)
+
+    assert result.reused_count == 0
+    assert len(translator.calls) == result.chunk_count
+
+
+def test_resume_is_invalidated_by_a_changed_method(tmp_path: Path):
+    _book, _chapters, chunks, _chunk_glossary = _project(tmp_path)
+    run_translation(str(chunks), translator=FakeTranslator(), method="auto")
+
+    translator = FakeTranslator()
+    result = run_translation(str(chunks), translator=translator, method="json", resume=True)
+
+    assert result.reused_count == 0
+    assert len(translator.calls) == result.chunk_count
+
+
 # --------------------------------------------------------------------------- #
 # the manifest survives limited and interrupted runs
 # --------------------------------------------------------------------------- #

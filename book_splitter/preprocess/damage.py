@@ -491,17 +491,18 @@ def scan_chapter_damage(
             count = count_space_before_punct(line)
             if count:
                 match = re.search(r"\s+([,.;:!?])", line)
-                snippet = excerpt(line[max(0, match.start() - 18) : match.end() + 12], 48)
-                findings.append(
-                    Finding(
-                        kind=SPACE_BEFORE_PUNCTUATION,
-                        line_number=number,
-                        before=snippet,
-                        after=excerpt(repair_space_before_punctuation(snippet), 48),
-                        evidence=f"{count} punctuation mark(s) preceded by whitespace",
-                        extra={"count": count},
+                if match is not None:
+                    snippet = excerpt(line[max(0, match.start() - 18) : match.end() + 12], 48)
+                    findings.append(
+                        Finding(
+                            kind=SPACE_BEFORE_PUNCTUATION,
+                            line_number=number,
+                            before=snippet,
+                            after=excerpt(repair_space_before_punctuation(snippet), 48),
+                            evidence=f"{count} punctuation mark(s) preceded by whitespace",
+                            extra={"count": count},
+                        )
                     )
-                )
 
     if INLINE_PAGE_NUMBER in wanted:
         findings.extend(find_inline_page_numbers(lines))

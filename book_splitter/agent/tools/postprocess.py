@@ -33,6 +33,7 @@ from typing import Any
 
 from langchain_core.tools import tool
 
+from ...core.artifacts import write_text
 from ...core.constants import (
     DEFAULT_TOC_HEADING,
     HEADING_DECISIONS,
@@ -319,9 +320,11 @@ def report_book_plan(plan: dict) -> str:
     """
     if not isinstance(plan, dict):
         return jdump({"accepted": False, "error": "plan must be an object"})
-    naming = plan.get("naming") if isinstance(plan.get("naming"), dict) else {}
-    toc = plan.get("toc") if isinstance(plan.get("toc"), dict) else {}
-    normalized = {
+    raw_naming = plan.get("naming")
+    naming = raw_naming if isinstance(raw_naming, dict) else {}
+    raw_toc = plan.get("toc")
+    toc = raw_toc if isinstance(raw_toc, dict) else {}
+    normalized: dict[str, Any] = {
         "naming": {
             "mode": str(naming.get("mode") or "keep").strip().lower(),
             "label": clean_title(str(naming.get("label") or "")),
@@ -451,7 +454,7 @@ def apply_chapter_postprocess(
     out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / path.name
     applied = apply_chapter_plan(path, plan, canonical_title=canonical_title)
-    target.write_text(text_of(applied), encoding="utf-8")
+    write_text(target, text_of(applied))
     verification = verify_chapter_plan(
         path,
         plan,

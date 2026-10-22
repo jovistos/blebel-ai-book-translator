@@ -20,6 +20,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 
 from ..agent.tools import MATTER_TOOL_BY_NAME
 from ..agent.tools.matter import BOOK_TOOL_NAMES, CHUNK_TOOL_NAMES
+from ..core.artifacts import write_text
 from ..documents.text import jdump, short_args, summarise_payload
 from ..matter.plan import (
     preserve_trailing_newlines,
@@ -449,7 +450,7 @@ def make_apply_node():
         target = out_dir / str(getattr(chunk, "filename", "chunk.md"))
         try:
             out_dir.mkdir(parents=True, exist_ok=True)
-            target.write_text(final, encoding="utf-8")
+            write_text(target, final)
             payload = {
                 "ok": True,
                 "dry_run": False,

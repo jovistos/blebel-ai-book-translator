@@ -161,6 +161,7 @@ def test_midword_number_detects_a_page_number_glued_to_the_next_word():
         "Treće izdanje Beograd, 2005. Tiraž 1000 ISBN 86-7348-167-8",
         "To su tromboksan (TxA2) i prostaciklin (PG12), oba derivati.",
         "Godine 2011 bila je teška.",
+        "2011 Godine bila je teška.",
     ],
 )
 def test_inline_numbers_are_not_reported_as_damage(line):

@@ -43,36 +43,31 @@ directly.
 
 from __future__ import annotations
 
-import contextlib
-import hashlib
-import json
 import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import asdict, dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from ..chunking.runner import chunk_files
+from ..core.artifacts import (
+    read_json,
+    sha256_file,
+    timestamp,
+    write_json,
+    write_manifest,
+    write_trace,
+)
 from ..core.constants import (
-    CHAPTERS_DIRNAME,
-    CHUNK_GLOSSARY_DIRNAME,
     CHUNK_GLOSSARY_MANIFEST_FILENAME,
     CHUNK_GLOSSARY_TRACE_FILENAME,
-    CHUNKS_DIRNAME,
     DEFAULT_CHUNK_GLOSSARY_CANDIDATES,
     DEFAULT_CHUNK_GLOSSARY_MIN_TERM_CHARS,
     DEFAULT_CHUNK_GLOSSARY_SCORER,
     DEFAULT_CHUNK_GLOSSARY_THRESHOLD,
     DEFAULT_KEEP_ENTITY_TYPES,
-    GLOSSARY_DIRNAME,
-    GLOSSARY_FILENAME,
-    PREPROCESSED_DIRNAME,
-    REDUCED_DIRNAME,
-    TRANSLATED_CHAPTERS_DIRNAME,
-    UNIQUE_DIRNAME,
 )
 from ..core.errors import MissingDependencyError, ToolError
+from ..core.run import RunContext
 from ..dictionary.language import LanguageDetector, LanguageGuess, detect_language
 from ..dictionary.ner import (
     Entity,
@@ -84,33 +79,25 @@ from ..dictionary.ner import (
     normalize_type,
 )
 from ..documents.chapters import Chapter, chunk_glossary_dir
+from ..documents.chunks import (
+    ChunkInput,
+    chunk_glossary_filename,
+    discover_chunk_inputs,
+    resolve_chunks_dir,
+    resolve_glossary_path,
+)
 from ..documents.images import strip_images
+from ..documents.manifest import load_chunk_glossary_manifest
 from .matching import (
     LexiconEntry,
     MatchCandidate,
     RapidFuzzMatcher,
     TermMatcher,
     clean_term,
-    glossary_file,
     load_glossary,
     match_key,
     normalize_scorer,
     normalize_threshold,
-)
-
-#: Folder names that identify the book root when a stage is handed one of its own
-#: output folders instead of the book folder itself.
-_BOOK_FOLDER_NAMES = frozenset(
-    {
-        CHAPTERS_DIRNAME,
-        PREPROCESSED_DIRNAME,
-        REDUCED_DIRNAME,
-        UNIQUE_DIRNAME,
-        GLOSSARY_DIRNAME,
-        CHUNKS_DIRNAME,
-        CHUNK_GLOSSARY_DIRNAME,
-        TRANSLATED_CHAPTERS_DIRNAME,
-    }
 )
 
 #: Monotonic clock used for the timings; injectable so tests can be exact.
@@ -122,44 +109,6 @@ ProgressHook = Callable[[dict[str, Any], int, int], None]
 # --------------------------------------------------------------------------- #
 # records
 # --------------------------------------------------------------------------- #
-@dataclass
-class ChunkInput:
-    """One stage-5 chunk: where it is, what it covers and the text to tag."""
-
-    filename: str
-    path: str
-    global_index: int
-    chunk_index: int
-    chapter_id: str = ""
-    chapter_filename: str = ""
-    start_char: int = 0
-    end_char: int = 0
-    start_line: int = 0
-    end_line: int = 0
-    token_count: int = 0
-    sha256: str = ""
-    chars: int = 0
-    #: The chunk's exact text. Kept out of every serialised record.
-    text: str = field(default="", repr=False, compare=False)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "filename": self.filename,
-            "path": self.path,
-            "global_index": self.global_index,
-            "chunk_index": self.chunk_index,
-            "chapter_id": self.chapter_id,
-            "chapter_filename": self.chapter_filename,
-            "start_char": self.start_char,
-            "end_char": self.end_char,
-            "start_line": self.start_line,
-            "end_line": self.end_line,
-            "token_count": self.token_count,
-            "chars": self.chars,
-            "sha256": self.sha256,
-        }
-
-
 @dataclass
 class EntityTerm:
     """One distinct NER term inside one chunk, with its types and mention count."""
@@ -309,34 +258,12 @@ class ChunkGlossaryResult:
 # --------------------------------------------------------------------------- #
 # inputs
 # --------------------------------------------------------------------------- #
-def resolve_chunks_dir(path: str | Path) -> Path:
-    """Resolve a chunks folder, a book folder, or the manifest itself."""
-    candidate = Path(path).expanduser()
-    if candidate.is_file():
-        return candidate.parent
-    if candidate.name == CHUNKS_DIRNAME:
-        return candidate
-    nested = candidate / CHUNKS_DIRNAME
-    if nested.is_dir():
-        return nested
-    return candidate
-
-
-def _book_root(path: str | Path) -> Path:
-    candidate = Path(path).expanduser()
-    if candidate.is_file():
-        candidate = candidate.parent
-    return candidate.parent if candidate.name in _BOOK_FOLDER_NAMES else candidate
-
-
-def resolve_glossary_path(
-    glossary_path: str | Path | None,
-    chunks_path: str | Path,
-) -> Path:
-    """Where ``glossary.json`` is: explicit, or the book folder's ``04-glossary/``."""
-    if glossary_path:
-        return glossary_file(glossary_path)
-    return _book_root(chunks_path) / GLOSSARY_DIRNAME / GLOSSARY_FILENAME
+def _glossary_sha256(path: str | Path) -> str:
+    """SHA-256 of the glossary file, so a resume notices a changed dictionary."""
+    try:
+        return sha256_file(path)
+    except OSError:
+        return ""
 
 
 def _int(value: Any, default: int = 0) -> int:
@@ -344,78 +271,6 @@ def _int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
-
-
-def discover_chunk_inputs(chunks_path: str | Path) -> tuple[list[ChunkInput], Path]:
-    """Read every chunk file in stage-5 order, with its exact text.
-
-    The stage-5 manifest is authoritative when it is there: it carries the global
-    order, the chapter membership, the character/line spans and the chunk hash. A
-    folder without one still works (the chunk files sort into reading order), but
-    its files then only know their own name.
-    """
-    folder = resolve_chunks_dir(chunks_path)
-    if not folder.is_dir():
-        raise ToolError(f"chunks folder not found: {folder} — run `chunk` first")
-    entries = chunk_files(folder)
-    if not entries:
-        raise ToolError(f"no chunk files in {folder} — run `chunk` first")
-
-    ordered = sorted(
-        entries,
-        key=lambda entry: (_int(entry.get("global_index"), 0), str(entry.get("filename") or "")),
-    )
-    inputs: list[ChunkInput] = []
-    missing: list[str] = []
-    for position, entry in enumerate(ordered):
-        filename = str(entry.get("filename") or Path(str(entry.get("path") or "")).name)
-        if not filename:
-            continue
-        path = folder / filename
-        if not path.is_file():
-            missing.append(filename)
-            continue
-        text = path.read_text(encoding="utf-8")
-        payload = text.encode("utf-8")
-        chapter_filename = str(entry.get("chapter_filename") or "")
-        inputs.append(
-            ChunkInput(
-                filename=filename,
-                path=str(path),
-                global_index=_int(entry.get("global_index"), position),
-                chunk_index=_int(entry.get("chunk_index"), 0),
-                chapter_id=str(entry.get("chapter_id") or Path(chapter_filename).stem),
-                chapter_filename=chapter_filename,
-                start_char=_int(entry.get("start_char")),
-                end_char=_int(entry.get("end_char")),
-                start_line=_int(entry.get("start_line")),
-                end_line=_int(entry.get("end_line")),
-                token_count=_int(entry.get("token_count")),
-                sha256=str(entry.get("sha256") or hashlib.sha256(payload).hexdigest()),
-                chars=len(text),
-                text=text,
-            )
-        )
-    if missing:
-        raise ToolError(
-            f"{len(missing)} chunk file(s) recorded in the manifest are missing from "
-            f"{folder}: {', '.join(missing[:5])}"
-            + (" …" if len(missing) > 5 else "")
-            + " — re-run `chunk` to rebuild them"
-        )
-    if not inputs:
-        raise ToolError(f"no readable chunk files in {folder} — run `chunk` first")
-    inputs.sort(key=lambda chunk: (chunk.global_index, chunk.filename))
-    return inputs, folder
-
-
-def _glossary_sha256(path: str | Path) -> str:
-    """SHA-256 of the glossary file, so a resume notices a changed dictionary."""
-    try:
-        payload = Path(path).expanduser().read_bytes()
-    except OSError:
-        return ""
-    return hashlib.sha256(payload).hexdigest()
 
 
 def _candidate_from_payload(item: Any) -> MatchCandidate | None:
@@ -485,15 +340,23 @@ def _reusable_chunk_glossary(
     glossary_sha256: str,
     threshold: float,
     scorer: str,
+    keep_types: Sequence[str],
+    min_term_chars: int,
+    drop_temporal_only: bool,
+    candidates: int,
 ) -> ChunkGlossary | None:
-    """A per-chunk file that is still valid for ``chunk``, ready to be reused."""
+    """A per-chunk file that is still valid for ``chunk``, ready to be reused.
+
+    Every setting that changes the file's content is part of the check, not only
+    the chunk and glossary hashes: narrowing ``keep_types`` (or changing the
+    minimum term length, the temporal rule or the number of recorded candidates)
+    produces different terms for the same chunk, so the old file is not a valid
+    answer for the new run.
+    """
     path = out_dir / chunk_glossary_filename(chunk.filename)
     if not path.is_file():
         return None
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+    payload = read_json(path)
     if not isinstance(payload, dict):
         return None
 
@@ -519,6 +382,27 @@ def _reusable_chunk_glossary(
 
     recorded_glossary = str(payload.get("glossary_sha256") or "")
     if recorded_glossary and glossary_sha256 and recorded_glossary != glossary_sha256:
+        return None
+
+    recorded_keep = payload.get("keep_types")
+    if isinstance(recorded_keep, (list, tuple)):
+        recorded_types = {
+            str(value).strip().upper()
+            for value in recorded_keep
+            if str(value).strip()
+        }
+        current_types = {str(value).strip().upper() for value in keep_types}
+        if recorded_types != current_types:
+            return None
+    recorded_min = payload.get("min_term_chars")
+    if recorded_min is not None and _int(recorded_min, -1) != int(min_term_chars):
+        return None
+    if "drop_temporal_only" in payload and bool(payload.get("drop_temporal_only")) != bool(
+        drop_temporal_only
+    ):
+        return None
+    recorded_candidates = payload.get("candidates")
+    if recorded_candidates is not None and _int(recorded_candidates, -1) != int(candidates):
         return None
 
     terms = _terms_from_payload(payload.get("terms"), threshold)
@@ -606,8 +490,8 @@ def aggregate_entities(
         current.mentions += 1
         if entity_type not in current.types:
             current.types.append(entity_type)
-    for term in terms.values():
-        term.types.sort()
+    for entity_term in terms.values():
+        entity_term.types.sort()
     return list(terms.values()), mentions
 
 
@@ -718,7 +602,6 @@ def run_chunk_glossary(
     tagger when every chunk is covered; growing a chapter window therefore only
     tags the new chunks.
     """
-    run_started = clock()
     threshold = normalize_threshold(threshold)
     scorer = normalize_scorer(scorer)
     candidate_count = max(1, _int(candidates, DEFAULT_CHUNK_GLOSSARY_CANDIDATES))
@@ -742,6 +625,7 @@ def run_chunk_glossary(
             )
     limited = limit is not None and 0 < _int(limit) < len(all_inputs)
     inputs = all_inputs[: _int(limit)] if limit is not None and _int(limit) > 0 else all_inputs
+    context = RunContext(clock=clock, dry_run=dry_run, limited=limited, progress=progress)
 
     out_dir = (
         Path(output_dir).expanduser()
@@ -761,6 +645,10 @@ def run_chunk_glossary(
                 glossary_sha256=glossary_sha,
                 threshold=threshold,
                 scorer=scorer,
+                keep_types=wanted_types,
+                min_term_chars=minimum_chars,
+                drop_temporal_only=bool(drop_temporal_only),
+                candidates=candidate_count,
             )
             if reusable is not None:
                 reused_records[chunk.filename] = reusable
@@ -770,8 +658,8 @@ def run_chunk_glossary(
         # Nothing left to tag: report the files already on disk instead of loading
         # a tagger, so a finished (or widened) window needs no model at all.
         previous = load_chunk_glossary_manifest(out_dir)
-        records = [reused_records[chunk.filename] for chunk in inputs]
-        totals = _totals(records)
+        reused_result_records = [reused_records[chunk.filename] for chunk in inputs]
+        totals = _totals(reused_result_records)
         settings = {
             "language": previous.get("language") or {},
             "backend": str(previous.get("backend") or ""),
@@ -794,10 +682,10 @@ def run_chunk_glossary(
             language=dict(previous.get("language") or {}),
             backend=str(previous.get("backend") or ""),
             device=str(previous.get("device") or ""),
-            chunk_count=len(records),
-            ok_count=len(records),
+            chunk_count=len(reused_result_records),
+            ok_count=len(reused_result_records),
             processed_count=0,
-            skipped_count=len(records),
+            skipped_count=len(reused_result_records),
             entry_count=len(lexicon),
             entity_count=totals.get("entity_mentions", 0),
             term_count=totals.get("terms", 0),
@@ -819,21 +707,21 @@ def run_chunk_glossary(
                 },
             ],
             timing={
-                "run_seconds": round(clock() - run_started, 4),
+                "run_seconds": round(context.elapsed(), 4),
                 "backend_load_seconds": 0.0,
                 "ner_phase_seconds": 0.0,
                 "match_phase_seconds": 0.0,
                 "milliseconds_per_chunk": 0.0,
             },
-            chunks=[record.record() for record in records],
+            chunks=[record.record() for record in reused_result_records],
             errors=[],
         )
         if write_manifest and not dry_run:
             result.manifest_path = str(
-                write_chunk_glossary_manifest(out_dir, result, records)
+                write_chunk_glossary_manifest(out_dir, result, reused_result_records)
             )
             result.trace_path = str(
-                write_chunk_glossary_trace(out_dir, result, records)
+                write_chunk_glossary_trace(out_dir, result, reused_result_records)
             )
         return result
 
@@ -948,9 +836,7 @@ def run_chunk_glossary(
         if record.skipped:
             # A resumed chunk already has its file; do not re-tag or re-match it.
             records.append(record)
-            if progress is not None:
-                with contextlib.suppress(Exception):
-                    progress(record.to_dict(), completed, len(inputs))
+            context.emit(record.to_dict(), completed, len(inputs))
             continue
         if record.ok:
             match_started = clock()
@@ -971,6 +857,10 @@ def run_chunk_glossary(
                         scorer=scorer,
                         glossary_path=str(resolved_glossary),
                         glossary_sha256=glossary_sha,
+                        keep_types=wanted_types,
+                        min_term_chars=minimum_chars,
+                        drop_temporal_only=bool(drop_temporal_only),
+                        candidates=candidate_count,
                     )
                     record.output_path = str(path)
                 record.log.append(
@@ -984,9 +874,7 @@ def run_chunk_glossary(
                 record.log.append(f"match failed: {record.error}")
             record.match_seconds = clock() - match_started
         records.append(record)
-        if progress is not None:
-            with contextlib.suppress(Exception):  # a reporting hook must never break a run
-                progress(record.to_dict(), completed, len(records))
+        context.emit(record.to_dict(), completed, len(inputs))
     match_phase_seconds = clock() - match_phase_started
 
     totals = _totals(records)
@@ -1029,7 +917,7 @@ def run_chunk_glossary(
             },
         ],
         timing={
-            "run_seconds": round(clock() - run_started, 4),
+            "run_seconds": round(context.elapsed(), 4),
             "backend_load_seconds": round(backend_load_seconds, 4),
             "ner_phase_seconds": round(ner_phase_seconds, 4),
             "match_phase_seconds": round(match_phase_seconds, 4),
@@ -1043,7 +931,7 @@ def run_chunk_glossary(
     if write_manifest and not dry_run:
         result.manifest_path = str(write_chunk_glossary_manifest(out_dir, result, records))
         result.trace_path = str(write_chunk_glossary_trace(out_dir, result, records))
-    return result
+    return context.finish(result)
 
 
 def _totals(records: Sequence[ChunkGlossary]) -> dict[str, int]:
@@ -1070,17 +958,6 @@ def _totals(records: Sequence[ChunkGlossary]) -> dict[str, int]:
 # --------------------------------------------------------------------------- #
 # writing the artifacts
 # --------------------------------------------------------------------------- #
-def chunk_glossary_filename(chunk_filename: str) -> str:
-    """``00001-01-x-0000.md`` -> ``00001-01-x-0000.md.json``.
-
-    Keeping the full chunk name (including its ``.md``) makes the mapping
-    unambiguous and guarantees two chunks cannot collide on one output file. A
-    consumer strips the final ``.json`` to find the chunk it describes.
-    """
-    name = Path(str(chunk_filename or "")).name or "chunk.md"
-    return f"{name}.json"
-
-
 def chunk_glossary_payload(
     record: ChunkGlossary,
     *,
@@ -1090,11 +967,20 @@ def chunk_glossary_payload(
     scorer: str = DEFAULT_CHUNK_GLOSSARY_SCORER,
     glossary_path: str = "",
     glossary_sha256: str = "",
+    keep_types: Sequence[str] = DEFAULT_KEEP_ENTITY_TYPES,
+    min_term_chars: int = DEFAULT_CHUNK_GLOSSARY_MIN_TERM_CHARS,
+    drop_temporal_only: bool = False,
+    candidates: int = DEFAULT_CHUNK_GLOSSARY_CANDIDATES,
 ) -> dict[str, Any]:
-    """The per-chunk file: the chunk's identity, its terms and their matches."""
+    """The per-chunk file: the chunk's identity, its terms and their matches.
+
+    The settings that produced the terms are recorded with them, so a later
+    ``--skip-if-present`` run can tell whether the file still answers the same
+    question instead of only whether the chunk and glossary hashes match.
+    """
     return {
         "stage": "chunk-glossary",
-        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
+        "generated_at": timestamp(),
         "chunk": record.chunk.to_dict(),
         "language": language,
         "backend": backend,
@@ -1102,6 +988,12 @@ def chunk_glossary_payload(
         "scorer": scorer,
         "glossary_path": glossary_path,
         "glossary_sha256": glossary_sha256,
+        "keep_types": sorted(
+            {str(value).strip().upper() for value in keep_types if str(value).strip()}
+        ),
+        "min_term_chars": int(min_term_chars),
+        "drop_temporal_only": bool(drop_temporal_only),
+        "candidates": int(candidates),
         "counts": {
             "entities": record.entity_count,
             "terms": record.term_count,
@@ -1123,10 +1015,13 @@ def write_chunk_glossary(
     scorer: str = DEFAULT_CHUNK_GLOSSARY_SCORER,
     glossary_path: str = "",
     glossary_sha256: str = "",
+    keep_types: Sequence[str] = DEFAULT_KEEP_ENTITY_TYPES,
+    min_term_chars: int = DEFAULT_CHUNK_GLOSSARY_MIN_TERM_CHARS,
+    drop_temporal_only: bool = False,
+    candidates: int = DEFAULT_CHUNK_GLOSSARY_CANDIDATES,
 ) -> Path:
     """Write one chunk's glossary next to the others, under the chunk's name."""
-    folder = Path(out_dir)
-    path = folder / chunk_glossary_filename(record.chunk.filename)
+    path = Path(out_dir) / chunk_glossary_filename(record.chunk.filename)
     payload = chunk_glossary_payload(
         record,
         language=language,
@@ -1135,9 +1030,12 @@ def write_chunk_glossary(
         scorer=scorer,
         glossary_path=glossary_path,
         glossary_sha256=glossary_sha256,
+        keep_types=keep_types,
+        min_term_chars=min_term_chars,
+        drop_temporal_only=drop_temporal_only,
+        candidates=candidates,
     )
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
+    return write_json(path, payload)
 
 
 def write_chunk_glossary_manifest(
@@ -1146,7 +1044,6 @@ def write_chunk_glossary_manifest(
     records: Sequence[ChunkGlossary] | None = None,
 ) -> Path:
     """Write ``_chunk_glossary_manifest.json``: the book-level index."""
-    path = Path(out_dir) / CHUNK_GLOSSARY_MANIFEST_FILENAME
     payload = {
         "stage": "chunk-glossary",
         "ok": result.ok,
@@ -1171,8 +1068,7 @@ def write_chunk_glossary_manifest(
         "chunks": [record.record() for record in records] if records is not None else result.chunks,
         "errors": result.errors,
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
+    return write_manifest(out_dir, CHUNK_GLOSSARY_MANIFEST_FILENAME, payload)
 
 
 def write_chunk_glossary_trace(
@@ -1181,29 +1077,10 @@ def write_chunk_glossary_trace(
     records: Sequence[ChunkGlossary] | None = None,
 ) -> Path:
     """Write the audit trail: the same run plus each chunk's terms and log."""
-    path = Path(out_dir) / CHUNK_GLOSSARY_TRACE_FILENAME
     payload = result.to_dict()
     if records is not None:
         payload["detail"] = [record.to_dict() for record in records]
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8"
-    )
-    return path
-
-
-def load_chunk_glossary_manifest(chunks_path: str | Path) -> dict[str, Any]:
-    """Read ``_chunk_glossary_manifest.json`` from an output folder (or a file)."""
-    path = Path(chunks_path).expanduser()
-    manifest = (
-        path / CHUNK_GLOSSARY_MANIFEST_FILENAME if path.is_dir() else path
-    )
-    if not manifest.is_file():
-        return {}
-    try:
-        payload = json.loads(manifest.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
+    return write_trace(out_dir, CHUNK_GLOSSARY_TRACE_FILENAME, payload)
 
 
 __all__ = [

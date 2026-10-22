@@ -18,7 +18,6 @@ The loop is written so that switching to parallel execution is a one-line change
 from __future__ import annotations
 
 import contextlib
-import json
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -26,6 +25,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ..core.artifacts import read_manifest, write_manifest, write_trace
 from ..core.constants import (
     DEFAULT_RECURSION_LIMIT,
     MAX_FEEDBACK_LOOPS,
@@ -40,6 +40,7 @@ from ..documents.chapters import (
     preprocessed_dir,
 )
 from ..documents.io import load_lines
+from ..documents.manifest import load_split_manifest
 from ..openings import OpeningAuditResult, audit_openings
 from ..preprocess.corpus import scan_corpus_damage
 from .graph import build_preprocess_graph
@@ -102,14 +103,7 @@ class PreprocessResult:
 
 
 def _previous_manifest(out_dir: Path) -> dict[str, Any]:
-    path = out_dir / PREPROCESS_MANIFEST_FILENAME
-    if not path.is_file():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
+    return read_manifest(out_dir, PREPROCESS_MANIFEST_FILENAME)
 
 
 def _previous_files(out_dir: Path) -> dict[str, dict[str, Any]]:
@@ -302,7 +296,7 @@ def run_preprocess(
         usage=usage_total,
         errors=errors,
     )
-    if write_manifest:
+    if write_manifest and not dry_run:
         result.manifest_path = str(
             write_preprocess_manifest(out_dir, result, chapters, results)
         )
@@ -407,8 +401,8 @@ def chapter_records(results: list[ChapterResult], chapters: list[Chapter]) -> li
                 "source_sha256": source.sha256 if source else "",
                 "source_lines": result.source_lines,
                 "lines": result.output_lines,
-                "bytes": output.stat().st_size if written else 0,
-                "sha256": file_sha256(output) if written else "",
+                "bytes": output.stat().st_size if output is not None and written else 0,
+                "sha256": file_sha256(output) if output is not None and written else "",
                 "start_line": source.start_line if source else None,
                 "end_line": source.end_line if source else None,
                 "operations": result.operations,
@@ -433,11 +427,8 @@ def write_preprocess_manifest(
     the next stage can read either folder with the same reader. Stage 1 has used
     ``source_file`` and ``source_path`` over its lifetime, so both are carried.
     """
-    path = Path(out_dir) / PREPROCESS_MANIFEST_FILENAME
     if results is None:
         results = [ChapterResult(**c) for c in result.chapters]
-    from ..documents.chapters import load_split_manifest
-
     stage_one = load_split_manifest(result.chapters_path)
     source_file = (
         result.corpus_scan.get("source_file")
@@ -462,18 +453,12 @@ def write_preprocess_manifest(
         "usage": result.usage,
         "errors": result.errors,
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
+    return write_manifest(out_dir, PREPROCESS_MANIFEST_FILENAME, payload)
 
 
 def write_preprocess_trace(out_dir: Path, result: PreprocessResult) -> Path:
     """Write the audit trail: per chapter, what was decided and what was proven."""
-    path = Path(out_dir) / PREPROCESS_TRACE_FILENAME
-    path.write_text(
-        json.dumps(result.to_dict(), ensure_ascii=False, indent=2, default=str),
-        encoding="utf-8",
-    )
-    return path
+    return write_trace(out_dir, PREPROCESS_TRACE_FILENAME, result.to_dict())
 
 
 __all__ = [

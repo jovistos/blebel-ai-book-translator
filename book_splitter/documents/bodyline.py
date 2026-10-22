@@ -49,12 +49,11 @@ LEADING_GLUED_NUMBER_RE = re.compile(
 LEADING_INLINE_NUMBER_RE = re.compile(f"^\\d{{1,{MAX_PAGE_NUMBER_DIGITS}}}\\s")
 #: A printed page number glued to the line start before a lowercase word:
 #: ``30 spreč avaju`` / ``88 stvori``. Deleting it joins the split word, exactly
-#: like a ``us12 merena`` page number in the middle of a line.
+#: like a ``us12 merena`` page number in the middle of a line. The lowercase
+#: lookahead is deliberate: ``2011 Godine ...`` is prose, not a page number.
 LEADING_SPACED_NUMBER_RE = re.compile(
     f"^(\\d{{1,{MAX_PAGE_NUMBER_DIGITS}}})\\s+(?=[a-zžćčšđ])"
 )
-#: A leading printed page number on its own, before the continuation: ``182 ljutnje``.
-LEADING_SPACED_NUMBER_RE = re.compile(f"^(\\d{{1,{MAX_PAGE_NUMBER_DIGITS}}})\\s+\\S")
 #: Spaces sitting in front of punctuation (``mišić ,`` → ``mišić,``).
 SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([,.;:!?])")
 #: Words that open a figure/table caption rather than a sentence about one.

@@ -263,6 +263,11 @@ def _package_document(
         )
         spine_lines.append(f'    <itemref idref="doc-{index}"/>')
     for index, image in enumerate(images, start=1):
+        # The cover picture already has the ``cover-image`` manifest item above;
+        # listing it again as ``img-N`` would register the same file twice and
+        # leave readers with an ambiguous cover.
+        if cover is not None and image.href == cover.href:
+            continue
         manifest_lines.append(
             f'    <item id="img-{index}" href="{_x(image.href)}" '
             f'media-type="{_x(image.media_type)}"/>'

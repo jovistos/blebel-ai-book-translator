@@ -407,7 +407,11 @@ def test_limit_reduces_only_the_first_chapters(tmp_path):
     result = run_dictionary(str(chapters), backend=backend, language="sr", limit=1)
 
     assert result.chapter_count == 1
+    assert result.limited is True
     assert not (tmp_path / "03-reduced" / "02-druga.md").exists()
+    manifest = json.loads(Path(result.manifest_path).read_text(encoding="utf-8"))
+    assert manifest["limited"] is True
+    assert manifest["chapter_count"] == 1
 
 
 def test_write_manifest_can_be_switched_off(tmp_path):

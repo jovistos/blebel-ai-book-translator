@@ -144,7 +144,7 @@ class LinguaDetector:
         except ImportError as exc:  # pragma: no cover - depends on the environment
             raise MissingDependencyError(_LINGUA_INSTALL_HINT) from exc
 
-        by_code: dict[str, object] = {}
+        by_code: dict[str, Language] = {}
         for member in _lingua_members(Language):
             code = getattr(getattr(member, "iso_code_639_1", None), "name", "").lower()
             if code:

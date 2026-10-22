@@ -91,9 +91,10 @@ sentence funnel or the glossary prompt.
 The ``dictionary`` phase has two halves. The first is deterministic — the sentence
 funnel and the NER gate, no model. The second is the glossary: one paid model call
 per chapter, each handed the dictionary the earlier chapters produced. The second
-half is skipped by ``--no-glossary`` (the phase stays deterministic and keyless)
-and by ``--dry-run`` (nothing to validate without asking the model, and a dry run
-must not spend).
+half is skipped by ``--no-glossary`` (the phase stays deterministic and keyless).
+``--dry-run`` still runs it, like every other selected stage: a dry run performs
+the stage's real validation (including a model call when the plan *is* the model's
+answer) and writes no artifact. It is therefore not a way to price a run for free.
 
 The chunk phase (stage 5, ``chunk``) cuts every chapter into translation-sized
 chunks with chonkie, preferring paragraph over sentence over line over word
@@ -1826,9 +1827,6 @@ class Pipeline:
         """The glossary half of the phase, or ``(reason, None)`` when switched off."""
         if not self.glossary_enabled:
             return "off (--no-glossary)", None
-        if self.args.dry_run:
-            self.console.info("  · glossary skipped: a --dry-run does not spend tokens")
-            return "skipped (dry run)", {"dry_run": True}
         return self._build_glossary()
 
     # -- the glossary, run inside the dictionary phase --------------------- #
@@ -1839,9 +1837,8 @@ class Pipeline:
         this turns them into the dictionary. It is the only step that calls a paid
         model per chapter, so it narrates itself: a live bar while the run is in
         flight, one line per finished chapter, and the token bill at the end.
-        ``--dry-run`` reports itself as skipped instead of calling — an extraction
-        has nothing to validate without asking the model, and a dry run must not
-        spend.
+        ``--dry-run`` calls the model and writes nothing, exactly like the
+        ``glossary`` command; it is a validation run, not a free price quote.
         """
         from book_splitter.glossary import run_glossary
         from book_splitter.glossary.runner import resolve_sentences_dir
@@ -1887,6 +1884,7 @@ class Pipeline:
                 include_front_matter=getattr(args, "include_front_matter", False),
                 include_back_matter=getattr(args, "include_back_matter", False),
                 skip_if_present=args.skip_if_present,
+                dry_run=args.dry_run,
                 limit=self.chapter_limit,
                 progress=self._on_glossary_chapter,
                 chapter_start=self._on_glossary_start,
@@ -2436,9 +2434,6 @@ class Pipeline:
         from book_splitter.matter_agent import run_matter
 
         args, console = self.args, self.console
-        if args.dry_run:
-            console.info("  · matter localization skipped: a --dry-run does not spend tokens")
-            return "skipped (dry run)", {"dry_run": True}
         if not has_chunk_files(self.chunks_out):
             raise PhaseFailed(
                 f"no chunk files in {rel(self.chunks_out)} — run chunk first",
@@ -2480,6 +2475,7 @@ class Pipeline:
             recursion_limit=args.recursion_limit,
             resume=args.skip_if_present,
             limit=getattr(args, "matter_limit", None),
+            dry_run=args.dry_run,
             write_manifest=not args.no_manifest,
             progress=None if getattr(args, "quiet", False) else self._on_matter_chunk,
         )
@@ -2591,9 +2587,6 @@ class Pipeline:
         from book_splitter.translation.runner import has_chunk_glossary_files
 
         args, console = self.args, self.console
-        if args.dry_run:
-            console.info("  · translation skipped: a --dry-run does not spend tokens")
-            return "skipped (dry run)", {"dry_run": True}
         if not has_chunk_files(self.chunks_out):
             raise PhaseFailed(
                 f"no chunk files in {rel(self.chunks_out)} — run chunk first",
@@ -2661,6 +2654,7 @@ class Pipeline:
                 source_language=args.source_language,
                 target_language=args.target_language,
                 settings_factory=lambda: self.translation_settings,
+                model_identity=self._translation_model_label(),
                 max_attempts=args.translate_attempts,
                 method=args.translate_method,
                 max_tokens=args.translate_max_tokens or None,
@@ -3833,8 +3827,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="validate every plan; write no artifact except this log (stage 0 converts "
-        "into a temporary folder so the later plans still have text to read)",
+        help="validate every plan (model-backed stages still run their real work and "
+        "may spend tokens); write no artifact except this log (stage 0 converts into "
+        "a temporary folder so the later plans still have text to read)",
     )
     parser.add_argument(
         "--workers", type=int, default=1, help="stage 2: chapters at once (default 1)"

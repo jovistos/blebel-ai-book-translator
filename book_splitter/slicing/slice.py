@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from ..core.artifacts import Sha256, write_manifest
 from ..core.constants import FRONT_MATTER_FILENAME, MANIFEST_FILENAME
 from ..documents.io import load_lines
 from ..documents.text import excerpt
@@ -32,7 +31,7 @@ def preview_split(
             {
                 **item,
                 "lines": len(span),
-                "bytes": sum(len(l.encode("utf-8")) for l in span),
+                "bytes": sum(len(line.encode("utf-8")) for line in span),
                 "first_line": describe_first_line(lines, item["start_line"], item["end_line"]),
             }
         )
@@ -95,23 +94,21 @@ def slice_book(
 
 def write_manifest_file(out_dir: Path, manifest: dict[str, Any]) -> Path:
     """Persist the manifest next to the chapter files."""
-    path = out_dir / MANIFEST_FILENAME
-    path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
+    return write_manifest(out_dir, MANIFEST_FILENAME, manifest)
 
 
 def _write_range(
     path: Path, lines: list[str], start: int, end: int, name: str, kind: str
 ) -> dict[str, Any]:
     """Write one verbatim line range and return its bookkeeping entry."""
-    digest = hashlib.sha256()
+    digest = Sha256()
     n_bytes = 0
     n_lines = 0
     with path.open("w", encoding="utf-8", newline="") as fh:
         for i in range(start - 1, end):
             line = lines[i]
             fh.write(line)
-            digest.update(line.encode("utf-8"))
+            digest.update(line)
             n_bytes += len(line.encode("utf-8"))
             n_lines += 1
     return {
@@ -123,5 +120,7 @@ def _write_range(
         "lines": n_lines,
         "bytes": n_bytes,
         "sha256": digest.hexdigest(),
-        "first_line": excerpt(next((l for l in lines[start - 1 : end + 3] if l.strip()), ""), 80),
+        "first_line": excerpt(
+            next((line for line in lines[start - 1 : end + 3] if line.strip()), ""), 80
+        ),
     }
