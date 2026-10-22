@@ -31,7 +31,7 @@ from ..documents.images import has_images, image_refs
 from ..documents.io import load_lines
 from ..documents.markdown import header_of
 from ..documents.text import excerpt
-from .apply import ApplyResult, _index_fixes, apply_cleaning_plan
+from .apply import LineProvenance, _index_fixes, apply_cleaning_plan
 from .damage import (
     INLINE_PAGE_NUMBER,
     PAGE_NUMBER_IN_WORD,
@@ -78,15 +78,14 @@ def verify_cleaning_plan(
     fixes = _index_fixes(text_fixes)
     result = apply_cleaning_plan(p, operations, fixes)
     output = list(result.lines)
+    provenance = LineProvenance.from_result(result)
     fixed_lines = {fix["line_number"] for fix in fixes}
+    headers = {number for number, line in enumerate(lines, start=1) if header_of(line)}
 
-    problems: list[str] = []
-    accounted: set[int] = set()
-    for entry in result.provenance:
-        accounted.update(entry.source_lines)
-    for number in range(1, len(lines) + 1):
-        if number not in accounted:
-            problems.append(f"line {number} vanished without a provenance entry")
+    problems: list[str] = [
+        f"line {number} vanished without a provenance entry"
+        for number in provenance.unaccounted(len(lines))
+    ]
 
     by_line: dict[int, dict] = {}
     for op in operations or []:
@@ -102,6 +101,9 @@ def verify_cleaning_plan(
         if kind == SPLIT_WORD:
             rewritten.add(line_number + 1)
 
+    removed_artefacts = set(result.removed_artefacts)
+    removed_captions = set(result.removed_captions)
+
     for number, source in enumerate(lines, start=1):
         if number in rewritten:
             continue
@@ -111,7 +113,7 @@ def verify_cleaning_plan(
         body = head[1] if head else source
 
         if has_images(source):
-            if source not in output:
+            if not provenance.has_text(source):
                 problems.append(
                     f"line {number} holds a Markdown image but is not in the output "
                     f"verbatim: {excerpt(source, 60)!r}"
@@ -127,9 +129,12 @@ def verify_cleaning_plan(
                 problems.append(
                     f"line {number} was removed but is not a page artefact: {excerpt(body, 40)!r}"
                 )
-            if number not in result.removed_artefacts:
+            slot = provenance.output_index(number)
+            if number not in removed_artefacts:
                 problems.append(f"line {number} was declared remove but is still in the output")
-            elif output[entry_line(result, number)] != "":
+            elif slot < 0:
+                problems.append(f"line {number} was removed but has no provenance entry")
+            elif output[slot] != "":
                 problems.append(f"line {number} was removed but its slot is not blank")
             continue
 
@@ -139,17 +144,20 @@ def verify_cleaning_plan(
                     f"line {number} was removed as a caption but does not look like one: "
                     f"{excerpt(source, 40)!r}"
                 )
-            if number not in result.removed_captions:
+            slot = provenance.output_index(number)
+            if number not in removed_captions:
                 problems.append(
                     f"line {number} was declared remove_caption but is still in the output"
                 )
-            elif output[entry_line(result, number)] != "":
+            elif slot < 0:
+                problems.append(f"line {number} was removed but has no provenance entry")
+            elif output[slot] != "":
                 problems.append(f"line {number} was removed but its slot is not blank")
             continue
 
         if decision == DEMOTE:
             expected, _ = strip_leading_page_number(body)
-            if expected not in output:
+            if not provenance.has_text(expected):
                 problems.append(
                     f"line {number} was demoted but its text is not in the output: "
                     f"{excerpt(expected, 40)!r}"
@@ -158,14 +166,14 @@ def verify_cleaning_plan(
 
         if decision == PROMOTE:
             expected = f"## {source.strip()}"
-            if expected not in output:
+            if not provenance.has_text(expected):
                 problems.append(
                     f"line {number} was promoted but its heading is not in the output: "
                     f"{excerpt(expected, 40)!r}"
                 )
             continue
 
-        if source not in output:
+        if not provenance.has_text(source):
             problems.append(
                 f"line {number} was not declared as changed but its text is not in the "
                 f"output verbatim: {excerpt(source, 40)!r}"
@@ -182,7 +190,7 @@ def verify_cleaning_plan(
         right = line_head[1] if line_head else ""
         right, _ = strip_leading_page_number(right)
         expected = f"{left} {right}".strip()
-        if expected not in output:
+        if not provenance.has_text(expected):
             problems.append(
                 f"merged line for {first}+{last} is not the two halves joined: "
                 f"{excerpt(expected, 40)!r}"
@@ -199,7 +207,7 @@ def verify_cleaning_plan(
     undeclared = sorted(set(result.removed_artefacts) - declared)
     undeclared_captions = sorted(set(result.removed_captions) - declared)
     for number in undeclared:
-        if number in {i for i, line in enumerate(lines, start=1) if header_of(line)}:
+        if number in headers:
             problems.append(f"line {number} was removed without being declared in the plan")
 
     for number in undeclared_captions:
@@ -225,14 +233,6 @@ def verify_cleaning_plan(
         "source_lines": len(lines),
         "provenance": result.summary(),
     }
-
-
-def entry_line(result: ApplyResult, source_line: int) -> int:
-    """The output index (0-based) of a source line's provenance entry."""
-    for entry in result.provenance:
-        if source_line in entry.source_lines:
-            return entry.output_line - 1
-    return -1
 
 
 def verify_text_fixes(path: str | Path, text_fixes: list[dict]) -> dict[str, Any]:

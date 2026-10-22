@@ -116,6 +116,75 @@ class ApplyResult:
             "touched": len(self.touched),
         }
 
+    def index(self) -> LineProvenance:
+        """The O(1) lookup index over this result's provenance."""
+        return LineProvenance.from_result(self)
+
+
+class LineProvenance:
+    """An O(1) index over an :class:`ApplyResult`'s per-line provenance.
+
+    The verifier asks three questions once per source line: *which output line
+    came from source line n?*, *was this source line accounted for?* and *is this
+    text present in the output?*. Answering them by scanning ``provenance`` and
+    ``lines`` made the proof O(n²). The index is built in one pass:
+
+    * ``source line -> LineEdit`` (every source line appears in at most one
+      entry; the applier builds it that way);
+    * ``output line -> LineEdit``;
+    * the set of output strings, for the verbatim checks.
+
+    It is a pure view: it never mutates the result it indexes.
+    """
+
+    __slots__ = ("_by_source", "_by_output", "_output_texts")
+
+    def __init__(
+        self,
+        *,
+        by_source: dict[int, LineEdit],
+        by_output: dict[int, LineEdit],
+        output_texts: frozenset[str],
+    ) -> None:
+        self._by_source = by_source
+        self._by_output = by_output
+        self._output_texts = output_texts
+
+    @classmethod
+    def from_result(cls, result: ApplyResult) -> LineProvenance:
+        by_source: dict[int, LineEdit] = {}
+        by_output: dict[int, LineEdit] = {}
+        for entry in result.provenance:
+            by_output[entry.output_line] = entry
+            for line in entry.source_lines:
+                by_source[line] = entry
+        return cls(
+            by_source=by_source,
+            by_output=by_output,
+            output_texts=frozenset(result.lines),
+        )
+
+    def entry(self, source_line: int) -> LineEdit | None:
+        """The provenance entry that accounts for one source line."""
+        return self._by_source.get(source_line)
+
+    def output_index(self, source_line: int) -> int:
+        """The output index (0-based) of a source line, or ``-1`` when absent."""
+        entry = self._by_source.get(source_line)
+        return entry.output_line - 1 if entry is not None else -1
+
+    def has_text(self, text: str) -> bool:
+        """True when ``text`` is one of the output lines (verbatim)."""
+        return text in self._output_texts
+
+    def unaccounted(self, source_line_count: int) -> list[int]:
+        """Source lines in ``1..source_line_count`` with no provenance entry."""
+        return [
+            number
+            for number in range(1, source_line_count + 1)
+            if number not in self._by_source
+        ]
+
 
 def apply_cleaning_plan(
     path: str | Path,
@@ -337,6 +406,7 @@ def text_of(result: ApplyResult) -> str:
 __all__ = [
     "ApplyResult",
     "LineEdit",
+    "LineProvenance",
     "apply_cleaning_plan",
     "text_of",
 ]
