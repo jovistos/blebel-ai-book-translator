@@ -313,3 +313,57 @@ def test_cli_chunk_without_chapters_explains_the_missing_stage(tmp_path: Path, c
 
     assert code == 2
     assert "run `split` first" in captured.err
+
+
+# --------------------------------------------------------------------------- #
+# images: a chunk cut never splits an image reference
+# --------------------------------------------------------------------------- #
+IMAGE = "![Image](../00-markdown/images/rabbit.png)"
+
+
+def test_a_cut_inside_an_image_reference_is_moved_to_its_edge():
+    from book_splitter.chunking.runner import _image_safe_spans
+
+    text = "alpha beta " + IMAGE + " gamma delta"
+    image_start = text.index(IMAGE)
+    # Cut deliberately three characters into the Markdown image.
+    spans = [(0, image_start + 3), (image_start + 3, len(text))]
+
+    adjusted = _image_safe_spans(text, spans, lambda value: len(value.split()), 100)
+
+    assert "".join(text[start:end] for start, end in adjusted) == text
+    image_end = image_start + len(IMAGE)
+    boundaries = {start for start, _end in adjusted[1:]} | {
+        end for _start, end in adjusted[:-1]
+    }
+    assert all(not (image_start < boundary < image_end) for boundary in boundaries)
+
+
+def test_chunk_files_keep_each_image_reference_whole(tmp_path: Path):
+    chapters = tmp_path / "01-chapters"
+    chapters.mkdir()
+    (chapters / "01-one.md").write_text(
+        "# One\n\n"
+        "Uvodna rečenica pre slike. " + "reč " * 20 + "\n\n"
+        f"{IMAGE}\n\n"
+        "Objašnjenje posle slike. " + "reč " * 20 + "\n",
+        encoding="utf-8",
+    )
+    manifest = {
+        "source_file": "book.md",
+        "strategy": "markdown_headers",
+        "files": [{"filename": "01-one.md", "start_line": 1, "end_line": 9, "title": "One"}],
+    }
+    (chapters / "_manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+    result = run_chunking(str(chapters), tokenizer="word", chunk_size=12)
+
+    assert result.ok is True
+    seen = 0
+    for entry in result.files:
+        text = (chapters.parent / "05-chunks" / entry["filename"]).read_text(encoding="utf-8")
+        seen += text.count(IMAGE)
+        # No chunk may hold a bare fragment such as `![Image](../00-markdown/ima`.
+        assert "![Image](" in text or "../00-markdown/images/rabbit.png" not in text
+    assert seen == 1
+    assert reconstruct_chapter(chapters.parent / "05-chunks", "01-one.md").count(IMAGE) == 1

@@ -148,7 +148,7 @@ DAMAGE_PATTERNS: dict[str, dict[str, str]] = {
     },
     "caption_as_header": {
         "summary": "a figure/table caption, marked up as a header or left as a body line",
-        "fix": "remove the caption line (its picture is not in the Markdown)",
+        "fix": "demote a marked-up caption to a paragraph; keep its words with the image",
         "stage": "preprocess",
     },
     "long_prose_header": {

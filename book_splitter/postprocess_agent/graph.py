@@ -17,7 +17,7 @@ Two graphs, both the same shape as the earlier stages::
 
 ``build_postprocess_graph`` is the book-level graph (the naming policy and the
 table-of-contents decision). ``build_chapter_postprocess_graph`` is the
-per-chapter graph (title placement and heading keep/demote decisions). The runner
+per-chapter graph (title placement and heading keep/demote/promote decisions). The runner
 drives the second over the chapters in reading order, exactly as stage 2's runner
 drives its per-chapter graph.
 """
@@ -73,7 +73,7 @@ def build_postprocess_graph(
 ):
     """Build and compile the book-level naming/TOC graph."""
     if model is None:
-        settings = settings or resolve_settings()
+        settings = settings or resolve_settings(stage="postprocess")
         model = make_book_llm(settings)
 
     graph = StateGraph(BookPlanState)
@@ -122,7 +122,7 @@ def build_chapter_postprocess_graph(
 ):
     """Build and compile the per-chapter title/heading graph."""
     if model is None:
-        settings = settings or resolve_settings()
+        settings = settings or resolve_settings(stage="postprocess")
         model = make_chapter_llm(settings)
 
     graph = StateGraph(ChapterPostprocessState)

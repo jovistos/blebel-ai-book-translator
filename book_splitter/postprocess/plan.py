@@ -31,7 +31,12 @@ from ..core.constants import (
     TOC_STYLES,
 )
 from ..documents.io import load_lines
-from ..documents.markdown import header_body, header_of
+from ..documents.markdown import (
+    header_body,
+    header_of,
+    is_plain_heading_candidate,
+    page_number_of,
+)
 from ..documents.text import excerpt, norm
 from .inspect import (
     ChapterStructure,
@@ -76,12 +81,25 @@ def _number(structure: ChapterStructure, index: int) -> int:
     return int(index) + 1
 
 
+def _is_bare_number_title(text: str) -> bool:
+    """True when a title is only its chapter number (``2``, ``## 2``).
+
+    A translated untitled chapter keeps the number but loses the label. That
+    number is the chapter's *number*, never its name: it must not be appended to
+    the heading as ``Poglavlje 2: 2``.
+    """
+    value = clean_title(text)
+    return bool(value) and not any(char.isalpha() for char in value) and (
+        page_number_of(value) is not None
+    )
+
+
 def _title_part(structure: ChapterStructure) -> str:
     """The chapter's own title words, with the label/number prefix removed."""
     title = clean_title(structure.title)
     if title:
         rest = strip_chapter_label(title)
-        if rest:
+        if rest and not _is_bare_number_title(title):
             return rest
     return clean_title(structure.subtitle)
 
@@ -110,7 +128,7 @@ def _title_part_of(summary: dict[str, Any]) -> str:
     title = clean_title(str(summary.get("title") or ""))
     if title:
         rest = strip_chapter_label(title)
-        if rest:
+        if rest and not _is_bare_number_title(title):
             return rest
     return clean_title(str(summary.get("subtitle") or ""))
 
@@ -498,7 +516,7 @@ def validate_chapter_plan(
                 "canonical title"
             )
 
-    header_lines = {int(item["line_number"]) for item in structure.headings}
+    heading_by_line = {int(item["line_number"]): item for item in structure.headings}
     claimed: set[int] = set()
     for index, entry in enumerate(headings):
         line = entry["line_number"]
@@ -510,11 +528,23 @@ def validate_chapter_plan(
         if line < 1 or line > len(lines):
             issues.append(f"{label}: out of range (chapter has {len(lines)} lines)")
             continue
-        if line not in header_lines:
-            issues.append(f"{label}: not a Markdown header")
-            continue
         if line == title_line:
             issues.append(f"{label}: the chapter title is controlled by title.action, not headings")
+            continue
+        record = heading_by_line.get(line)
+        if record is None:
+            issues.append(f"{label}: not a heading or a plain ALL-CAPS heading candidate")
+            continue
+        is_markdown_header = bool(record.get("level"))
+        if decision == "promote":
+            if is_markdown_header:
+                issues.append(f"{label}: already has '#' markup, so it cannot be promoted")
+                continue
+            if record.get("suggested") != "promote":
+                issues.append(f"{label}: not a plain ALL-CAPS heading candidate")
+                continue
+        elif decision == "demote" and not is_markdown_header:
+            issues.append(f"{label}: only a Markdown header can be demoted")
             continue
         if line in claimed:
             issues.append(f"{label}: another heading decision already targets this line")
@@ -566,6 +596,7 @@ class ChapterApply:
     title: str = ""
     inserted: bool = False
     demoted_lines: list[int] = field(default_factory=list)
+    promoted_lines: list[int] = field(default_factory=list)
     merged_subtitles: list[int] = field(default_factory=list)
     collapsed_blanks: list[int] = field(default_factory=list)
     source_lines: int = 0
@@ -579,6 +610,7 @@ class ChapterApply:
             "title": self.title,
             "inserted": self.inserted,
             "demoted_lines": self.demoted_lines,
+            "promoted_lines": self.promoted_lines,
             "merged_subtitles": self.merged_subtitles,
             "collapsed_blanks": self.collapsed_blanks,
         }
@@ -594,8 +626,10 @@ def apply_chapter_plan(
     """Apply a validated chapter plan to lines — pure, no writes.
 
     Line edits are expressed as a rewrite, never as a delete: a ``demote`` keeps
-    the text and only removes the ``#`` markup. A missing title is inserted at
-    the top, followed by a blank line when the first source line is not blank.
+    the text and only removes the ``#`` markup, and a ``promote`` keeps it and
+    only adds the markup back to a plain ALL-CAPS heading. A missing title is
+    inserted at the top, followed by a blank line when the first source line is
+    not blank.
     """
     path = Path(chapter_path).expanduser()
     structure = structure or scan_chapter_structure(path)
@@ -612,6 +646,24 @@ def apply_chapter_plan(
         for entry in normalized["headings"]
         if entry["decision"] == "demote"
     }
+    promote = {
+        entry["line_number"]
+        for entry in normalized["headings"]
+        if entry["decision"] == "promote"
+    }
+    # A promoted heading should look like the chapter's existing section headings.
+    # With none to copy, fall back to one level below the title (usually `##`).
+    section_levels = [
+        int(item.get("level") or 0)
+        for item in structure.headings
+        if int(item.get("level") or 0) > 0
+        and item.get("line_number") != structure.title_line
+    ]
+    if section_levels:
+        promote_level = max(sorted(set(section_levels)), key=section_levels.count)
+    else:
+        title_is_heading = action in {"set", "insert"} or structure.title_is_heading
+        promote_level = min(6, int(level) + 1) if title_is_heading else 2
     # When the book policy folds the subtitle into the chapter title
     # ("Poglavlje 1: Šta vam je na umu?"), the original subtitle line would be a
     # duplicate paragraph. Its words are preserved in the heading, so the line is
@@ -710,6 +762,21 @@ def apply_chapter_plan(
                 }
             )
             continue
+        if (
+            number in promote
+            and header_of(raw) is None
+            and is_plain_heading_candidate(raw.strip())
+        ):
+            result.lines.append(render_heading(raw.strip(), promote_level))
+            result.promoted_lines.append(number)
+            result.provenance.append(
+                {
+                    "output_line": len(result.lines),
+                    "origin": "promoted_heading",
+                    "source_lines": [number],
+                }
+            )
+            continue
         result.lines.append(raw)
         result.provenance.append(
             {
@@ -747,6 +814,7 @@ def verify_chapter_plan(
     problems: list[str] = []
     lines = [line.rstrip("\n") for line in load_lines(path)]
     demoted = set(result.demoted_lines)
+    promoted = set(result.promoted_lines)
     merged_subtitles = set(result.merged_subtitles)
     collapsed_blanks = set(result.collapsed_blanks)
     accounted: set[int] = set()
@@ -772,6 +840,16 @@ def verify_chapter_plan(
             expected = header_body(raw) if header_of(raw) else raw.strip()
             if expected not in result.lines:
                 problems.append(f"line {number} was demoted but its text is not in the output")
+            continue
+        if number in promoted:
+            promoted_text = clean_title(raw)
+            if not any(
+                (head := header_of(line)) and clean_title(head[1]) == promoted_text
+                for line in result.lines
+            ):
+                problems.append(
+                    f"line {number} was promoted but its Markdown heading is not in the output"
+                )
             continue
         if number == title_line:
             continue

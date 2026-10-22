@@ -86,12 +86,18 @@ from ..core.constants import (
     TRANSLATION_METHODS,
     TRANSLATION_TRACE_FILENAME,
 )
-from ..core.errors import ConfigError, ToolError
+from ..core.errors import ConfigError, ToolError, TranslationError
 from ..documents.chapters import (
     chunk_glossary_dir,
     load_split_manifest,
     translation_prompts_dir,
     translations_dir,
+)
+from ..documents.images import (
+    IMAGE_TOKEN_RE,
+    protect_images,
+    restore_images,
+    strip_images,
 )
 from ..glossary.extract import TokenUsage
 from .prompts import build_chunk_prompt, build_system_prompt
@@ -622,7 +628,9 @@ def run_translation(
             terms = list(book_rows)
             glossary_missing = False
 
-        context_text = _context_tail(previous_translation, context_size)
+        # Pictures are not continuity context: drop them so the model cannot
+        # copy an image from the previous chunk into this one.
+        context_text = _context_tail(strip_images(previous_translation), context_size)
         record = ChunkTranslation(
             chunk=chunk,
             terms=terms,
@@ -630,6 +638,10 @@ def run_translation(
             context_chars=len(context_text),
             source_chars=len(chunk.text),
         )
+        # The model never sees a real image path: each reference becomes a
+        # [[IMG_n]] marker, and the marker is restored before the file is written.
+        protected_text, image_map = protect_images(chunk.text)
+        prose_text = IMAGE_TOKEN_RE.sub("", protected_text)
         records.append(record)
         if glossary_missing:
             record.log.append(
@@ -655,12 +667,17 @@ def run_translation(
                     progress(record.to_dict(), completed, len(inputs))
             continue
 
-        if not chunk.text.strip():
+        image_only = bool(image_map) and not any(ch.isalnum() for ch in prose_text)
+        if not chunk.text.strip() or image_only:
             record.translation = chunk.text
             _finish_record(record, record.translation)
             if not dry_run and save:
                 _write_translation_file(out_dir, record)
-            record.log.append("empty chunk — nothing to translate")
+            record.log.append(
+                "image-only chunk — passed through unchanged to keep its picture(s)"
+                if image_only
+                else "empty chunk — nothing to translate"
+            )
             completed += 1
             _snapshot_manifest(
                 out_dir,
@@ -680,7 +697,7 @@ def run_translation(
             total_chunks=len(inputs),
             chunk_filename=chunk.filename,
             chapter_filename=chunk.chapter_filename,
-            source_text=chunk.text,
+            source_text=protected_text,
             source_language=source_language,
             target_language=target_language,
             terms=terms,
@@ -701,6 +718,10 @@ def run_translation(
             model=str(getattr(settings, "model", "") or ""),
             translator=translator_name,
         )
+        record.debug["images"] = {
+            "count": len(image_map),
+            "markers": dict(image_map),
+        }
         if not dry_run and save and write_prompts:
             _write_prompt_files(prompt_dir, record)
 
@@ -724,14 +745,28 @@ def run_translation(
             outcome = translator.translate(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
-                source_text=chunk.text,
+                source_text=protected_text,
             )
             record.attempts = int(outcome.attempts)
             record.method = outcome.method
             record.usage = outcome.usage
             record.raw_answer = outcome.raw_text
             totals += outcome.usage
-            record.translation = preserve_trailing_newlines(outcome.text, chunk.text)
+            restored, missing, duplicated = restore_images(outcome.text, image_map)
+            if missing or duplicated:
+                # The real translator's own validation retries a dropped marker;
+                # this guard also covers injected translators and is the last
+                # line of defence before a picture disappears from the book.
+                parts: list[str] = []
+                if missing:
+                    parts.append(f"dropped {', '.join(missing)}")
+                if duplicated:
+                    parts.append(f"repeated {', '.join(duplicated)}")
+                raise TranslationError(
+                    "the translation did not preserve every image marker "
+                    f"({'; '.join(parts)})"
+                )
+            record.translation = preserve_trailing_newlines(restored, chunk.text)
             if outcome.error:
                 record.log.append(f"retried after: {outcome.error}")
             if outcome.recovered:

@@ -32,10 +32,17 @@ from ..core.constants import (
     MAX_POSTPROCESS_OPENING_LINES,
     MAX_POSTPROCESS_TITLE_CHARS,
     MAX_TITLE_SCAN_LINES,
-    TOC_FILENAME,
 )
+from ..documents.chapters import is_toc_filename
 from ..documents.io import load_lines
-from ..documents.markdown import header_of, is_all_caps, is_page_number_line
+from ..documents.markdown import (
+    header_of,
+    is_all_caps,
+    is_page_number_line,
+    is_plain_heading_candidate,
+    is_standalone_line,
+    page_number_of,
+)
 from ..documents.text import excerpt
 from ..documents.window import is_body_chapter_name
 from ..preprocess.inspect import classify_header, inspect_chapter
@@ -174,21 +181,6 @@ def _natural_key(name: str) -> tuple[int, str]:
     """Sort ``2-x`` before ``10-x`` while keeping non-numeric names stable."""
     m = re.match(r"^(\d+)", name)
     return (int(m.group(1)) if m else 10**9, name.lower())
-
-
-def is_toc_filename(name: str) -> bool:
-    """True for the table-of-contents file (created or pre-existing)."""
-    filename = Path(str(name or "")).name
-    lower = filename.lower()
-    if filename == TOC_FILENAME:
-        return True
-    stem = Path(lower).stem
-    if stem in {"toc", "contents", "sadrzaj", "sadržaj", "table-of-contents"}:
-        return True
-    compact = re.sub(r"[^a-z0-9]+", "-", stem).strip("-")
-    return compact in {"table-of-contents", "toc", "contents"} or compact.startswith(
-        "table-of-contents"
-    )
 
 
 def chapter_files(chapters_path: str | Path) -> list[Path]:
@@ -331,12 +323,50 @@ def _previous_nonblank(lines: list[str], start: int) -> int | None:
     return None
 
 
-def find_title_candidate(lines: list[str]) -> dict[str, Any]:
+def _number_heading_is_title(
+    lines: list[str],
+    index: int,
+    chapter_number: int | None,
+    first_nonblank: int,
+) -> bool:
+    """A first-line bare-number heading is the title, not a printed page number.
+
+    A translated untitled chapter keeps its number but loses the label:
+    ``## 2`` is what stage 8 wrote for ``CHAPTER 2``. It used to be skipped as a
+    page-number heading, so the chapter was treated as title-less and a later
+    section heading became the title. Accept it when it sits on the first
+    non-blank line and either matches the filename's chapter number or is
+    followed by prose (a page number at the top of a chapter is followed by the
+    real heading).
+    """
+    if index != first_nonblank:
+        return False
+    if chapter_number is not None and page_number_of(lines[index]) == chapter_number:
+        return True
+    next_index = _next_nonblank(lines, index + 1)
+    if next_index is None:
+        return True
+    following = lines[next_index].strip()
+    return (
+        header_of(following) is None
+        and not is_page_number_line(following)
+        and not LABEL_RE.match(following)
+    )
+
+
+def find_title_candidate(
+    lines: list[str],
+    *,
+    chapter_number: int | None = None,
+) -> dict[str, Any]:
     """Locate the chapter title in the first :data:`MAX_TITLE_SCAN_LINES` lines.
 
     Returns ``{"line_number", "text", "level", "is_heading", "source",
     "subtitle", "subtitle_line"}``. ``line_number`` is ``None`` when the chapter
     starts directly on prose, which is the missing-heading case the stage fixes.
+    ``chapter_number`` (usually the filename's number) lets a first-line bare
+    number — ``## 2``, ``2`` — be recognised as the chapter's own title instead
+    of being skipped as a printed page number.
     """
     scan = lines[:MAX_TITLE_SCAN_LINES]
     first_nonblank = next((i for i, line in enumerate(scan) if line.strip()), None)
@@ -362,7 +392,13 @@ def find_title_candidate(lines: list[str]) -> dict[str, Any]:
         following = ""
         if next_index is not None and next_index <= first_nonblank + 2:
             following = lines[next_index].strip()
-        if _looks_like_title(
+        plain_number_title = (
+            chapter_number is not None
+            and page_number_of(clean) == chapter_number
+            and not following.startswith("#")
+            and not LABEL_RE.match(following)
+        )
+        if plain_number_title or _looks_like_title(
             clean,
             next_blank=next_blank,
             is_first=True,
@@ -374,7 +410,7 @@ def find_title_candidate(lines: list[str]) -> dict[str, Any]:
                 "text": excerpt(clean, MAX_POSTPROCESS_TITLE_CHARS),
                 "level": 0,
                 "is_heading": False,
-                "source": "plain",
+                "source": "plain_number" if plain_number_title else "plain",
                 "subtitle": subtitle,
                 "subtitle_line": subtitle_line,
             }
@@ -383,18 +419,23 @@ def find_title_candidate(lines: list[str]) -> dict[str, Any]:
     #    the opening window is the chapter heading.
     for index in range(first_nonblank, len(scan)):
         head = header_of(scan[index])
-        if head and head[1].strip() and not is_page_number_line(head[1]):
-            title = excerpt(head[1], MAX_POSTPROCESS_TITLE_CHARS)
-            subtitle, subtitle_line = _subtitle_after(lines, index)
-            return {
-                "line_number": index + 1,
-                "text": title,
-                "level": head[0],
-                "is_heading": True,
-                "source": "header",
-                "subtitle": subtitle,
-                "subtitle_line": subtitle_line,
-            }
+        if not head or not head[1].strip():
+            continue
+        if is_page_number_line(head[1]) and not _number_heading_is_title(
+            scan, index, chapter_number, first_nonblank
+        ):
+            continue
+        title = excerpt(head[1], MAX_POSTPROCESS_TITLE_CHARS)
+        subtitle, subtitle_line = _subtitle_after(lines, index)
+        return {
+            "line_number": index + 1,
+            "text": title,
+            "level": head[0],
+            "is_heading": True,
+            "source": "header",
+            "subtitle": subtitle,
+            "subtitle_line": subtitle_line,
+        }
 
     # 3. A plain label / standalone short line that was not the first line.
     for index in range(first_nonblank + 1, len(scan)):
@@ -505,6 +546,62 @@ def opening_records(
     return out
 
 
+PLAIN_HEADING_EVIDENCE = (
+    "standalone ALL-CAPS line with no '#' markup - a section heading whose markup was lost"
+)
+
+
+def plain_heading_candidates(
+    lines: list[str],
+    *,
+    skip_lines: set[int] | None = None,
+    matter: str = "body",
+) -> list[dict[str, Any]]:
+    """Plain ALL-CAPS lines that are section headings missing their markup.
+
+    A translation chunk can drop the ``##`` from a real heading while keeping the
+    words (``JUTRO``, ``POPOLE``, ``ČETVRTAK, 16. AVGUST 2012.``). Those lines are
+    offered to the chapter agent as ``promote`` candidates: the only edit is
+    putting the markup back. Front/back matter is skipped, because a dedication
+    or title page is full of short ALL-CAPS names that are not headings.
+    """
+    if matter != "body":
+        return []
+    skip = skip_lines or set()
+    out: list[dict[str, Any]] = []
+    for index, raw in enumerate(lines):
+        number = index + 1
+        if number in skip:
+            continue
+        text = raw.strip()
+        if not text or header_of(raw) is not None:
+            continue
+        if not is_standalone_line(lines, index) or not is_plain_heading_candidate(text):
+            continue
+        next_index = _next_nonblank(lines, index + 1)
+        next_text = lines[next_index].strip() if next_index is not None else ""
+        out.append(
+            {
+                "line_number": number,
+                "level": 0,
+                "text": excerpt(text, 110),
+                "preview": excerpt(text, 110),
+                "recommendation": "promote",
+                "risk": "low",
+                "is_all_caps": True,
+                "has_structural_token": False,
+                "ends_sentence": bool(SENTENCE_END_RE.search(text)),
+                "next_is_header": bool(next_text and header_of(next_text) is not None),
+                "next_starts_lowercase": bool(next_text[:1].islower()),
+                "next_line_number": (next_index + 1) if next_index is not None else None,
+                "next_text": excerpt(next_text, 110),
+                "previous_is_blank": True,
+                "evidence": [PLAIN_HEADING_EVIDENCE],
+            }
+        )
+    return out
+
+
 @dataclass
 class ChapterStructure:
     """One chapter's title and heading metadata (never its prose)."""
@@ -587,13 +684,32 @@ def scan_chapter_structure(
     """Read one chapter's title and heading records (metadata only)."""
     path = Path(chapter_path).expanduser()
     lines = load_lines(path)
-    candidate = find_title_candidate(lines)
+    candidate = find_title_candidate(lines, chapter_number=chapter_number(path.name))
+    title = candidate.get("text") or ""
+    source = candidate.get("source") or "missing"
+    if not title:
+        title = title_from_filename(path.name)
+        source = "filename" if title else "missing"
+    matter = matter_kind(path.name, index, title)
+    number = chapter_number(path.name, title, fallback=body_index)
+
     report = inspect_chapter(path, max_headers=min(max_headers, MAX_POSTPROCESS_HEADINGS))
     headings = [_compact_heading(record) for record in report.get("headers") or []]
     title_line = candidate.get("line_number")
     # A subtitle heading (``# CHAPTER TWO`` + ``# WALKING IS GOOD FOR YOU``) is
     # part of the chapter title, so it is never offered as a heading to demote.
     subtitle_line = candidate.get("subtitle_line")
+    # A real heading whose ``##`` markup was lost is still a heading: offer it as
+    # a ``promote`` candidate instead of letting it stay invisible.
+    headings.extend(
+        _compact_heading(record)
+        for record in plain_heading_candidates(
+            lines,
+            skip_lines={line for line in (title_line, subtitle_line) if line},
+            matter=matter,
+        )
+    )
+    headings.sort(key=lambda item: item["line_number"] or 0)
     if subtitle_line:
         headings = [item for item in headings if item["line_number"] != subtitle_line]
     for heading in headings:
@@ -604,14 +720,6 @@ def scan_chapter_structure(
         if heading["suggested"] != "keep" and heading["line_number"] != title_line
     ]
 
-    title = candidate.get("text") or ""
-    source = candidate.get("source") or "missing"
-    if not title:
-        title = title_from_filename(path.name)
-        source = "filename" if title else "missing"
-
-    matter = matter_kind(path.name, index, title)
-    number = chapter_number(path.name, title, fallback=body_index)
     structure = ChapterStructure(
         filename=path.name,
         path=str(path),
@@ -923,6 +1031,7 @@ __all__ = [
     "is_toc_filename",
     "matter_kind",
     "opening_records",
+    "plain_heading_candidates",
     "scan_book_structure",
     "scan_chapter_structure",
     "title_from_filename",

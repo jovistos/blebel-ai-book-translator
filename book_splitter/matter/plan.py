@@ -27,6 +27,7 @@ from ..core.constants import (
     MATTER_TRANSLATOR_NAME,
     MIN_MATTER_LENGTH_RATIO,
 )
+from ..documents.images import image_refs
 from ..translation.translator import clean_translation
 
 #: A heading line, with its level.
@@ -484,6 +485,27 @@ def validate_matter_translation(
     for phrase in omitted_phrases(plan, section_filename):
         if phrase.casefold() in text.casefold():
             issues.append(f"omitted phrase still appears in the translation: {phrase!r}")
+
+    # Front/back matter can carry a cover, a portrait or a facsimile. The
+    # localization may rearrange the layout, but it may not lose a picture.
+    # A wholly omitted legal page is the one case where dropping its pictures is
+    # intended, so the check only applies to content that stays in the book.
+    if not omitted:
+        source_images = image_refs(source_text)
+        remaining_images = image_refs(text)
+        for reference in source_images:
+            if reference in remaining_images:
+                remaining_images.remove(reference)
+            else:
+                issues.append(
+                    "the localization dropped an image reference; copy every image "
+                    f"exactly as it is ({reference[:80]!r})"
+                )
+        if remaining_images:
+            warnings.append(
+                f"the localization added {len(remaining_images)} image reference(s) that "
+                "were not in the source; remove them unless the plan asks for a picture"
+            )
 
     if section_kind == "front" and is_first_front_chunk:
         title, credit = _title_and_credit(plan)

@@ -37,8 +37,16 @@ from ..documents.chapters import (
     file_sha256,
     postprocessed_chapters_dir,
 )
+from ..documents.io import load_lines
+from ..documents.text import norm
 from ..documents.window import normalize_limit
-from ..postprocess.inspect import chapter_files, matter_kind, scan_book_structure
+from ..openings import OpeningAuditResult, audit_openings
+from ..postprocess.inspect import (
+    chapter_files,
+    matter_kind,
+    scan_book_structure,
+    scan_chapter_structure,
+)
 from ..postprocess.toc import (
     apply_toc,
     build_toc_entries,
@@ -69,6 +77,7 @@ class ChapterPostprocessResult:
     output_lines: int = 0
     heading_decisions: int = 0
     demoted_lines: list[int] = field(default_factory=list)
+    promoted_lines: list[int] = field(default_factory=list)
     merged_subtitles: list[int] = field(default_factory=list)
     verification: dict[str, Any] = field(default_factory=dict)
     attempts: int = 0
@@ -98,6 +107,7 @@ class PostprocessResult:
     toc: dict[str, Any] = field(default_factory=dict)
     web: dict[str, Any] = field(default_factory=dict)
     totals: dict[str, int] = field(default_factory=dict)
+    openings: dict[str, Any] = field(default_factory=dict)
     chapters: list[dict[str, Any]] = field(default_factory=list)
     usage: dict[str, int] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
@@ -168,6 +178,16 @@ def _reusable(
         return None
     if str(entry.get("title") or "") != canonical_title:
         return None
+    # A file written before the title-detection fix can carry its title in the
+    # wrong place: a translated ``## 2`` used to be skipped as a printed page
+    # number, so the title was set on a later heading and a bare number was left
+    # at the top. Reuse only when the title this stage reads today is still the
+    # canonical title it recorded (the opening audit can then fix any leftover
+    # line around it).
+    if canonical_title:
+        current = scan_chapter_structure(target)
+        if norm(current.title) != norm(canonical_title):
+            return None
     return ChapterPostprocessResult(
         chapter_id=path.stem,
         filename=path.name,
@@ -181,6 +201,7 @@ def _reusable(
         output_lines=int(entry.get("output_lines") or 0),
         heading_decisions=int(entry.get("heading_decisions") or 0),
         demoted_lines=list(entry.get("demoted_lines") or []),
+        promoted_lines=list(entry.get("promoted_lines") or []),
         merged_subtitles=list(entry.get("merged_subtitles") or []),
         verification={"ok": True, "reused": True},
         log=["reused from the previous run (--skip-if-present)"],
@@ -419,6 +440,14 @@ def run_postprocess(
         reused.get(path.name) or by_name[path.name] for path in selected
     ]
 
+    # Final phase: the deterministic opening audit. It reads only the first lines
+    # of every chapter and removes what is provably junk there — a stray copy of
+    # the chapter number under the title (`# Poglavlje 2` then `2`), a duplicated
+    # title line, a leftover page number. It runs over the folder as it stands,
+    # reused chapters included, and before the TOC is built.
+    openings = _audit_openings(out_dir, selected, results, dry_run=dry_run)
+    errors.extend(openings.errors)
+
     toc_plan = plan.get("toc") or {}
     if dry_run:
         entries = build_toc_entries(book, plan, titles=canonical)
@@ -480,11 +509,19 @@ def run_postprocess(
         "title_set": sum(1 for result in results if result.title_action == "set"),
         "title_inserted": sum(1 for result in results if result.title_action == "insert"),
         "demoted_headings": sum(len(result.demoted_lines) for result in results),
+        "promoted_headings": sum(len(result.promoted_lines) for result in results),
         "merged_subtitles": sum(len(result.merged_subtitles) for result in results),
         "toc_entries": len(entries),
+        "opening_clean": openings.clean_count,
+        "opening_issues": openings.issue_count,
+        "opening_fixes": openings.fixed_count,
+        "opening_remaining": openings.remaining_count,
     }
     result = PostprocessResult(
-        ok=bool(results) and all(item.ok for item in results) and bool(toc_summary.get("ok")),
+        ok=bool(results)
+        and all(item.ok for item in results)
+        and bool(toc_summary.get("ok"))
+        and openings.ok,
         chapters_path=str(source_dir),
         output_dir=str(out_dir),
         chapter_count=len(results),
@@ -499,6 +536,7 @@ def run_postprocess(
         toc=toc_summary,
         web=web,
         totals=totals,
+        openings=openings.summary(),
         chapters=[item.to_dict() for item in results],
         usage=usage_total,
         errors=errors,
@@ -507,6 +545,42 @@ def run_postprocess(
         result.manifest_path = str(write_postprocess_manifest(out_dir, result))
         result.trace_path = str(write_postprocess_trace(out_dir, result))
     return result
+
+
+def _audit_openings(
+    out_dir: Path,
+    selected: list[Path],
+    results: list[ChapterPostprocessResult],
+    *,
+    dry_run: bool,
+) -> OpeningAuditResult:
+    """Run the stage-9 flavour of the opening audit over the written chapters."""
+    if dry_run:
+        return OpeningAuditResult(
+            dry_run=True,
+            folder=str(out_dir),
+            chapter_count=len(selected),
+            skipped="dry run — no chapter files were written",
+        )
+    openings = audit_openings(
+        out_dir,
+        [path.name for path in selected],
+        keep_blank_slot=False,
+    )
+    by_name = {result.filename: result for result in results}
+    for record in openings.chapters:
+        chapter_result = by_name.get(str(record.get("filename")))
+        applied = list(record.get("fixes") or [])
+        if chapter_result is None or not applied:
+            continue
+        path = Path(chapter_result.output_path or out_dir / chapter_result.filename)
+        if path.is_file():
+            chapter_result.output_lines = len(load_lines(path))
+        detail = ", ".join(
+            f"line {fix.get('line_number')} ({fix.get('text')!r})" for fix in applied
+        )
+        chapter_result.log.append(f"openings: removed {detail}")
+    return openings
 
 
 def summarise_chapter(
@@ -548,6 +622,7 @@ def summarise_chapter(
         output_lines=int(applied.get("output_lines") or 0),
         heading_decisions=len(plan.get("headings") or []),
         demoted_lines=list((applied.get("applied") or {}).get("demoted_lines") or []),
+        promoted_lines=list((applied.get("applied") or {}).get("promoted_lines") or []),
         merged_subtitles=list(
             (applied.get("applied") or {}).get("merged_subtitles") or []
         ),
@@ -560,7 +635,9 @@ def summarise_chapter(
 
 def write_postprocess_manifest(out_dir: str | Path, result: PostprocessResult) -> Path:
     """Write ``_postprocess_manifest.json``: the book-level index."""
-    path = Path(out_dir).expanduser() / POSTPROCESS_MANIFEST_FILENAME
+    folder = Path(out_dir).expanduser()
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / POSTPROCESS_MANIFEST_FILENAME
     payload = {
         "stage": "postprocess",
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -575,6 +652,7 @@ def write_postprocess_manifest(out_dir: str | Path, result: PostprocessResult) -
         "toc": result.toc,
         "web": result.web,
         "totals": result.totals,
+        "openings": result.openings,
         "usage": result.usage,
         "chapters": [
             {

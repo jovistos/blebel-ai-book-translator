@@ -57,6 +57,15 @@ whole book, before any chunk is localized.
    references to the original print edition. List every omitted source phrase exactly in
    `omit`; the graph checks that the phrase is gone. When in doubt about a legal notice,
    omit it and list it — a translated edition has its own legal page.
+   **Never omit the author's own words, whatever they are about.** A paragraph, sentence
+   or note written by the author is the book, not apparatus: even when it mentions print
+   runs ("for this eighty-sixth thousand"), electrotypes, prices or the original
+   publisher, it is part of the author's preface/dedication and must be translated, not
+   dropped. Only material written by the publisher (imprint page, ISBN, copyright and
+   permissions pages, cover/design credits) may be omitted. Inside the author's own
+   preface, drop nothing but bare cross-reference pointers to the original pagination
+   (for example "(see p. 59)"). When an author's paragraph and publisher apparatus share a
+   passage, keep the author's paragraph whole.
 4. **The shape of the matter.** Say how the first front-matter file should open (localized
    title, credit, source-language note) and give each section its localized title in
    `sections`. Keep the book's own structure: do not merge a preface into the title page,
@@ -109,6 +118,10 @@ localization in Markdown.
 - Keep the author's name, the dedication, the preface's meaning and every note. Remove
   only the original-edition material listed in the plan, and never invent a replacement
   legal notice, publisher or ISBN.
+- **Keep every picture.** The chunk may contain Markdown image references
+  (`![…](…)`) or raw `<img …>` tags. Copy each one into the localized text exactly as it
+  is, at the same point in the layout. Never translate, remove, reorder or rewrite an image
+  reference, and never invent a new one.
 - Do not summarize, abridge or expand. Translate the complete chunk, then localize its
   layout.
 - The target language's typography is expected (quotation marks, dashes, capitalization).

@@ -523,3 +523,102 @@ def test_a_limited_run_in_a_new_language_does_not_carry_old_records(tmp_path: Pa
     manifest = load_translation_manifest(book / "07-translations")
     assert manifest["target_language"] == "hr"
     assert len(manifest["files"]) == 1
+
+
+# --------------------------------------------------------------------------- #
+# images: the model sees a marker, the book gets the reference back
+# --------------------------------------------------------------------------- #
+IMAGE = "![Image](../00-markdown/images/rabbit.png)"
+
+
+def _image_project(tmp_path: Path, text: str) -> tuple[Path, Path]:
+    """A book whose single chapter is ``text``, with empty glossary files."""
+    book = tmp_path / "book"
+    chapters = book / "01-chapters"
+    chapters.mkdir(parents=True)
+    (chapters / "01-image.md").write_text(text, encoding="utf-8")
+    (chapters / "_manifest.json").write_text(
+        json.dumps(
+            {
+                "source_file": "book.md",
+                "strategy": "markdown_headers",
+                "files": [
+                    {"filename": "01-image.md", "start_line": 1, "end_line": 9, "title": "Image"}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    chunking = run_chunking(str(chapters), tokenizer="word", chunk_size=100)
+    assert chunking.ok is True
+
+    glossary = book / "04-glossary"
+    glossary.mkdir()
+    (glossary / "glossary.json").write_text(
+        json.dumps({"entries": []}), encoding="utf-8"
+    )
+    chunk_glossary = book / "06-chunk-glossary"
+    chunk_glossary.mkdir()
+    for entry in chunk_files(book / "05-chunks"):
+        (chunk_glossary / f"{entry['filename']}.json").write_text(
+            json.dumps({"stage": "chunk-glossary", "matched_terms": []}),
+            encoding="utf-8",
+        )
+    return book, book / "05-chunks"
+
+
+def test_the_model_receives_a_marker_and_the_file_gets_the_reference_back(tmp_path: Path):
+    book, chunks = _image_project(
+        tmp_path,
+        "# One\n\nAlice looked at the picture.\n\n" + IMAGE + "\n\nThen she ran.\n",
+    )
+    translator = FakeTranslator()
+
+    result = run_translation(str(chunks), translator=translator)
+
+    assert result.ok is True
+    assert len(translator.calls) == 1
+    assert "[[IMG_1]]" in translator.calls[0]["source"]
+    assert "../00-markdown/images/rabbit.png" not in translator.calls[0]["source"]
+
+    translated = (book / "07-translations" / _files(chunks)[0]).read_text(encoding="utf-8")
+    assert IMAGE in translated
+    assert "[[IMG_" not in translated
+
+    debug = json.loads(
+        (book / "07-translation-prompts" / f"{_files(chunks)[0]}.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert debug["images"]["count"] == 1
+    assert debug["images"]["markers"]["[[IMG_1]]"] == IMAGE
+    # The source chunk in the trace stays the real one, not the protected view.
+    assert IMAGE in debug["source_chunk"]["text"]
+
+
+def test_an_image_only_chunk_is_passed_through_without_a_model_call(tmp_path: Path):
+    book, chunks = _image_project(tmp_path, IMAGE + "\n")
+    translator = FakeTranslator()
+
+    result = run_translation(str(chunks), translator=translator)
+
+    assert result.ok is True
+    assert translator.calls == []
+    translated = (book / "07-translations" / _files(chunks)[0]).read_text(encoding="utf-8")
+    assert translated == IMAGE + "\n"
+
+
+def test_a_translation_that_drops_an_image_marker_fails_instead_of_publishing(
+    tmp_path: Path,
+):
+    book, chunks = _image_project(
+        tmp_path,
+        "# One\n\nAlice looked at the picture.\n\n" + IMAGE + "\n\nThen she ran.\n",
+    )
+    translator = FakeTranslator(lambda **_kwargs: "PREVEDENO bez slike")
+
+    result = run_translation(str(chunks), translator=translator)
+
+    assert result.ok is False
+    assert any("image marker" in error for error in result.errors)
+    assert _files(book / "07-translations") == []

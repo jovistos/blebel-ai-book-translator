@@ -334,5 +334,25 @@ def test_translation_problem_ignores_whitespace_differences_when_comparing():
     assert translation_problem(source.replace(" ", "\n"), source) is not None
 
 
+def test_translation_problem_rejects_a_dropped_image_marker():
+    source = "Alice looked. [[IMG_1]] Then she ran."
+
+    assert translation_problem("Alisa je pogledala. [[IMG_1]] Zatim je potrčala.", source) is None
+
+    dropped = translation_problem("Alisa je pogledala. Zatim je potrčala.", source)
+    assert dropped is not None and "dropped" in dropped
+    assert "[[IMG_1]]" in dropped
+
+    doubled = translation_problem(
+        "Alisa je pogledala. [[IMG_1]] [[IMG_1]] Zatim je potrčala.", source
+    )
+    assert doubled is not None and "repeated" in doubled
+
+    invented = translation_problem(
+        "Alisa je pogledala. [[IMG_1]] [[IMG_2]] Zatim je potrčala.", source
+    )
+    assert invented is not None and "invented" in invented
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__]))

@@ -1,0 +1,161 @@
+@charset "utf-8";
+
+/* The one stylesheet stage 11 puts inside the EPUB.
+ *
+ * It is written for translated fiction: justified prose with a first-line
+ * indent (the classic book look, where paragraphs are not separated by space),
+ * one XHTML document per chapter so a chapter always starts on a new page, and
+ * rules that survive every reader — no page-break hacks, no fonts to download.
+ *
+ * The pipeline's Serbian output is Latin script, so no font is embedded and no
+ * script-specific fallback is needed. `lang` on every document lets the reader
+ * hyphenate the text in the right language.
+ */
+
+html {
+  font-size: 100%;
+}
+
+body {
+  margin: 0 5%;
+  font-family: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  font-size: 1em;
+  line-height: 1.45;
+  text-align: justify;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  -webkit-text-size-adjust: 100%;
+}
+
+p {
+  margin: 0;
+  text-indent: 1.4em;
+}
+
+/* Nothing is indented right after a heading, inside a quotation, or inside a
+ * list: the indent marks a new paragraph, and there is no paragraph to mark. */
+h1 + p,
+h2 + p,
+h3 + p,
+h4 + p,
+blockquote p,
+li p,
+figure p,
+p.first {
+  text-indent: 0;
+}
+
+h1 {
+  margin: 1.6em 0 1.2em;
+  font-size: 1.5em;
+  font-weight: normal;
+  line-height: 1.2;
+  text-align: center;
+}
+
+h2 {
+  margin: 1.6em 0 0.6em;
+  font-size: 1.2em;
+  line-height: 1.25;
+  text-align: left;
+  page-break-after: avoid;
+  break-after: avoid;
+}
+
+h3,
+h4,
+h5,
+h6 {
+  margin: 1.3em 0 0.5em;
+  font-size: 1.05em;
+  font-style: italic;
+  text-align: left;
+  page-break-after: avoid;
+  break-after: avoid;
+}
+
+blockquote {
+  margin: 1.2em 1.8em;
+  font-style: italic;
+}
+
+/* The book uses a thematic break as a scene divider, never as a chapter break: a
+ * short centred rule reads as "a beat later" instead of as a layout glitch. */
+hr {
+  width: 20%;
+  margin: 1.6em auto;
+  border: 0;
+  border-top: 1px solid currentColor;
+  opacity: 0.45;
+}
+
+figure {
+  margin: 1.4em 0;
+  text-align: center;
+  text-indent: 0;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+p img {
+  text-indent: 0;
+}
+
+ul,
+ol {
+  margin: 0.9em 0 0.9em 1.4em;
+  padding: 0;
+}
+
+li {
+  margin: 0.2em 0;
+}
+
+em {
+  font-style: italic;
+}
+
+strong {
+  font-weight: bold;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* The title-page block: what the front matter starts with. */
+.titlepage {
+  margin: 25% 0;
+  text-align: center;
+  text-indent: 0;
+}
+
+.titlepage p {
+  text-indent: 0;
+}
+
+.cover {
+  margin: 0;
+  padding: 0;
+  text-align: center;
+}
+
+.cover img {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+/* A picture the package could not find is named, not silently dropped. */
+.image-missing {
+  display: block;
+  margin: 1em 0;
+  text-align: center;
+  font-style: italic;
+  text-indent: 0;
+}

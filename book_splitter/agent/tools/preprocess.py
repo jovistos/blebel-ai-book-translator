@@ -11,6 +11,7 @@ passes, calls :func:`apply_chapter_cleaning`. The decision vocabulary is fixed:
 
 ===============  ==========================================================
 ``keep``         the header is a real heading, leave the line alone
+``promote``      a plain ALL-CAPS section heading: add the ``##`` markup back
 ``demote``       remove the ``#`` markup, keep the text as a paragraph
 ``remove``       the header is only a printed page number — delete the line
 ``merge_with_next``  this heading continues on the *header* on the next line;
@@ -88,15 +89,15 @@ def collect_chapter_headers(chapter_path: str, include_all: bool = False) -> str
     Call this before deciding anything. It returns, for every header in the
     chapter: the line number, the header text (clipped), flags such as
     `is_page_number`, `has_caption_marker`, `next_is_continuation`, and a
-    deterministic `recommendation` (`keep` / `demote` / `remove` /
+    deterministic `recommendation` (`keep` / `promote` / `demote` / `remove` /
     `remove_caption` / `merge_with_next`) with a `risk` and the `evidence`.
 
     `review` lists everything that deserves a decision — start there. It also
-    includes `body_candidates`: page numbers and figure captions that the PDF
-    conversion left as *plain* body lines with no `#` markup, which are just as
-    removable as the ones that became headings. Set `include_all: true` to see
-    every header record. Reading a chapter's *prose* is never necessary and never
-    provided.
+    includes `body_candidates`: page numbers, figure captions and plain ALL-CAPS
+    section headings that the conversion left as body lines with no `#` markup.
+    The first two are removable; the heading candidate is suggested for `promote`,
+    which only adds the markup back. Set `include_all: true` to see every header
+    record. Reading a chapter's *prose* is never necessary and never provided.
     """
     return jdump(inspect_chapter(chapter_path, include_all=include_all))
 
@@ -184,8 +185,9 @@ def validate_chapter_cleaning(chapter_path: str, operations: list[dict]) -> str:
 
     Call this with your candidate operations before reporting them. Every issue
     it lists is fixable from the evidence you already have: an out-of-range
-    line, a line that is not a header, a `merge_with_next` whose next line is
-    not a header, or a `remove` of a line that is not a page number.
+    line, a line that is not a header (or, for `promote`, not a plain ALL-CAPS
+    heading), a `merge_with_next` whose next line is not a header, or a `remove`
+    of a line that is not a page number.
     """
 
     return jdump(validate_cleaning_plan(chapter_path, operations))
@@ -201,13 +203,15 @@ def report_chapter_cleaning(
     """Submit the cleaning plan for one chapter. THIS ENDS THE CHAPTER'S REVIEW.
 
     `operations` is the complete list of line decisions, each
-    `{"line_number": int, "decision": "keep"|"demote"|"remove"|"remove_caption"|
-    "merge_with_next", "note": "<why, short>"}`. `remove` deletes a printed page
-    number (with or without `#` markup, bare, dash-framed like `- 2 -`, spaced
-    like `- 1 0 4 -`, or underscore-framed like `- \\_ 1 1 \\_`); `remove_caption`
-    deletes a standalone
-    figure/table caption, whose picture is not in the Markdown anyway. Lines you
-    do not mention are left exactly as they are, so list only what changes.
+    `{"line_number": int, "decision": "keep"|"promote"|"demote"|"remove"|
+    "remove_caption"|"merge_with_next", "note": "<why, short>"}`. `promote` adds
+    the `##` markup to a plain ALL-CAPS section heading the conversion left as
+    body text, and changes nothing else. `remove` deletes a printed page number
+    (with or without `#` markup, bare, dash-framed like `- 2 -`, spaced like
+    `- 1 0 4 -`, or underscore-framed like `- \\_ 1 1 \\_`); `remove_caption`
+    deletes a standalone figure/table caption, whose picture is not in the
+    Markdown anyway. Lines you do not mention are left exactly as they are, so
+    list only what changes.
 
     `text_fixes` is the optional list of body-text repairs, each
     `{"line_number": int, "fix": "page_number_in_word"|"split_word"|

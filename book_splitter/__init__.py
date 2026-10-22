@@ -1,11 +1,13 @@
-"""Four LangGraph agents, a dictionary funnel, a glossary, a chunker, a per-chunk glossary, a front/back matter localizer, a translator, an assembler, a heading postprocessor and a binder.
+"""Four LangGraph agents, a dictionary funnel, a glossary, a chunker, a per-chunk glossary, a front/back matter localizer, a translator, an assembler, a heading postprocessor, a binder and an EPUB packager.
 
 The pipeline turns one long book into translation-ready material.
 
 Stage 0 — :mod:`book_splitter.conversion` — turns a source EPUB, a text-based
 PDF or a TXT into Markdown under ``00-markdown/``. EPUB/PDF go through docling
 with OCR disabled, so an image-based PDF is rejected instead of OCR'd; a TXT is
-copied under a ``.md`` name. A Markdown source skips this stage entirely.
+copied under a ``.md`` name. Pictures are extracted to ``00-markdown/images/``
+and referenced from the Markdown (``--no-images`` turns that off), so they reach
+the final translated book. A Markdown source skips this stage entirely.
 
 Stage 1 — :mod:`book_splitter.agent` — splits one long Markdown book into one
 file per chapter **without reading its body**. Design contract:
@@ -24,8 +26,9 @@ Stage 2 — :mod:`book_splitter.preprocess_agent` — repairs each chapter file,
   figure captions marked up as headings, and headings the PDF conversion split
   across two lines are detected by shape and confirmed by the agent.
 * It never edits text; it submits a plan in a fixed vocabulary
-  (``keep`` / ``demote`` / ``remove`` / ``merge_with_next`` plus a few named text
-  fixes) and a deterministic validator checks each entry against the real file.
+  (``keep`` / ``promote`` / ``demote`` / ``remove`` / ``merge_with_next`` plus a
+  few named text fixes) and a deterministic validator checks each entry against
+  the real file.
 * A per-line provenance map proves that only the declared lines changed, and
   that the only lines deleted were page artefacts.
 
@@ -93,8 +96,9 @@ Stage 9 — :mod:`book_splitter.postprocess_agent` — postprocesses the assembl
 * it first inventories every chapter title, chooses one naming policy and makes
   the chapter headings consistent;
 * it inspects only each chapter's short opening and its heading records, then
-  sets/inserts/keeps the chapter title and ``keep``/``demote``s accidental
-  headings (a demotion removes the ``#`` markup, never the text);
+  sets/inserts/keeps the chapter title and ``keep``/``demote``/``promote``s the
+  other headings (a demotion removes the ``#`` markup, a promotion adds it back
+  to a plain ALL-CAPS heading, and neither changes the text);
 * it creates or updates the table of contents from the final titles, placing a
   missing one right after the front matter;
 * the result lands in ``09-postprocessed-chapters/`` — the translated chapters are
@@ -104,6 +108,16 @@ Stage 10 — :mod:`book_splitter.binding` — concatenates the postprocessed
 chapters, in reading order, into one ``10-translated-book.md``. It is deterministic:
 the TOC and chapters are joined with one blank line and the result is verified.
 
+Stage 11 — :mod:`book_splitter.epub` — packages the same chapter folder as an
+**EPUB 3** book, ``11-translated-book.epub``, the artifact a reader actually
+opens: one XHTML document per chapter, a navigation document built from the
+chapters' own headings, the pictures the Markdown references embedded once under
+``images/``, and the metadata stage 6b already recorded (title, author, target
+language) plus an identifier that survives a rebuild. The printed table of
+contents is deliberately not shipped — every reader builds its own from the
+navigation document. The package is written from the chapter folder, not from
+stage 10's single file, and it is verified after writing.
+
 Package layout::
 
     book_splitter/
@@ -111,13 +125,16 @@ Package layout::
         cli.py          `convert` / `inspect` / `split` / `preprocess` /
                         `dictionary` / `glossary` / `chunk` / `chunk-glossary` /
                         `matter` / `translate` / `concatenate` / `postprocess` /
-                        `bind` / `tools`
+                        `openings` / `bind` / `epub` / `tools`
         conversion/     stage 0: EPUB/PDF/TXT -> Markdown (docling; no OCR)
         core/           constants, errors, LLM settings
         documents/      reading, markdown/bodyline shapes, chapter discovery
         analysis/       TOC detection, header assessment, title location
         slicing/        stage 1: planning, verbatim slicing, verification
         preprocess/     stage 2: header inspection, damage scan, repair engine
+        openings/       the final phase of stages 2 and 9: every chapter opening
+                        audited, the provable leftovers (a stray number under the
+                        title, a duplicated title, a page number) removed
         dictionary/     stage 3: sentence funnel, language routing, NER gate
         04-glossary/       stage 4: ordered LLM pass that builds the glossary
         chunking/       stage 5: reversible, sentence-safe chapter chunks
@@ -130,6 +147,9 @@ Package layout::
         postprocess/    stage 9: heading/title/TOC planning and application
         postprocess_agent/ stage 9 agent: book + per-chapter graphs
         binding/        stage 10: postprocessed chapters -> one Markdown book
+        epub/           stage 11: postprocessed chapters -> one EPUB 3 book
+                        (render, metadata, package, verification; optional
+                        markdown-it-py, imported lazily)
         agent/          stage 1 agent: prompts, model, tools, graph
         preprocess_agent/  stage 2 agent: prompts, model, tools binding, graph
 """
@@ -141,6 +161,7 @@ from .chunk_glossary import ChunkGlossaryResult, run_chunk_glossary
 from .chunking import ChunkingResult, run_chunking
 from .conversion import ConversionResult, run_conversion
 from .dictionary import DictionaryResult, run_dictionary
+from .epub import EpubResult, run_epub
 from .glossary import GlossaryResult, run_glossary
 from .matter_agent import (
     MatterChunkState,
@@ -150,6 +171,7 @@ from .matter_agent import (
     build_matter_graph,
     run_matter,
 )
+from .openings import OpeningAuditResult, audit_openings
 from .paths import (
     default_input_dir,
     default_output_dir,
@@ -178,10 +200,12 @@ __all__ = [
     "ChunkingResult",
     "ConversionResult",
     "DictionaryResult",
+    "EpubResult",
     "GlossaryResult",
     "MatterChunkState",
     "MatterPlanState",
     "MatterResult",
+    "OpeningAuditResult",
     "PostprocessResult",
     "ChapterPostprocessState",
     "PreprocessResult",
@@ -196,6 +220,7 @@ __all__ = [
     "build_preprocess_graph",
     "build_postprocess_graph",
     "run_assembly",
+    "audit_openings",
     "run_bind",
     "run_chunk_glossary",
     "run_chunking",
@@ -206,6 +231,7 @@ __all__ = [
     "resolve_book_path",
     "resolve_output_dir",
     "run_dictionary",
+    "run_epub",
     "run_glossary",
     "run_matter",
     "run_preprocess",

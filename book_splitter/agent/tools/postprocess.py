@@ -123,6 +123,8 @@ BOOK_TOOL_NAMES = (
     "extract_markdown_headers",
     "inspect_chapter_opening",
     "inspect_matter_blocks",
+    "audit_book_openings",
+    "audit_chapter_opening",
     "web_search",
     "fetch_web_page",
     "validate_book_plan_tool",
@@ -221,13 +223,15 @@ def inspect_chapter_headings(chapter_path: str) -> str:
     """List every heading in one chapter with its short surrounding evidence.
 
     Each record has the line number, level, clipped heading text, a deterministic
-    suggestion (`keep` / `demote`), a risk, and one-line context: whether the next
-    non-blank line is a header, starts lowercase, or is long prose. Headings that
-    look accidental are also collected under `suspicious`.
+    suggestion (`keep` / `demote` / `promote`), a risk, and one-line context:
+    whether the next non-blank line is a header, starts lowercase, or is long
+    prose. A plain ALL-CAPS section heading that lost its `#` markup is included
+    with `level: 0` and `suggested: promote`; a chapter's title and subtitle are
+    not. Headings that look accidental are also collected under `suspicious`.
 
-    This is the tool to call before deciding `keep` or `demote` for a heading. It
-    never returns a paragraph. Pass the exact `chapter_path` from the CHAPTER
-    REPORT, never a bare filename.
+    This is the tool to call before deciding `keep`, `demote` or `promote` for a
+    heading. It never returns a paragraph. Pass the exact `chapter_path` from the
+    CHAPTER REPORT, never a bare filename.
     """
     path = resolve_chapter_path(chapter_path)
     structure = scan_chapter_structure(path)
@@ -358,8 +362,8 @@ def validate_chapter_postprocess(
 
     Checks the title action (`keep` / `set` / `insert`), its line and text
     against the book's canonical title, and every heading decision against an
-    actual Markdown header. Issues are actionable; warnings flag suspicious
-    headings the plan leaves untouched.
+    actual Markdown header or a plain ALL-CAPS heading candidate. Issues are
+    actionable; warnings flag suspicious headings the plan leaves untouched.
     """
     path = resolve_chapter_path(chapter_path)
     return jdump(
@@ -386,10 +390,12 @@ def report_chapter_postprocess(
     canonical title comes from the book plan); `insert` adds it at the top when
     the chapter has no title at all; `keep` leaves it alone.
 
-    `headings` is a list of `{"line_number": int, "decision": "keep"|"demote",
-    "note": "..."}` for the chapter's other headings. `demote` removes only the
-    `#` markup and keeps the text as a paragraph; there is no delete operation.
-    Omitted headings are kept, but the graph warns about suspicious omissions.
+    `headings` is a list of `{"line_number": int,
+    "decision": "keep"|"demote"|"promote", "note": "..."}` for the chapter's other
+    headings. `demote` removes only the `#` markup and keeps the text as a
+    paragraph; `promote` is the inverse, adding `##` to a plain ALL-CAPS section
+    heading whose markup was lost. There is no delete operation. Omitted
+    headings are kept, but the graph warns about suspicious omissions.
 
     The plan is validated before anything is written; dry-run it with
     `validate_chapter_postprocess` first.
@@ -435,7 +441,7 @@ def apply_chapter_postprocess(
     """Write one postprocessed chapter into the output folder.
 
     The only chapter-writing tool. It applies exactly the validated plan (title
-    action + keep/demote decisions), writes the result under the chapter's own
+    action + keep/demote/promote decisions), writes the result under the chapter's own
     name in `output_dir` (default: `09-postprocessed-chapters/`), then verifies that
     only the declared lines changed. The graph blocks it until the plan passed
     validation for this chapter.

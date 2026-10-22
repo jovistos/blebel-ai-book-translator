@@ -60,6 +60,7 @@ from ..documents.chapters import (
     discover_chapters,
     load_split_manifest,
 )
+from ..documents.images import image_spans
 from ..documents.io import load_lines
 from .boundaries import (
     PARAGRAPH_SAFE,
@@ -385,6 +386,9 @@ def chunk_text(
         return []
     spans = _spans_from_chonkie(text, chunker.chunk(text))
     spans = _enforce_limit(text, spans, tokenizer.count_tokens, int(chunk_size))
+    spans = _image_safe_spans(
+        text, spans, tokenizer.count_tokens, int(chunk_size)
+    )
     if "".join(text[start:end] for start, end in spans) != text:  # pragma: no cover
         raise ToolError("the computed chunk spans do not cover the chapter exactly")
     output: list[tuple[int, int, int, str, str]] = []
@@ -393,6 +397,73 @@ def chunk_text(
         after = "chapter-end" if position == len(spans) - 1 else boundary_kind(text, end)
         output.append((start, end, tokenizer.count_tokens(text[start:end]), before, after))
     return output
+
+
+def _image_safe_spans(
+    text: str,
+    spans: list[tuple[int, int]],
+    count_tokens,
+    limit: int,
+) -> list[tuple[int, int]]:
+    """Move a cut that landed inside ``![…](…)`` to the nearest image edge.
+
+    A split image reference is no longer an image: the translator sees half a
+    path in one chunk and half in the next, and neither half survives. Moving the
+    cut keeps both chunks exact slices. The side is chosen so both resulting
+    chunks stay inside the token limit when possible; if the picture is larger
+    than the requested chunk, the image wins and the caller's verification says
+    so instead of silently corrupting it.
+    """
+    if len(spans) <= 1:
+        return spans
+    ranges = image_spans(text)
+    if not ranges:
+        return spans
+
+    cuts: list[int] = []
+    cursor = 0
+    for position, (start, end) in enumerate(spans[:-1]):
+        start = cursor
+        cut = end
+        next_end = spans[position + 1][1]
+        inside = next(
+            ((left, right) for left, right in ranges if left < cut < right and right <= next_end),
+            None,
+        )
+        if inside is not None:
+            left_edge, right_edge = inside
+            candidates = (left_edge, right_edge)
+            viable = [
+                candidate
+                for candidate in candidates
+                if count_tokens(text[start:candidate]) <= limit
+                and count_tokens(text[candidate:next_end]) <= limit
+            ]
+            cut = (
+                viable[0]
+                if viable
+                else min(
+                    candidates,
+                    key=lambda candidate: max(
+                        count_tokens(text[start:candidate]),
+                        count_tokens(text[candidate:next_end]),
+                    ),
+                )
+            )
+        cuts.append(cut)
+        cursor = cut
+
+    if any(cut <= 0 or cut >= len(text) for cut in cuts):
+        return spans
+    if any(left >= right for left, right in zip(cuts, cuts[1:], strict=False)):
+        return spans
+
+    adjusted = [(0, cuts[0])]
+    adjusted.extend(zip(cuts, cuts[1:], strict=False))
+    adjusted.append((cuts[-1], len(text)))
+    if any(start >= end for start, end in adjusted):
+        return spans
+    return adjusted
 
 
 # --------------------------------------------------------------------------- #

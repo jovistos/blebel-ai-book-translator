@@ -65,7 +65,7 @@ def build_preprocess_graph(settings: LLMSettings | None = None, model: Any | Non
     it is given, ``settings`` is ignored.
     """
     if model is None:
-        settings = settings or resolve_settings()
+        settings = settings or resolve_settings(stage="preprocess")
         model = make_preprocess_llm(settings)
 
     graph = StateGraph(PreprocessState)

@@ -39,12 +39,13 @@ from book_splitter.preprocess.inspect import (
     KEEP,
     MERGE_DEMOTE,
     MERGE_WITH_NEXT,
+    PROMOTE,
     REMOVE,
-    REMOVE_CAPTION,
     inspect_chapter,
 )
 from book_splitter.preprocess.transform import (
     apply_cleaning_plan,
+    text_of,
     validate_cleaning_plan,
     validate_text_fixes,
     verify_cleaning_plan,
@@ -411,13 +412,16 @@ def test_a_framed_page_number_header_is_recommended_for_removal(tmp_path):
     assert review[3]["risk"] == "very_low"
 
 
-def test_a_caption_header_is_removed(tmp_path):
+def test_a_caption_header_is_demoted_and_its_words_survive(tmp_path):
     path = _chapter(
         tmp_path,
         ["## GLAVA 1", "", "## Slika 7. Protok uzbuđ enja u telu.", "", "Tekst. " + "x" * 200],
     )
     review = {item["line_number"]: item for item in inspect_chapter(path)["review"]}
-    assert review[3]["suggested"] == REMOVE_CAPTION
+    assert review[3]["suggested"] == DEMOTE
+
+    result = apply_cleaning_plan(path, [{"line_number": 3, "decision": "demote"}])
+    assert "Slika 7. Protok uzbuđ enja u telu." in text_of(result)
 
 
 def test_two_halves_of_one_heading_are_merged(tmp_path):
@@ -601,10 +605,115 @@ def test_plain_page_number_lines_and_captions_are_reported(tmp_path):
     candidates = {c["line_number"]: c for c in report["body_candidates"]}
     assert candidates[5]["suggested"] == REMOVE
     assert candidates[5]["kind"] == "page_number"
-    assert candidates[7]["suggested"] == REMOVE_CAPTION
+    assert candidates[7]["suggested"] == KEEP
     assert candidates[7]["kind"] == "caption"
+    assert "picture is preserved" in candidates[7]["evidence"][1]
     # the sentence that merely mentions the figures is not a candidate
     assert 9 not in candidates
+
+
+def test_plain_all_caps_section_headings_are_promote_candidates(tmp_path):
+    path = _chapter(
+        tmp_path,
+        [
+            "## GLAVA 1",
+            "",
+            "Tekst pasusa. " + "x" * 200,
+            "",
+            "JUTRO",
+            "",
+            "Nastavak pasusa.",
+            "",
+            "ČETVRTAK, 16. AVGUST 2012.",
+            "",
+            "POPOLE",
+            "",
+            "Poslednji pasus.",
+        ],
+    )
+    report = inspect_chapter(path)
+    candidates = {c["line_number"]: c for c in report["body_candidates"]}
+    assert candidates[5]["kind"] == "heading"
+    assert candidates[5]["suggested"] == PROMOTE
+    assert candidates[9]["kind"] == "heading"
+    assert candidates[9]["suggested"] == PROMOTE
+    assert candidates[11]["kind"] == "heading"
+    assert candidates[11]["suggested"] == PROMOTE
+    # the candidates are also in the review list the agent is shown
+    review = {item["line_number"]: item for item in report["review"]}
+    assert review[5]["suggested"] == PROMOTE
+    assert review[9]["suggested"] == PROMOTE
+
+
+def test_an_all_caps_sentence_is_not_a_heading_candidate(tmp_path):
+    path = _chapter(
+        tmp_path,
+        [
+            "## GLAVA 1",
+            "",
+            "Tekst pasusa. " + "x" * 200,
+            "",
+            "YOU DON'T KNOW HER. BUT SHE KNOWS YOU.",
+            "",
+            "Nastavak pasusa.",
+            "",
+            "NO",
+            "",
+            "Kraj.",
+        ],
+    )
+    report = inspect_chapter(path)
+    assert report["body_candidates"] == []
+
+
+def test_front_matter_caps_names_are_not_heading_candidates(tmp_path):
+    path = tmp_path / "00-front-matter.md"
+    path.write_text(
+        "Dedication\n\nRACHEL\n\nMEGAN\n\nRACHEL\n",
+        encoding="utf-8",
+    )
+    report = inspect_chapter(path)
+    assert report["body_candidates"] == []
+
+
+def test_a_plain_all_caps_heading_can_be_promoted_and_verified(tmp_path):
+    path = _chapter(
+        tmp_path,
+        ["## GLAVA 1", "", "JUTRO", "", "Tekst pasusa. " + "x" * 200],
+    )
+    operations = [{"line_number": 3, "decision": PROMOTE, "note": "restore heading"}]
+    assert validate_cleaning_plan(path, operations)["ok"]
+
+    result = apply_cleaning_plan(path, operations)
+    assert result.lines[2] == "## JUTRO"
+    assert result.promoted_headings == [3]
+
+    verification = verify_cleaning_plan(path, operations)
+    assert verification["ok"], verification["problems"]
+    assert verification["provenance"]["promoted_headings"] == [3]
+
+
+def test_promoting_a_markdown_header_is_rejected(tmp_path):
+    path = _chapter(tmp_path, ["## GLAVA 1", "", "Tekst."])
+    result = validate_cleaning_plan(path, [{"line_number": 1, "decision": PROMOTE}])
+    assert not result["ok"]
+    assert "already has '#' markup" in result["issues"][0]
+
+
+def test_promoting_prose_or_a_non_standalone_line_is_rejected(tmp_path):
+    path = _chapter(
+        tmp_path,
+        ["## GLAVA 1", "", "Običan pasus.", "", "JUTRO", "Nastavak."],
+    )
+    prose = validate_cleaning_plan(path, [{"line_number": 3, "decision": PROMOTE}])
+    assert not prose["ok"]
+    assert "standalone ALL-CAPS heading" in prose["issues"][0]
+
+    not_standalone = validate_cleaning_plan(
+        path, [{"line_number": 5, "decision": PROMOTE}]
+    )
+    assert not not_standalone["ok"]
+    assert "standalone ALL-CAPS heading" in not_standalone["issues"][0]
 
 
 def test_framed_page_number_body_lines_are_reported(tmp_path):
@@ -774,3 +883,74 @@ def test_scan_chapter_damage_reports_the_shapes_without_prose(tmp_path):
     for finding in report["findings"]:
         assert finding["line_number"] >= 1
         assert len(finding["before"]) <= 60
+
+
+# --------------------------------------------------------------------------- #
+# images: stage 2 may not touch a picture or its caption
+# --------------------------------------------------------------------------- #
+IMAGE = "![Image](../00-markdown/images/rabbit.png)"
+
+
+def test_an_image_line_is_never_a_caption_or_heading_candidate(tmp_path):
+    path = _chapter(
+        tmp_path,
+        ["## GLAVA 1", "", IMAGE, "", "Slika 4. Zec gleda na sat.", "", "Tekst. " + "x" * 200],
+    )
+
+    report = inspect_chapter(path)
+    line_numbers = {candidate["line_number"] for candidate in report["body_candidates"]}
+
+    assert 3 not in line_numbers
+    # The caption stays: it belongs to the preserved picture.
+    caption = {c["line_number"]: c for c in report["body_candidates"]}[5]
+    assert caption["kind"] == "caption" and caption["suggested"] == KEEP
+
+
+def test_a_cleaning_plan_cannot_edit_an_image_line(tmp_path):
+    path = _chapter(tmp_path, ["## GLAVA 1", "", IMAGE, "", "Tekst."])
+
+    rejected = validate_cleaning_plan(path, [{"line_number": 3, "decision": "remove"}])
+    assert rejected["ok"] is False
+    assert "image" in " ".join(rejected["issues"])
+
+    accepted = validate_cleaning_plan(path, [{"line_number": 3, "decision": "keep"}])
+    assert accepted["ok"] is True
+
+    # apply is defensive even when called directly with an unvalidated plan.
+    result = apply_cleaning_plan(path, [{"line_number": 3, "decision": "remove"}])
+    assert IMAGE in text_of(result)
+
+
+def test_a_cleaning_plan_that_would_lose_an_image_is_rejected(tmp_path):
+    path = _chapter(tmp_path, ["## GLAVA 1", "", IMAGE, "", "Tekst."])
+
+    # No operation mentions the image, but a text fix aimed at its line must not
+    # be allowed to rewrite the path; the verifier compares the before/after list.
+    verification = verify_cleaning_plan(path, [{"line_number": 1, "decision": "keep"}])
+    assert verification["ok"] is True
+
+
+def test_preprocessing_keeps_every_image_reference_in_order(tmp_path):
+    path = _chapter(
+        tmp_path,
+        [
+            "## GLAVA 1",
+            "",
+            "Tekst pre slike. " + "x" * 200,
+            "",
+            IMAGE,
+            "",
+            "Slika 4. Zec gleda na sat.",
+            "",
+            "![Image](../00-markdown/images/hat.png)",
+        ],
+    )
+
+    result = apply_cleaning_plan(path, [{"line_number": 1, "decision": "keep"}])
+    verification = verify_cleaning_plan(path, [{"line_number": 1, "decision": "keep"}])
+
+    assert verification["ok"] is True, verification["problems"]
+    output = text_of(result)
+    assert output.count(IMAGE) == 1
+    assert output.count("../00-markdown/images/hat.png") == 1
+    assert output.index(IMAGE) < output.index("hat.png")

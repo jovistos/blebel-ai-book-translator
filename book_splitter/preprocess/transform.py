@@ -11,8 +11,9 @@ Three guarantees make the result auditable:
 1. **No invented line numbers.** Every referenced line must exist and must
    actually be a header (for header decisions) or carry the damage it claims.
 2. **No arbitrary rewriting.** ``merge_with_next`` glues two lines; ``demote``
-   only removes the ``#`` markup; ``remove`` deletes a page-artefact line. There
-   is no operation that can rewrite a sentence.
+   only removes the ``#`` markup; ``promote`` only adds it to a plain ALL-CAPS
+   heading; ``remove`` deletes a page-artefact line. There is no operation that
+   can rewrite a sentence.
 3. **No silent loss.** :func:`apply_cleaning_plan` returns a per-line provenance
    map (``kept`` / ``joined_into`` / ``merged_pair`` / ``removed_artefact``), so
    the verifier can prove that the only lines missing from the output are lines
@@ -33,8 +34,15 @@ from ..documents.bodyline import (
     is_caption_line,
     is_word_continuation,
 )
+from ..documents.images import has_images, image_refs
 from ..documents.io import load_lines
-from ..documents.markdown import header_of, is_page_number_line, page_number_of
+from ..documents.markdown import (
+    header_of,
+    is_page_number_line,
+    is_plain_heading_candidate,
+    is_standalone_line,
+    page_number_of,
+)
 from ..documents.text import excerpt
 from .damage import (
     FIXES,
@@ -55,6 +63,7 @@ from .inspect import (
     KEEP,
     MERGE_DEMOTE,
     MERGE_WITH_NEXT,
+    PROMOTE,
     REMOVE,
     REMOVE_CAPTION,
 )
@@ -92,6 +101,8 @@ class ApplyResult:
     removed_captions: list[int] = field(default_factory=list)
     #: source line numbers that survive verbatim (mask: 1 keep → 1 output)
     copied_lines: list[int] = field(default_factory=list)
+    #: source line numbers of plain ALL-CAPS headings that gained ``##`` markup
+    promoted_headings: list[int] = field(default_factory=list)
     #: ``[left_source_line, right_source_line]`` for every stitched word
     joined_words: list[list[int]] = field(default_factory=list)
     #: merge line -> the page-number digits dropped from the appended half
@@ -106,6 +117,7 @@ class ApplyResult:
             "provenance_counts": counts,
             "removed_artefacts": self.removed_artefacts,
             "removed_captions": self.removed_captions,
+            "promoted_headings": self.promoted_headings,
             "copied_lines": len(self.copied_lines),
             "joined_words": self.joined_words,
             "merged_digits": self.merged_digits,
@@ -234,8 +246,39 @@ def validate_cleaning_plan(
             continue
 
         current = lines[line_number - 1]
+        # An image reference is not text: no cleaning decision may edit, move or
+        # delete the line that carries it. This is the stage-2 guarantee that the
+        # pictures stage 0 extracted survive into the translated book.
+        if has_images(current):
+            if decision != KEEP:
+                issues.append(
+                    f"{label}: holds a Markdown image, and image lines are preserved "
+                    "exactly; use keep (or omit the line from the plan)"
+                )
+            else:
+                claimed.add(line_number)
+                normalised.append(
+                    {
+                        "line_number": line_number,
+                        "decision": decision,
+                        "note": excerpt(str(raw.get("note") or ""), 120),
+                    }
+                )
+            continue
         removing = decision in {REMOVE, REMOVE_CAPTION}
-        if decision != KEEP and not removing and line_number not in headers:
+        if decision == PROMOTE:
+            if line_number in headers:
+                issues.append(f"{label}: already has '#' markup, so it cannot be promoted")
+                continue
+            if not is_standalone_line(lines, line_number - 1) or not is_plain_heading_candidate(
+                current.strip()
+            ):
+                issues.append(
+                    f"{label}: promote is only allowed for a standalone ALL-CAPS heading "
+                    "that lost its '#' markup"
+                )
+                continue
+        elif decision != KEEP and not removing and line_number not in headers:
             issues.append(f"{label}: not a header line, so it cannot be {decision}d")
             continue
 
@@ -387,6 +430,8 @@ def apply_cleaning_plan(
         number, kind = fix["line_number"], fix["fix"]
         if number < 1 or number > len(working):
             continue
+        if has_images(working[number - 1]):
+            continue
         if kind == SPACE_BEFORE_PUNCTUATION:
             working[number - 1] = repair_space_before_punctuation(working[number - 1])
             result.touched[number] = {"fix": kind}
@@ -405,6 +450,8 @@ def apply_cleaning_plan(
             continue
         left, right = working[number - 1], working[number]
         if not left.strip() or not right.strip():
+            continue
+        if has_images(left) or has_images(right):
             continue
         joined, _ = repair_split_word(left, right)
         working[number - 1] = joined + right.lstrip()
@@ -449,6 +496,10 @@ def apply_cleaning_plan(
 
         op = by_line.get(number)
         decision = (op or {}).get("decision", KEEP)
+        # Refuse an edit aimed at a picture even if apply is called directly with
+        # a plan that never went through validate_cleaning_plan.
+        if has_images(plain[number - 1]) and decision != KEEP:
+            decision = KEEP
 
         if decision == MERGE_WITH_NEXT and number in headers:
             nxt = next_content_line(plain, number)
@@ -503,6 +554,22 @@ def apply_cleaning_plan(
                 LineEdit(len(result.lines), "demoted_header", [number], detail=demoted)
             )
             result.touched[number] = {"decision": decision, "digits_removed": digits}
+            idx += 1
+            continue
+
+        if (
+            decision == PROMOTE
+            and number not in headers
+            and is_standalone_line(plain, number - 1)
+            and is_plain_heading_candidate(plain[number - 1].strip())
+        ):
+            promoted = f"## {plain[number - 1].strip()}"
+            result.lines.append(promoted)
+            result.promoted_headings.append(number)
+            result.provenance.append(
+                LineEdit(len(result.lines), "promoted_heading", [number], detail=promoted)
+            )
+            result.touched[number] = {"decision": decision}
             idx += 1
             continue
 
@@ -601,6 +668,18 @@ def verify_cleaning_plan(
         head = header_of(source)
         body = head[1] if head else source
 
+        if has_images(source):
+            if source not in output:
+                problems.append(
+                    f"line {number} holds a Markdown image but is not in the output "
+                    f"verbatim: {excerpt(source, 60)!r}"
+                )
+            if decision and decision != "keep":
+                problems.append(
+                    f"line {number} holds a Markdown image and cannot be {decision}d"
+                )
+            continue
+
         if decision == REMOVE:
             if not looks_like_page_artefact(body):
                 problems.append(
@@ -631,6 +710,15 @@ def verify_cleaning_plan(
             if expected not in output:
                 problems.append(
                     f"line {number} was demoted but its text is not in the output: "
+                    f"{excerpt(expected, 40)!r}"
+                )
+            continue
+
+        if decision == PROMOTE:
+            expected = f"## {source.strip()}"
+            if expected not in output:
+                problems.append(
+                    f"line {number} was promoted but its heading is not in the output: "
                     f"{excerpt(expected, 40)!r}"
                 )
             continue
@@ -673,6 +761,15 @@ def verify_cleaning_plan(
 
     for number in undeclared_captions:
         problems.append(f"line {number} was removed as a caption without being declared")
+
+    source_images = [ref for line in lines for ref in image_refs(line)]
+    output_images = [ref for line in output for ref in image_refs(line)]
+    if source_images != output_images:
+        problems.append(
+            "the cleaning plan changed the chapter's image references "
+            f"({len(source_images)} in, {len(output_images)} out); image lines must "
+            "be preserved verbatim and in order"
+        )
 
     return {
         "ok": not problems,

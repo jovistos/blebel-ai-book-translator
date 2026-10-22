@@ -140,7 +140,7 @@ def resolve_marker_names(
 
         from ..core.settings import resolve_settings
 
-        settings = settings or resolve_settings()
+        settings = settings or resolve_settings(stage="split")
         model = ChatOpenAI(
             model=settings.model,
             base_url=settings.base_url,

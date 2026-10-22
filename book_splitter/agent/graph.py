@@ -65,7 +65,7 @@ def build_graph(settings: LLMSettings | None = None, model: Any | None = None):
     when it is given, ``settings`` is ignored.
     """
     if model is None:
-        settings = settings or resolve_settings()
+        settings = settings or resolve_settings(stage="split")
         model = make_llm(settings)
 
     graph = StateGraph(SplitterState)

@@ -34,13 +34,17 @@ of one (`1otkucaja`);
 Only tool output: header lists with evidence, damage findings with their fragments and line \
 numbers, and `inspect_line_window` results (at most 6 clipped lines). NEVER ask for a whole \
 chapter, and never treat a sample as the chapter text. If you are unsure about a line, look at \
-a small window around it — that is what `inspect_line_window` is for.
+a small window around it — that is what `inspect_line_window` is for. `audit_chapter_opening` \
+is the opening check: at most 12 clipped lines from the top of the chapter, plus every \
+provable opening issue (a title followed by a stray copy of its number, a duplicated title \
+line, a leftover page number). The graph runs the same audit over the whole book after your \
+plan, so use the tool to confirm the shape of the opening, not to hunt for prose.
 
 ## Protocol for each chapter
 1. `collect_chapter_headers` FIRST. It returns every header with a deterministic \
 `recommendation` and the `evidence` behind it, a `review` list of everything that deserves a \
-decision, and a `body_candidates` list: page numbers and captions that the converter left as \
-*plain* body lines, with no `#` markup.
+decision, and a `body_candidates` list: page numbers, captions and ALL-CAPS section headings \
+that the converter left as *plain* body lines, with no `#` markup.
 2. `inspect_chapter_damage` when you want the body-text findings. They are found by *shape*, \
 not by meaning: the tool tells you the two fragments and the reconstructed word. It also lists \
 `inline_page_number` candidates with the words before and after them on the line, the nearest \
@@ -55,23 +59,36 @@ the chapter — the graph applies the plan and writes the file. You do not write
 
 ## The decision vocabulary (use nothing else)
 - `keep` — a real heading; the line is untouched. You may omit it from the list.
+- `promote` — put the `#` markup back on a plain ALL-CAPS section heading that the converter \
+left as body text (`JUTRO`, `POPOLE`, `ČETVRTAK, 16. AVGUST 2012.`). It only adds the markup \
+and keeps every word. Only for a line the inspector lists as a `heading` body candidate; a \
+dedication name or a shouted word is not a heading.
 - `demote` — remove the `#` markup, keep the text as a paragraph. Use it for a figure caption, \
 for body text that became a heading, and for a second half of a heading that is being merged.
 - `remove` — the line is ONLY a printed page number, so it is deleted. This works for a \
 header (`## 18`) and for a plain body line (`19`) alike, including a number the converter \
 kept framed with dashes or underscores, or spaced digit by digit (`- 2 -`, `— 208 —`, \
 `## - 18 -`, `- 1 0 4 -`, `- \\_ 1 1 \\_`).
-- `remove_caption` — the line is a standalone figure/table caption, so it is deleted. Captions \
-label pictures that are not in the Markdown at all, so they are removed rather than kept as \
-paragraphs. Use it for `## Slika 7. Protok ...` and for an unmarked `Slika 4. Blokada ljubavi.`
+- `remove_caption` — **do not use it for this book.** The pipeline now preserves \
+the pictures, so a caption is part of the book and stays with its image. The only \
+correct decision for a caption is `keep` when it is body text, or `demote` when the \
+converter marked it up as a heading.
 - `merge_with_next` — this heading continues on the next non-blank *header* line; the two are \
 joined into one paragraph. Use it for split headings, and give the file a sensible heading by \
 merging, not by deleting.
 
+## Pictures
+A line that carries a Markdown image (`![...](...)`) or an HTML `<img …>` tag is not text. \
+Never edit, merge, promote, demote or remove such a line: the validator rejects it, and the \
+image reference must reach the translated book exactly as it is. The same applies to a \
+second line of a figure block. If a caption belongs to a preserved picture, keep it (or \
+`demote` a caption header so it becomes a paragraph).
+
 ## Judgement rules
 - A heading that names a structural unit (`GLAVA n`, `PRVI DEO`, `UVOD`, `PREDGOVOR`, \
 `BELEŠKE`, `n. POGLAVLJE`) is real; keep it (merge it with its other half if it is split).
-- Short ALL-CAPS lines are real headings.
+- Short ALL-CAPS lines are real headings. When the inspector lists one as a plain `heading` \
+body candidate, `promote` it so the markup is restored before translation.
 - A line the inspector lists as a page-number `body_candidate` (`suggested: remove`, \
 `risk: very_low`) is a printed page number: include every one in your first plan. Its spaced \
 (`- 1 0 4 -`) and underscore-framed (`- \\_ 1 1 \\_`) shapes count too.
@@ -80,10 +97,11 @@ furniture, not a year, count, price, address or a dash in dialogue. `extra.fits_
 true` is strong evidence; `extra.suggested: review` means decide from the words around it. Remove it with \
 the `inline_page_number` fix, which keeps every word on both sides.
 - A short line that ends with sentence punctuation and reads as a sentence is not a heading.
-- Figure captions (`Slika`, `Tabela`, `Figure`) are labels, not book text: delete them with \
-`remove_caption`. A sentence that merely *mentions* a figure stays: it is prose.
-- Never remove a line that contains words unless it is a caption. `remove` is only for page \
-numbers; `remove_caption` is only for captions; `demote` never deletes anything.
+- Figure captions (`Slika`, `Tabela`, `Figure`) are labels for pictures that are now \
+preserved: keep them, or `demote` one that the converter made a heading. A sentence that \
+merely *mentions* a figure stays too: it is prose.
+- Never remove a line that contains words. `remove` is only for page numbers; `demote` never \
+deletes anything.
 - A page number that a chapter depends on (a `## 2. POGLAVLJE` in a notes section) is a \
 heading, not an artefact.
 
@@ -95,9 +113,10 @@ Body-text repairs are requested separately, as `text_fixes` with `{"line_number"
 `split_word` joins a line with the next one, so request it only when `inspect_chapter_damage` \
 reports that shape.
 
-Be conservative: a wrong `demote` costs a heading, a wrong `remove` loses text, a wrong \
-`inline_page_number` deletes a number that was really prose, and a wrong `merge_with_next` glues \
-two unrelated lines together. When the evidence is genuinely unclear, `keep`.
+Be conservative: a wrong `demote` costs a heading, a wrong `promote` turns prose into one, a \
+wrong `remove` loses text, a wrong `inline_page_number` deletes a number that was really prose, \
+and a wrong `merge_with_next` glues two unrelated lines together. When the evidence is genuinely \
+unclear, `keep`.
 """
 
 NUDGE_NO_PROPOSAL = (

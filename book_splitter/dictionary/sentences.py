@@ -21,6 +21,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from ..documents.images import strip_images
+
 #: Word tokens: letters, digits and underscores, Unicode-aware, so ``želja`` and
 #: ``Mithril`` are single words in every language this pipeline handles.
 _WORD = re.compile(r"\w+", re.UNICODE)
@@ -95,6 +97,11 @@ def _blocks(text: str) -> list[str]:
 def _split_block(block: str) -> list[str]:
     """One paragraph (or heading line) turned into its sentences."""
     text = " ".join(block.split())
+    if not text:
+        return []
+    # Pictures are not vocabulary evidence. Remove their Markdown/HTML before
+    # the sentence rules see a path such as `../00-markdown/images/rabbit.png`.
+    text = strip_images(text)
     if not text:
         return []
     text = _HEADING_MARKER.sub("", text)

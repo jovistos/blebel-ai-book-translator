@@ -1,4 +1,6 @@
 # Runtime dependencies of the book splitter (the LangGraph agent itself).
+# Python 3.11+ is required: the per-stage model config (book_splitter.toml) is
+# read with the standard library's tomllib, so there is no YAML/TOML dependency.
 langgraph>=0.2
 langchain-core>=0.3
 langchain-openai>=0.2
@@ -31,6 +33,12 @@ rapidfuzz>=3.0
 # PyMuPDF>=1.24
 # ebooklib>=0.18
 # beautifulsoup4>=4.12
+
+# Optional: stage 11 (`book_splitter epub`) renders the postprocessed Markdown to
+# XHTML with markdown-it-py and then writes the EPUB 3 container with the standard
+# library's zipfile, so no ebooklib, pandoc or calibre is needed. The import is
+# lazy, so a run that stops at the Markdown book needs nothing extra.
+# markdown-it-py>=3.0
 
 # Optional: stage 3 (`book_splitter dictionary`) needs a tagger. It is imported
 # lazily, so the splitter and preprocessor never need it. See

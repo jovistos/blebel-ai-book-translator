@@ -9,8 +9,8 @@ single-document concatenation. It has two LangGraphs:
     ``web_search`` has been called), then choose one naming policy and a
     table-of-contents action.
 ``build_chapter_postprocess_graph``
-    one chapter's graph: set/insert/keep the canonical title, then keep/demote
-    every other heading with the surrounding evidence.
+    one chapter's graph: set/insert/keep the canonical title, then
+    keep/demote/promote every other heading with the surrounding evidence.
 
 ``run_postprocess``
     drives the book graph, then the chapter graph in reading order, then writes

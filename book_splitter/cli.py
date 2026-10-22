@@ -32,7 +32,16 @@ into one file per chapter under ``08-translated-chapters/``, using stage 5's cha
 membership and chunk order; stage 9 postprocesses those translated chapters'
 headings and table of contents, one chapter at a time and without reading their
 prose, into ``09-postprocessed-chapters/``; stage 10 concatenates that folder into
-one ``10-translated-book.md``.
+one ``10-translated-book.md``; stage 11 (`epub`) packages the same folder as an
+EPUB 3 book, ``11-translated-book.epub`` — one XHTML document per chapter, a
+navigation document instead of the printed table of contents, the referenced
+pictures embedded once, and the metadata stage 6b recorded.
+
+Both agent stages end with a deterministic **opening audit** (`openings`): it
+walks the first lines of every chapter, removes a stray copy of the chapter
+number under the title, a duplicated title line or a leftover page number, and
+reports what still needs a human. `book_splitter openings` runs that same pass on
+its own, with no model and no key, over any chapter folder.
 
 The body stages after splitting accept ``--first-chapters N``: they run over the
 first N body chapters only. The front/back matter localizer (``matter``) always
@@ -85,8 +94,13 @@ Examples::
     python -m book_splitter concatenate mybook --first-chapters 3 --resume
     python -m book_splitter postprocess mybook             # -> 09-postprocessed-chapters/
     python -m book_splitter postprocess mybook --first-chapters 3 --resume
+    python -m book_splitter openings mybook                # opening audit/repair (no LLM)
+    python -m book_splitter openings mybook --dry-run
     python -m book_splitter bind mybook                  # -> 10-translated-book.md
     python -m book_splitter bind mybook --dry-run
+    python -m book_splitter epub mybook                   # -> 11-translated-book.epub
+    python -m book_splitter epub mybook --cover cover.jpg # with a cover picture
+    python -m book_splitter epub mybook --title "Naslov" --author "Autor"
     python -m book_splitter tools --stage preprocess       # list the toolset per stage
 """
 
@@ -132,6 +146,7 @@ from .core.constants import (
     DEFAULT_TRANSLATION_MAX_TOKENS,
     MAX_FEEDBACK_LOOPS,
     POSTPROCESSED_CHAPTERS_DIRNAME,
+    PREPROCESSED_DIRNAME,
     TOC_SCAN_LINES,
     TRANSLATED_CHAPTERS_DIRNAME,
     TRANSLATION_GLOSSARY_SCOPES,
@@ -154,9 +169,11 @@ from .documents.chapters import (
     matter_dir,
     matter_prompts_dir,
     postprocessed_chapters_dir,
+    preprocessed_dir,
     reduced_dir,
     translated_book_path,
     translated_chapters_dir,
+    translated_epub_path,
     translation_prompts_dir,
     translations_dir,
     unique_dir,
@@ -210,6 +227,52 @@ def _ensure_markdown_source(source: Path, out: str | Path | None = None) -> Path
     return Path(result.markdown_path)
 
 
+def _model_settings(
+    args: argparse.Namespace,
+    stage: str,
+    *,
+    translation: bool = False,
+):
+    """Resolve one command's model, honouring ``--llm-config`` and ``--llm``.
+
+    The settings module is imported at call time so the offline tests keep
+    patching ``book_splitter.core.settings.resolve_settings`` (or
+    ``resolve_translation_settings``) at the exact seam this command uses.
+    """
+    from .core.settings import (
+        parse_llm_overrides,
+        resolve_settings,
+        resolve_translation_settings,
+        stage_overrides,
+    )
+
+    overrides = stage_overrides(
+        parse_llm_overrides(getattr(args, "llm", None), default_stage=stage),
+        stage,
+    )
+    config_path = getattr(args, "llm_config", None)
+    if translation:
+        return resolve_translation_settings(
+            provider=getattr(args, "translator", None),
+            model=args.model,
+            base_url=args.base_url,
+            api_key=args.api_key,
+            temperature=args.temperature,
+            config_path=config_path,
+            overrides=overrides,
+        )
+    return resolve_settings(
+        stage=stage,
+        provider=args.provider,
+        model=args.model,
+        base_url=args.base_url,
+        api_key=args.api_key,
+        temperature=args.temperature,
+        config_path=config_path,
+        overrides=overrides,
+    )
+
+
 def cmd_convert(args: argparse.Namespace) -> int:
     """Stage 0: EPUB/PDF/TXT -> Markdown under ``00-markdown/``."""
     source = _resolve_book(args)
@@ -218,6 +281,7 @@ def cmd_convert(args: argparse.Namespace) -> int:
         args.out,
         dry_run=args.dry_run,
         force=args.force,
+        images=getattr(args, "images", True),
     )
 
     if args.json:
@@ -237,6 +301,10 @@ def cmd_convert(args: argparse.Namespace) -> int:
             )
         print(f"method          : {result.method}")
         print(f"markdown        : {result.markdown_path}")
+        if result.images or result.image_refs:
+            print(f"images          : {result.images} file(s), {result.image_refs} reference(s)")
+            if result.images_dir:
+                print(f"images folder   : {result.images_dir}")
         if result.reused:
             print("reused          : existing Markdown still matches the source hash")
         print(
@@ -339,20 +407,13 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
 
 def cmd_preprocess(args: argparse.Namespace) -> int:
-    from .core.settings import resolve_settings
     from .preprocess_agent import run_preprocess
 
     chapters_dir = _resolve_chapters_dir(args.book, args.in_dir, args.out)
     out_dir = args.preprocessed_out or None
 
     try:
-        settings = resolve_settings(
-            provider=args.provider,
-            model=args.model,
-            base_url=args.base_url,
-            api_key=args.api_key,
-            temperature=args.temperature,
-        )
+        settings = _model_settings(args, "preprocess")
     except ConfigError as exc:
         print(f"configuration error: {exc}", file=sys.stderr)
         return 2
@@ -409,6 +470,7 @@ def _print_preprocess_summary(result, dry_run: bool = False) -> None:
     if result.corpus_scan:
         counts = result.corpus_scan.get("counts", {})
         print("damage found    : " + ", ".join(f"{k}={v}" for k, v in counts.items() if v))
+    _print_openings_line(result.openings)
     print(f"output dir      : {result.output_dir}")
     if result.chapters:
         print("files:")
@@ -1125,7 +1187,6 @@ class _TranslationBar:
 def cmd_matter(args: argparse.Namespace) -> int:
     """Stage 6b: localize front/back matter with its own agent, before translation."""
     from .chunk_glossary.runner import resolve_chunks_dir
-    from .core.settings import resolve_settings
     from .matter_agent import run_matter
 
     if args.chapters_in:
@@ -1169,13 +1230,7 @@ def cmd_matter(args: argparse.Namespace) -> int:
         return 2
 
     def factory():
-        return resolve_settings(
-            provider=args.provider,
-            model=args.model,
-            base_url=args.base_url,
-            api_key=args.api_key,
-            temperature=args.temperature,
-        )
+        return _model_settings(args, "matter")
 
     # A fully resumed run needs no key, so a missing configuration is carried
     # until a pending chunk actually needs the model.
@@ -1346,7 +1401,6 @@ def _print_matter_summary(result, dry_run: bool = False) -> None:
 def cmd_translate(args: argparse.Namespace) -> int:
     """Stage 7: translate each chunk in reading order, with its glossary rows."""
     from .chunk_glossary.runner import resolve_chunks_dir
-    from .core.settings import resolve_translation_settings
     from .translation import run_translation
     from .translation.runner import resolve_chunk_glossary_dir
 
@@ -1406,13 +1460,7 @@ def cmd_translate(args: argparse.Namespace) -> int:
     settings = None
     config_error: ConfigError | None = None
     try:
-        settings = resolve_translation_settings(
-            provider=args.translator,
-            model=args.model,
-            base_url=args.base_url,
-            api_key=args.api_key,
-            temperature=args.temperature,
-        )
+        settings = _model_settings(args, "translate", translation=True)
     except ConfigError as exc:
         config_error = exc
 
@@ -1699,7 +1747,6 @@ def _print_assembly_summary(result, dry_run: bool = False) -> None:
 
 def cmd_postprocess(args: argparse.Namespace) -> int:
     """Stage 9: postprocess the translated chapters' headings and table of contents."""
-    from .core.settings import resolve_settings
     from .postprocess_agent import run_postprocess
     from .translation.runner import resolve_chunks_dir as _resolve_chunks
 
@@ -1738,13 +1785,7 @@ def cmd_postprocess(args: argparse.Namespace) -> int:
         limit = int(limit)
 
     try:
-        settings = resolve_settings(
-            provider=args.provider,
-            model=args.model,
-            base_url=args.base_url,
-            api_key=args.api_key,
-            temperature=args.temperature,
-        )
+        settings = _model_settings(args, "postprocess")
     except ConfigError as exc:
         print(f"configuration error: {exc}", file=sys.stderr)
         return 2
@@ -1808,6 +1849,7 @@ def _print_postprocess_summary(result, dry_run: bool = False) -> None:
     )
     print(
         f"headings        : {int(totals.get('demoted_headings') or 0)} demoted · "
+        f"{int(totals.get('promoted_headings') or 0)} promoted · "
         f"{int(totals.get('merged_subtitles') or 0)} subtitle(s) folded into a title"
     )
     print(
@@ -1834,6 +1876,7 @@ def _print_postprocess_summary(result, dry_run: bool = False) -> None:
         for warning in validation["warnings"][:5]:
             print(f"  warning       : {warning}")
     print(f"output dir      : {result.output_dir}")
+    _print_openings_line(result.openings)
     if result.manifest_path:
         print(f"manifest        : {result.manifest_path}")
     if result.trace_path:
@@ -1850,6 +1893,125 @@ def _print_postprocess_summary(result, dry_run: bool = False) -> None:
         "\nOK — postprocessed chapters written to a separate folder; the translated "
         "chapters were not touched."
     )
+
+
+def _print_openings_line(openings: dict | None, *, detail: bool = True) -> None:
+    """One line (and the chapters that still need a look) for the opening audit."""
+    data = openings or {}
+    if not data or data.get("skipped"):
+        return
+    dry = bool(data.get("dry_run"))
+    removed = int(data.get("fixed_count") or 0)
+    planned = sum(len(chapter.get("fixes") or []) for chapter in data.get("chapters") or [])
+    print(
+        f"openings        : {int(data.get('inspected_count') or 0)} checked · "
+        f"{int(data.get('clean_count') or 0)} clean · "
+        + (
+            f"{planned} line(s) would be removed · "
+            if dry
+            else f"{removed} line(s) removed · "
+        )
+        + f"{int(data.get('remaining_count') or 0)} need attention"
+    )
+    if not detail:
+        return
+    verb = "would remove" if dry else "removed"
+    for chapter in data.get("chapters") or []:
+        fixes = chapter.get("fixes") or []
+        if fixes:
+            text = ", ".join(
+                f"line {fix.get('line_number')} {str(fix.get('text') or '')!r}"
+                for fix in fixes
+            )
+            print(f"  · {verb} {chapter.get('filename')}: {text}")
+    for chapter in data.get("chapters") or []:
+        remaining = chapter.get("remaining") or []
+        for issue in remaining[:4]:
+            print(
+                f"  · {chapter.get('filename')} line {issue.get('line_number')}: "
+                f"{issue.get('kind')} — {issue.get('detail')}"
+            )
+
+
+def cmd_openings(args: argparse.Namespace) -> int:
+    """Final phase of stages 2 and 9: audit every chapter opening (no LLM)."""
+    from .openings import audit_openings
+
+    folder = _resolve_openings_dir(args)
+    if not folder.is_dir():
+        print(f"error: chapter folder not found: {folder}", file=sys.stderr)
+        return 2
+    result = audit_openings(
+        folder,
+        dry_run=bool(args.dry_run),
+        keep_blank_slot=bool(args.keep_blank_slot),
+    )
+    if args.json:
+        _print_json(result.to_dict())
+        return 0 if result.ok else 1
+    if not args.quiet:
+        print(f"chapters        : {folder.expanduser().resolve()}")
+        print(
+            "policy          : "
+            + (
+                "keep the line count (stage-2 blank slot)"
+                if args.keep_blank_slot
+                else "remove the line and collapse the blank (stage-9 output)"
+            )
+        )
+    print()
+    _print_openings_line(result.summary(), detail=not args.quiet)
+    if not args.quiet:
+        print(f"output dir      : {result.folder}")
+    if not result.ok:
+        print("\nFAILED openings:", file=sys.stderr)
+        for error in result.errors:
+            print(f"  - {error}", file=sys.stderr)
+        return 1
+    if result.errors:
+        for error in result.errors:
+            print(f"  warning         : {error}", file=sys.stderr)
+    print(
+        "\nDRY RUN — every opening audited, nothing was written."
+        if args.dry_run
+        else "\nOK — every chapter opening audited; only provable leftovers were removed."
+    )
+    return 0
+
+
+#: Chapter folders the ``openings`` command understands, most advanced first.
+_CHAPTER_STAGE_FOLDERS = (
+    POSTPROCESSED_CHAPTERS_DIRNAME,
+    TRANSLATED_CHAPTERS_DIRNAME,
+    PREPROCESSED_DIRNAME,
+    CHAPTERS_DIRNAME,
+)
+
+
+def _resolve_openings_dir(args: argparse.Namespace) -> Path:
+    """The folder to audit: an explicit one, or the book's most advanced stage."""
+    if getattr(args, "chapters_in", None):
+        path = Path(args.chapters_in).expanduser()
+        if path.is_file():
+            path = path.parent
+        # A stage folder is taken as given (the caller chose that stage); a book
+        # folder is descended into, preferring the most advanced stage present.
+        if path.name not in _CHAPTER_STAGE_FOLDERS:
+            for name in _CHAPTER_STAGE_FOLDERS:
+                candidate = path / name
+                if has_chapter_files(candidate):
+                    return candidate
+        return path
+    chapters = _resolve_chapters_dir(args.book, args.in_dir, None)
+    for candidate in (
+        postprocessed_chapters_dir(chapters),
+        translated_chapters_dir(chapters),
+        preprocessed_dir(chapters),
+        chapters,
+    ):
+        if has_chapter_files(candidate):
+            return candidate
+    return chapters
 
 
 def cmd_bind(args: argparse.Namespace) -> int:
@@ -1918,9 +2080,104 @@ def _print_bind_summary(result, dry_run: bool = False) -> None:
     print("\nOK — the postprocessed chapters were concatenated into one Markdown book.")
 
 
+def cmd_epub(args: argparse.Namespace) -> int:
+    """Stage 11: package the postprocessed chapters as an EPUB 3 book."""
+    from .epub import run_epub
+
+    if args.postprocessed_in:
+        source_path = Path(args.postprocessed_in).expanduser()
+        if source_path.is_file():
+            source_path = source_path.parent
+        if (source_path / POSTPROCESSED_CHAPTERS_DIRNAME).is_dir():
+            source_path = source_path / POSTPROCESSED_CHAPTERS_DIRNAME
+    else:
+        chapters_path = chapters_dir(_resolve_chapters_dir(args.book, args.in_dir, args.out))
+        source_path = postprocessed_chapters_dir(chapters_path)
+    if not has_postprocessed_chapter_files(source_path):
+        print(
+            f"no postprocessed chapter files in {source_path.expanduser().resolve()} — "
+            "run `postprocess` first",
+            file=sys.stderr,
+        )
+        return 2
+    output_path = (
+        Path(args.epub_out).expanduser()
+        if args.epub_out
+        else translated_epub_path(source_path)
+    )
+    if not args.quiet:
+        print(f"postprocessed-chapters={source_path.expanduser().resolve()}")
+        print(f"epub={output_path.expanduser().resolve()}")
+    try:
+        result = run_epub(
+            str(source_path),
+            str(output_path),
+            title=args.title,
+            author=args.author,
+            language=args.language,
+            identifier=args.identifier,
+            description=args.description,
+            publisher=args.publisher,
+            cover=args.cover,
+            dry_run=args.dry_run,
+            write_manifest=not args.no_manifest,
+        )
+    except ToolError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.json:
+        _print_json(result.to_dict())
+        return 0 if result.ok else 1
+    _print_epub_summary(result, dry_run=args.dry_run)
+    return 0 if result.ok else 1
+
+
+def _print_epub_summary(result, dry_run: bool = False) -> None:
+    print()
+    print(f"title           : {result.title}")
+    print(f"author          : {result.author or '(none recorded)'}")
+    print(f"language        : {result.language}")
+    print(f"identifier      : {result.identifier}")
+    print(f"documents       : {result.document_count}")
+    print(f"pictures        : {result.image_count}")
+    if result.cover:
+        print(f"cover           : {result.cover}")
+    print(
+        f"size            : {result.bytes:,} bytes · "
+        f"{result.chars:,} characters of Markdown"
+    )
+    verification = result.verification or {}
+    print(
+        "verification    : "
+        f"mimetype {'ok' if verification.get('mimetype_first') else 'FAILED'} · "
+        f"container {'ok' if verification.get('container_ok') else 'FAILED'} · "
+        f"package {'ok' if verification.get('opf_ok') else 'FAILED'} · "
+        f"navigation {'ok' if verification.get('nav_ok') else 'FAILED'} · "
+        f"{int(verification.get('xhtml_valid') or 0)}/"
+        f"{int(verification.get('documents') or 0)} XHTML"
+    )
+    if result.toc_dropped:
+        print("table of contents: dropped (the reader's navigation is the table of contents)")
+    print(f"output          : {result.output_path}")
+    if result.manifest_path:
+        print(f"manifest        : {result.manifest_path}")
+    if result.trace_path:
+        print(f"trace           : {result.trace_path}")
+    for warning in result.warnings:
+        print(f"warning         : {warning}", file=sys.stderr)
+    if not result.ok:
+        print("\nFAILED:", file=sys.stderr)
+        for error in result.errors:
+            print(f"  - {error}", file=sys.stderr)
+        return
+    if dry_run:
+        print("\nDRY RUN — the package was built and verified, nothing was written.")
+        return
+    print("\nOK — the postprocessed chapters were packaged as an EPUB 3 book.")
+
+
 def cmd_glossary(args: argparse.Namespace) -> int:
     """Stage 4: build the book-wide glossary, one chapter at a time, first to last."""
-    from .core.settings import resolve_settings
     from .glossary import run_glossary
     from .glossary.runner import resolve_sentences_dir
 
@@ -1951,13 +2208,7 @@ def cmd_glossary(args: argparse.Namespace) -> int:
     settings = None
     config_error: ConfigError | None = None
     try:
-        settings = resolve_settings(
-            provider=args.provider,
-            model=args.model,
-            base_url=args.base_url,
-            api_key=args.api_key,
-            temperature=args.temperature,
-        )
+        settings = _model_settings(args, "dictionary")
     except ConfigError as exc:
         config_error = exc
 
@@ -2113,7 +2364,6 @@ def _print_glossary_summary(result, dry_run: bool = False) -> None:
 def cmd_split(args: argparse.Namespace) -> int:
     from .agent import run_split, run_split_from_map
     from .core.errors import ToolError
-    from .core.settings import resolve_settings
     from .slicing.mapfile import load_split_map
 
     source = _resolve_book(args)
@@ -2157,13 +2407,7 @@ def cmd_split(args: argparse.Namespace) -> int:
         return _report_split(result, args)
 
     try:
-        settings = resolve_settings(
-            provider=args.provider,
-            model=args.model,
-            base_url=args.base_url,
-            api_key=args.api_key,
-            temperature=args.temperature,
-        )
+        settings = _model_settings(args, "split")
     except ConfigError as exc:
         print(f"configuration error: {exc}", file=sys.stderr)
         return 2
@@ -2260,8 +2504,9 @@ def build_parser() -> argparse.ArgumentParser:
         "keeping each call's whole prompt for debugging, `concatenate` glues the "
         "translated chunks back into one file per chapter, `postprocess` makes the "
         "translated chapter titles, other headings and table of contents consistent "
-        "without reading the prose, and `bind` concatenates the postprocessed chapters "
-        "into one Markdown book. Sources come from data/input/, output goes to "
+        "without reading the prose, `openings` audits (and repairs) every chapter's "
+        "first lines with no model at all, and `bind` concatenates the postprocessed "
+        "chapters into one Markdown book. Sources come from data/input/, output goes to "
         "data/output/<book>/.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -2279,12 +2524,38 @@ def build_parser() -> argparse.ArgumentParser:
             help=f"folder holding the source documents (default: {default_input_dir()})",
         )
 
+    def add_llm_flags(parser_: argparse.ArgumentParser) -> None:
+        parser_.add_argument(
+            "--llm-config",
+            default=None,
+            metavar="FILE",
+            help="per-stage model config (default: ./book_splitter.toml, or "
+            "$BOOK_SPLITTER_CONFIG); one [llm] table plus an optional [llm.<stage>] "
+            "table per stage",
+        )
+        parser_.add_argument(
+            "--llm",
+            action="append",
+            default=[],
+            metavar="[STAGE.]FIELD=VALUE",
+            help="override one model field for this stage, repeatable; fields: "
+            "provider, model, base_url, temperature, timeout, max_retries, "
+            "api_key_env (e.g. --llm model=deepseek-flash or "
+            "--llm translate.provider=lmstudio)",
+        )
+
     def add_model_flags(parser_: argparse.ArgumentParser) -> None:
         parser_.add_argument("--provider", choices=sorted(PROVIDERS), default=None)
         parser_.add_argument("--model", default=None)
         parser_.add_argument("--base-url", default=None)
         parser_.add_argument("--api-key", default=None)
-        parser_.add_argument("--temperature", type=float, default=0.0)
+        parser_.add_argument(
+            "--temperature",
+            type=float,
+            default=None,
+            help="sampling temperature for this stage (default: the config file, else 0.0)",
+        )
+        add_llm_flags(parser_)
         parser_.add_argument("--recursion-limit", type=int, default=DEFAULT_RECURSION_LIMIT)
         parser_.add_argument("--json", action="store_true", help="machine-readable result")
         parser_.add_argument("--quiet", "-q", action="store_true")
@@ -2307,6 +2578,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="convert again even when the existing Markdown still matches the source hash",
     )
     p_convert.add_argument(
+        "--no-images",
+        dest="images",
+        action="store_false",
+        help="do not extract pictures from the EPUB/PDF; the Markdown stays text-only "
+        "(images are extracted by default)",
+    )
+    p_convert.add_argument(
         "--dry-run",
         action="store_true",
         help="validate the source (including a PDF's text layer) and report what would "
@@ -2314,7 +2592,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_convert.add_argument("--json", action="store_true", help="machine-readable result")
     p_convert.add_argument("--quiet", "-q", action="store_true")
-    p_convert.set_defaults(func=cmd_convert)
+    p_convert.set_defaults(func=cmd_convert, images=True)
 
     p_tools = sub.add_parser("tools", help="list the tools, grouped by pipeline stage")
     p_tools.add_argument(
@@ -2360,7 +2638,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_split.add_argument("--model", default=None)
     p_split.add_argument("--base-url", default=None)
     p_split.add_argument("--api-key", default=None)
-    p_split.add_argument("--temperature", type=float, default=0.0)
+    p_split.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="sampling temperature for stage 1 (default: the config file, else 0.0)",
+    )
+    add_llm_flags(p_split)
     p_split.add_argument(
         "--front-matter-lines",
         type=int,
@@ -3059,7 +3343,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_tr.add_argument("--model", default=None, help="the model id (e.g. the id LM Studio shows)")
     p_tr.add_argument("--base-url", default=None)
     p_tr.add_argument("--api-key", default=None)
-    p_tr.add_argument("--temperature", type=float, default=0.0)
+    p_tr.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="sampling temperature for stage 7 (default: the config file, else 0.0)",
+    )
+    add_llm_flags(p_tr)
     p_tr.add_argument("--json", action="store_true", help="machine-readable result")
     p_tr.add_argument("--quiet", "-q", action="store_true")
     p_tr.set_defaults(func=cmd_translate)
@@ -3199,6 +3489,35 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_post.set_defaults(func=cmd_postprocess)
 
+    p_open = sub.add_parser(
+        "openings",
+        help="final phase of stages 2 and 9: audit every chapter's first lines and "
+        "remove the safe leftovers (no LLM)",
+    )
+    add_book(p_open, required=False)
+    p_open.add_argument(
+        "--chapters-in",
+        default=None,
+        help="the chapter folder to audit (default: the book's most advanced stage "
+        "folder: 09-postprocessed-chapters/ → 08-translated-chapters/ → "
+        "02-preprocessed/ → 01-chapters/)",
+    )
+    p_open.add_argument(
+        "--keep-blank-slot",
+        action="store_true",
+        help="stage-2 semantics: a removed line leaves an empty line, so line numbers "
+        "keep pointing at the same text (default: the line is removed and the blank "
+        "around it collapsed, which is stage 9's behaviour)",
+    )
+    p_open.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="report every opening finding and write nothing",
+    )
+    p_open.add_argument("--json", action="store_true", help="machine-readable result")
+    p_open.add_argument("--quiet", "-q", action="store_true")
+    p_open.set_defaults(func=cmd_openings)
+
     p_bind = sub.add_parser(
         "bind",
         aliases=["full-book", "compile"],
@@ -3235,6 +3554,73 @@ def build_parser() -> argparse.ArgumentParser:
     p_bind.add_argument("--json", action="store_true", help="machine-readable result")
     p_bind.add_argument("--quiet", "-q", action="store_true")
     p_bind.set_defaults(func=cmd_bind)
+
+    p_epub = sub.add_parser(
+        "epub",
+        aliases=["ebook"],
+        help="stage 11: package the postprocessed chapters as an EPUB 3 book "
+        "(images embedded, reader navigation instead of the printed TOC)",
+    )
+    add_book(p_epub, required=False)
+    p_epub.add_argument(
+        "--out",
+        "-o",
+        default=None,
+        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters)",
+    )
+    p_epub.add_argument(
+        "--postprocessed-in",
+        default=None,
+        help="stage 9's output folder (default: data/output/<book>/09-postprocessed-chapters)",
+    )
+    p_epub.add_argument(
+        "--epub-out",
+        default=None,
+        help="where the EPUB goes (default: data/output/<book>/11-translated-book.epub)",
+    )
+    p_epub.add_argument(
+        "--title",
+        default=None,
+        help="override the book title (default: the title stage 6b recorded)",
+    )
+    p_epub.add_argument(
+        "--author",
+        default=None,
+        help="override the author (default: the author stage 6b recorded)",
+    )
+    p_epub.add_argument(
+        "--language",
+        default=None,
+        help="override the book language, an ISO 639 code (default: the target "
+        "language stage 6b recorded)",
+    )
+    p_epub.add_argument(
+        "--identifier",
+        default=None,
+        help="override the publication identifier (default: a UUID derived from the "
+        "book folder, so rebuilds keep the same book identity)",
+    )
+    p_epub.add_argument("--description", default=None, help="book description/blurb")
+    p_epub.add_argument("--publisher", default=None, help="publisher for the metadata")
+    p_epub.add_argument(
+        "--cover",
+        default=None,
+        help="cover picture — a path, or a file name inside the book's "
+        "00-markdown/images/ folder",
+    )
+    p_epub.add_argument(
+        "--no-manifest",
+        action="store_true",
+        help="do not write _epub_manifest.json / _epub_trace.json",
+    )
+    p_epub.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="build and verify the package in memory but write no file",
+    )
+    p_epub.add_argument("--json", action="store_true", help="machine-readable result")
+    p_epub.add_argument("--quiet", "-q", action="store_true")
+    p_epub.set_defaults(func=cmd_epub)
 
     p_gloss = sub.add_parser(
         "glossary",
@@ -3360,7 +3746,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_gloss.add_argument("--model", default=None)
     p_gloss.add_argument("--base-url", default=None)
     p_gloss.add_argument("--api-key", default=None)
-    p_gloss.add_argument("--temperature", type=float, default=0.0)
+    p_gloss.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="sampling temperature for stage 4 (default: the config file, else 0.0)",
+    )
+    add_llm_flags(p_gloss)
     p_gloss.add_argument("--json", action="store_true", help="machine-readable result")
     p_gloss.add_argument("--quiet", "-q", action="store_true")
     p_gloss.set_defaults(func=cmd_glossary)
@@ -3373,8 +3765,21 @@ def main(argv: list[str] | None = None) -> int:
     if first_chapters is not None and int(first_chapters) < 0:
         print("error: --first-chapters cannot be negative", file=sys.stderr)
         return 2
+    # Validate --llm syntax even when the command ends up needing no model (a
+    # --map replay, a fully resumed run); the command's own stage is filled in
+    # when the setting is actually resolved.
+    try:
+        from .core.settings import parse_llm_overrides
+
+        parse_llm_overrides(getattr(args, "llm", None), default_stage="split")
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     try:
         return int(args.func(args))
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     except ToolError as exc:
         # Stage 0's unsupported/image-based source and the other deterministic
         # stages report one actionable line instead of a traceback.

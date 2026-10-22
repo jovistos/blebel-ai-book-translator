@@ -30,7 +30,9 @@ part of the registration, not of a hand-maintained list:
 ``preprocess`` (stage 2)
     ``agent/tools/preprocess.py``: header collection per chapter and per book,
     damage inspection, the cleaning-plan submission tool, and the apply/verify
-    pair.
+    pair. ``agent/tools/openings.py`` adds ``audit_chapter_opening``: the
+    deterministic opening audit (a stray number under the title, a duplicated
+    title line) that the stage also runs as its final phase.
 
 ``matter`` (the stage before translation)
     ``agent/tools/matter.py``: the front/back matter inventory, full-section and
@@ -45,7 +47,9 @@ part of the registration, not of a hand-maintained list:
     plan, and the apply/verify pair for translated chapters. It also binds the
     shared ``web_search`` / ``fetch_web_page``: the published-contents lookup is
     mandatory before the book plan, and the graph refuses the plan until
-    ``web_search`` has been called.
+    ``web_search`` has been called. ``agent/tools/openings.py`` adds
+    ``audit_book_openings`` for the book planner and ``audit_chapter_opening``
+    for a chapter-level closer look.
 
 Modules
 -------
@@ -57,6 +61,8 @@ Modules
     Stage 1.
 ``preprocess``
     Stage 2.
+``openings``
+    The chapter-opening audit, shared by stages 2 and 9.
 ``matter``
     Front/back matter localization.
 ``postprocess``
@@ -72,6 +78,7 @@ from . import (  # noqa: F401
     execution,
     extract,
     matter,
+    openings,
     postprocess,
     preprocess,
     proposal,
@@ -101,6 +108,7 @@ from .matter import (
     validate_matter_localization,
     validate_matter_plan_tool,
 )
+from .openings import audit_book_openings, audit_chapter_opening
 from .policy import BLOCKED_MESSAGE, blocked_payload, is_blocked
 from .postprocess import (
     apply_book_toc,
@@ -221,6 +229,8 @@ __all__ = [
     "apply_book_toc",
     "apply_chapter_cleaning",
     "apply_chapter_postprocess",
+    "audit_book_openings",
+    "audit_chapter_opening",
     "bind_all",
     "blocked_payload",
     "collect_book_headers",

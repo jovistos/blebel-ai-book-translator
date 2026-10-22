@@ -174,6 +174,11 @@ paragraphs and the source's whitespace-only layout.
 (`**`, `*`, `_`), blockquotes (`>`), list markers, tables, horizontal rules, links, inline \
 code and HTML. Translate the words inside those markers, never the markers themselves. Do \
 not add a heading, a title or a horizontal rule the source does not have.
+3b. The book has illustrations. Each one appears in the source as a marker such as \
+`[[IMG_1]]` or `[[IMG_2]]`. Copy every marker exactly once, unchanged, in the same place it \
+had in the source — on its own line when it was on its own line, and never inside a word. A \
+marker is not prose: do not translate it, delete it, duplicate it, move it to another \
+paragraph, or invent a new one.
 4. The glossary you are given is binding, not advisory. Every rendering in it was fixed \
 for this book before the translation began. Use each rendering exactly as written. When \
 {target} grammar requires a case ending, decline the name but do not change its stem; \
@@ -272,8 +277,8 @@ complete translated chunk in its `translation` field:
 
 {{"translation": "..."}}
 
-Do not summarise, do not omit a paragraph, do not add a sentence, and do not write \
-anything outside the JSON object."""
+Do not summarise, do not omit a paragraph, do not add a sentence, copy every `[[IMG_n]]` \
+marker exactly once in its original place, and do not write anything outside the JSON object."""
 
 
 def build_repair_note(error: str) -> str:

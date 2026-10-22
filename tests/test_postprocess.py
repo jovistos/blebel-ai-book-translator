@@ -432,6 +432,62 @@ def test_postprocess_graph_writes_a_separate_folder_and_toc(tmp_path: Path):
     assert result.manifest_path and Path(result.manifest_path).is_file()
 
 
+def test_postprocess_graph_promotes_a_plain_all_caps_heading(tmp_path: Path):
+    source = tmp_path / "08-translated-chapters"
+    source.mkdir()
+    (source / "01-chapter-1.md").write_text(
+        "Poglavlje 1\n\nPrva rečenica.\n\nJUTRO\n\nTekst jutra.\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "09-postprocessed-chapters"
+    book_model = ScriptedModel(
+        [
+            _tool_call(
+                "report_book_plan",
+                {
+                    "plan": {
+                        "naming": {"mode": "keep", "label": "Poglavlje", "level": 1},
+                        "toc": {"action": "create", "heading": "Sadržaj"},
+                    }
+                },
+            )
+        ]
+    )
+    chapter_model = ScriptedModel(
+        [
+            _tool_call(
+                "report_chapter_postprocess",
+                {
+                    "chapter_path": str(source / "01-chapter-1.md"),
+                    "title": {
+                        "action": "set",
+                        "line_number": 1,
+                        "text": "Poglavlje 1",
+                        "level": 1,
+                    },
+                    "headings": [
+                        {"line_number": 5, "decision": "promote", "note": "restore heading"}
+                    ],
+                },
+            )
+        ]
+    )
+
+    result = run_postprocess(
+        source,
+        out,
+        book_model=book_model,
+        chapter_model=chapter_model,
+        require_web_search=False,
+    )
+
+    assert result.ok, result.errors
+    written = (out / "01-chapter-1.md").read_text(encoding="utf-8")
+    assert "# Poglavlje 1\n" in written
+    assert "## JUTRO\n" in written
+    assert result.totals["promoted_headings"] == 1
+
+
 def test_chapter_agent_is_told_to_resubmit_on_its_last_turn(tmp_path: Path):
     """The failure seen on *We Need to Talk About Kevin*: the last turn is a dry run.
 
@@ -657,6 +713,47 @@ def test_bind_concatenates_postprocessed_files_in_reading_order(tmp_path: Path):
     assert result.manifest_path and Path(result.manifest_path).is_file()
 
 
+def test_bind_rewrites_chapter_image_links_for_the_book_root(tmp_path: Path):
+    source = tmp_path / "09-postprocessed-chapters"
+    source.mkdir()
+    image = "![Image](../00-markdown/images/rabbit.png)"
+    (source / "01-chapter-1.md").write_text(
+        f"# Poglavlje 1\n\n{image}\n\nZec je gledao na sat.\n", encoding="utf-8"
+    )
+    target = tmp_path / "10-translated-book.md"
+
+    result = run_bind(source, target)
+
+    assert result.ok, result.errors
+    assert result.image_refs == 1
+    text = target.read_text(encoding="utf-8")
+    # The bound file sits at the book root, one level above the chapter folder.
+    assert "![Image](00-markdown/images/rabbit.png)" in text
+    assert "../00-markdown/images/rabbit.png" not in text
+
+
+def test_postprocessing_keeps_image_lines_untouched(tmp_path: Path):
+    chapter = tmp_path / "01-chapter-1.md"
+    image = "![Image](../00-markdown/images/rabbit.png)"
+    chapter.write_text(
+        f"# Poglavlje 1\n\n{image}\n\nZec je gledao na sat.\n", encoding="utf-8"
+    )
+    structure = scan_chapter_structure(chapter)
+    plan = {
+        "title": {"action": "keep", "line_number": 1, "text": "Poglavlje 1", "level": 1},
+        "headings": [],
+    }
+    assert validate_chapter_plan(
+        chapter, plan, canonical_title="Poglavlje 1", structure=structure
+    )["ok"]
+
+    applied = apply_chapter_plan(
+        chapter, plan, canonical_title="Poglavlje 1", structure=structure
+    )
+
+    assert image in text_of(applied)
+
+
 def test_a_plain_chapter_title_must_be_promoted_to_a_heading(tmp_path: Path):
     chapter = tmp_path / "01-chapter-1.md"
     chapter.write_text("Poglavlje 1\n\nPrva rečenica.\n", encoding="utf-8")
@@ -701,6 +798,130 @@ def test_an_all_caps_date_line_is_the_chapter_title(tmp_path: Path):
     assert applied.lines[0] == "# 8. novembar 2000."
     assert "8. NOVEMBAR 2000." not in applied.lines
     assert "Dragi Frenkline," in applied.lines
+
+
+def test_plain_all_caps_section_headings_are_promote_candidates(tmp_path: Path):
+    chapter = tmp_path / "01-chapter-1.md"
+    chapter.write_text(
+        "# Poglavlje 1\n\n"
+        "Prva rečenica.\n\n"
+        "JUTRO\n\n"
+        "Tekst jutra.\n\n"
+        "ČETVRTAK, 16. AVGUST 2012.\n\n"
+        "Tekst dana.\n\n"
+        "POPOLE\n\n"
+        "Tekst popodneva.\n",
+        encoding="utf-8",
+    )
+    structure = scan_chapter_structure(chapter)
+
+    by_line = {heading["line_number"]: heading for heading in structure.headings}
+    assert by_line[5]["level"] == 0
+    assert by_line[5]["suggested"] == "promote"
+    assert by_line[9]["suggested"] == "promote"
+    assert by_line[13]["suggested"] == "promote"
+    assert by_line[5]["text"] == "JUTRO"
+    assert [item["line_number"] for item in structure.suspicious_headings] == [5, 9, 13]
+
+
+def test_a_plain_all_caps_heading_can_be_promoted(tmp_path: Path):
+    chapter = tmp_path / "01-chapter-1.md"
+    chapter.write_text(
+        "# Poglavlje 1\n\nPrva rečenica.\n\nJUTRO\n\nTekst jutra.\n",
+        encoding="utf-8",
+    )
+    structure = scan_chapter_structure(chapter)
+    plan = {
+        "title": {"action": "keep", "line_number": 1, "level": 1},
+        "headings": [{"line_number": 5, "decision": "promote", "note": "restore heading"}],
+    }
+
+    validation = validate_chapter_plan(
+        chapter, plan, canonical_title="Poglavlje 1", structure=structure
+    )
+    assert validation["ok"], validation["issues"]
+
+    applied = apply_chapter_plan(
+        chapter, plan, canonical_title="Poglavlje 1", structure=structure
+    )
+    assert applied.lines[4] == "## JUTRO"
+    assert applied.promoted_lines == [5]
+
+    verification = verify_chapter_plan(
+        chapter, plan, canonical_title="Poglavlje 1", structure=structure
+    )
+    assert verification["ok"], verification["problems"]
+
+
+def test_a_promoted_heading_matches_the_existing_section_level(tmp_path: Path):
+    chapter = tmp_path / "01-chapter-1.md"
+    chapter.write_text(
+        "## Poglavlje 1\n\n## Prvi deo\n\nPrva rečenica.\n\nJUTRO\n\nTekst jutra.\n",
+        encoding="utf-8",
+    )
+    structure = scan_chapter_structure(chapter)
+    plan = {
+        "title": {"action": "keep", "line_number": 1, "level": 2},
+        "headings": [{"line_number": 7, "decision": "promote"}],
+    }
+
+    applied = apply_chapter_plan(
+        chapter, plan, canonical_title="Poglavlje 1", structure=structure
+    )
+
+    assert applied.lines[6] == "## JUTRO"
+
+
+def test_a_plain_heading_candidate_can_be_kept_but_not_demoted(tmp_path: Path):
+    chapter = tmp_path / "01-chapter-1.md"
+    chapter.write_text(
+        "# Poglavlje 1\n\nPrva rečenica.\n\nJUTRO\n\nTekst jutra.\n",
+        encoding="utf-8",
+    )
+    structure = scan_chapter_structure(chapter)
+    plan = {
+        "title": {"action": "keep", "line_number": 1, "level": 1},
+        "headings": [{"line_number": 5, "decision": "keep", "note": "a dedication name"}],
+    }
+
+    validation = validate_chapter_plan(chapter, plan, structure=structure)
+
+    assert validation["ok"], validation["issues"]
+    assert any("suggested promote" in warning for warning in validation["warnings"])
+
+    plan["headings"][0]["decision"] = "demote"
+    rejected = validate_chapter_plan(chapter, plan, structure=structure)
+    assert rejected["ok"] is False
+    assert any("only a Markdown header can be demoted" in issue for issue in rejected["issues"])
+
+
+def test_promote_is_rejected_for_a_markdown_header(tmp_path: Path):
+    chapter = tmp_path / "01-chapter-1.md"
+    chapter.write_text(
+        "# Poglavlje 1\n\n## JUTRO\n\nTekst jutra.\n",
+        encoding="utf-8",
+    )
+    structure = scan_chapter_structure(chapter)
+    plan = {
+        "title": {"action": "keep", "line_number": 1, "level": 1},
+        "headings": [{"line_number": 3, "decision": "promote"}],
+    }
+
+    validation = validate_chapter_plan(chapter, plan, structure=structure)
+
+    assert validation["ok"] is False
+    assert any("already has '#' markup" in issue for issue in validation["issues"])
+
+
+def test_front_matter_caps_names_are_not_promotion_candidates(tmp_path: Path):
+    chapter = tmp_path / "00-front-matter.md"
+    chapter.write_text(
+        "# Naslov\n\nDedication\n\nRACHEL\n\nMEGAN\n\nRACHEL\n", encoding="utf-8"
+    )
+    structure = scan_chapter_structure(chapter)
+
+    assert structure.matter == "front"
+    assert [item for item in structure.headings if item["level"] == 0] == []
 
 
 def test_a_salutation_is_never_promoted_to_a_chapter_title(tmp_path: Path):

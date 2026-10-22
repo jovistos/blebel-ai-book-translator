@@ -455,7 +455,7 @@ ASSEMBLY_TRACE_FILENAME = "_translated_chapters_trace.json"
 # (a handful of clipped lines), its heading records with short surrounding
 # context, and the book-level list of chapter titles. The agent decides a naming
 # policy for the whole book first, then a per-chapter plan (the chapter heading,
-# and keep/demote for every other heading), and a table-of-contents plan.
+# and keep/demote/promote for every other heading), and a table-of-contents plan.
 #
 # The output is a new ``09-postprocessed-chapters/`` folder: the translated chapter
 # files are never edited in place, exactly as stages 1-8 never edit their input.
@@ -471,6 +471,18 @@ POSTPROCESS_TRACE_FILENAME = "_postprocess_trace.json"
 TRANSLATED_BOOK_FILENAME = "10-translated-book.md"
 BIND_MANIFEST_FILENAME = "_bind_manifest.json"
 BIND_TRACE_FILENAME = "_bind_trace.json"
+
+#: Stage 11 packages the same postprocessed chapters as an EPUB 3 book: the
+#: Markdown file is the reading copy, the EPUB is the one you hand to a reader.
+TRANSLATED_EPUB_FILENAME = "11-translated-book.epub"
+EPUB_MANIFEST_FILENAME = "_epub_manifest.json"
+EPUB_TRACE_FILENAME = "_epub_trace.json"
+#: Inside the container: the pictures, the text documents and the stylesheet.
+EPUB_IMAGES_DIRNAME = "images"
+EPUB_TEXT_DIRNAME = "text"
+EPUB_STYLESHEET_FILENAME = "style.css"
+#: The media type every EPUB names in its first, uncompressed zip entry.
+EPUB_MIMETYPE = "application/epub+zip"
 
 #: A table of contents created when the book has none. ``00-`` sorts it after
 #: ``00-front-matter.md`` (``f`` < ``t``) and before ``01-…``.
@@ -505,14 +517,35 @@ DEFAULT_POSTPROCESS_ATTEMPTS = 4
 TITLE_ACTIONS: tuple[str, ...] = ("keep", "set", "insert")
 #: Heading decisions accepted by a chapter plan. ``demote`` removes the ``#``
 #: markup and keeps the text, which is exactly "remove the heading, leave the
-#: sentence"; there is deliberately no delete operation.
-HEADING_DECISIONS: tuple[str, ...] = ("keep", "demote")
+#: sentence"; ``promote`` is its inverse: add the markup to a plain ALL-CAPS
+#: heading whose markup was lost. There is deliberately no delete operation.
+HEADING_DECISIONS: tuple[str, ...] = ("keep", "demote", "promote")
 #: Naming policies accepted by a book plan.
 NAMING_MODES: tuple[str, ...] = ("keep", "normalize")
 #: TOC actions accepted by a book plan.
 TOC_ACTIONS: tuple[str, ...] = ("create", "update", "keep")
 #: TOC entry styles accepted by a book plan.
 TOC_STYLES: tuple[str, ...] = ("numbered", "bullets")
+
+# --------------------------------------------------------------------------- #
+# Chapter-opening audit (the final phase of stages 2 and 9)
+#
+# The agent stages decide per chapter; this deterministic pass then walks the
+# *book* and asks one narrow question of every chapter's first lines: does the
+# opening read like a chapter opening? A title followed by a stray copy of its
+# number (``# Poglavlje 2`` then ``2``), a duplicated title line and a leftover
+# page number are the shapes it looks for. It reads only the top of a chapter and
+# repairs only a line that is nothing but that duplicate/artefact.
+# --------------------------------------------------------------------------- #
+
+#: Non-blank opening lines the audit may read per chapter.
+MAX_OPENING_AUDIT_LINES = 12
+#: Physical lines scanned to find those non-blank lines.
+MAX_OPENING_AUDIT_SCAN_LINES = 40
+#: Characters kept per opening line in a report or tool result.
+MAX_OPENING_AUDIT_CHARS = 160
+#: Chapters a single opening-audit tool call may expand (the rest are counted).
+MAX_OPENING_AUDIT_CHAPTERS = 60
 
 # --------------------------------------------------------------------------- #
 # Conversion stage (stage 0)
@@ -529,6 +562,12 @@ TOC_STYLES: tuple[str, ...] = ("numbered", "bullets")
 #: Stage 0 writes next to the stage folders, so it sorts before ``01-chapters/``.
 MARKDOWN_DIRNAME = "00-markdown"
 CONVERT_MANIFEST_FILENAME = "_convert_manifest.json"
+#: Images extracted from an EPUB/PDF live next to the converted Markdown. Every
+#: later stage is one folder below the book folder, so one relative prefix works
+#: from stage 0 through stage 9; stage 10 rewrites it once for the book root.
+IMAGES_DIRNAME = "images"
+CHAPTER_IMAGE_PREFIX = f"../{MARKDOWN_DIRNAME}/{IMAGES_DIRNAME}/"
+ROOT_IMAGE_PREFIX = f"{MARKDOWN_DIRNAME}/{IMAGES_DIRNAME}/"
 #: PDF pages sampled for the text-layer preflight (all of them in a short PDF).
 PDF_TEXT_SAMPLE_PAGES = 12
 #: Characters that make a sampled page "text-bearing" rather than a page number.

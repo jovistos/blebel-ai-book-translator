@@ -355,7 +355,8 @@ def make_collect_node():
             f"Postprocess the headings of {structure.filename}.\n"
             f"chapter_path: {structure.path}\n"
             f"The book plan fixes its chapter title as {canonical!r}. "
-            "Set/insert/keep that title, then decide keep/demote for the other headings. "
+            "Set/insert/keep that title, then decide keep/demote/promote for the other "
+            "headings (a plain ALL-CAPS section heading is promoted). "
             "Pass the exact chapter_path above to every chapter tool; never a bare filename. "
             "Never read the chapter's prose."
         )

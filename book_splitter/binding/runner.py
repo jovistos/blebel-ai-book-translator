@@ -18,7 +18,9 @@ from typing import Any
 from ..core.constants import (
     BIND_MANIFEST_FILENAME,
     BIND_TRACE_FILENAME,
+    CHAPTER_IMAGE_PREFIX,
     POSTPROCESSED_CHAPTERS_DIRNAME,
+    ROOT_IMAGE_PREFIX,
     TOC_FILENAME,
 )
 from ..core.errors import ToolError
@@ -27,6 +29,7 @@ from ..documents.chapters import (
     has_postprocessed_chapter_files,
     translated_book_path,
 )
+from ..documents.images import image_count
 from ..postprocess.inspect import is_toc_filename, scan_book_structure
 
 
@@ -42,6 +45,8 @@ class BindResult:
     chars: int = 0
     lines: int = 0
     sha256: str = ""
+    #: Image references in the final file (after the book-root path rewrite).
+    image_refs: int = 0
     dry_run: bool = False
     files: list[dict[str, Any]] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -117,6 +122,10 @@ def run_bind(
             }
         )
     book = "\n\n".join(parts) + "\n"
+    # Chapter files sit one folder below the book, hence `../00-markdown/images/`.
+    # The bound book is written at the book root, where the same folder is
+    # `00-markdown/images/`; rewrite once, so every picture still resolves.
+    book = book.replace(CHAPTER_IMAGE_PREFIX, ROOT_IMAGE_PREFIX)
     errors: list[str] = []
     if not book.strip():
         errors.append("the assembled book is empty")
@@ -131,6 +140,7 @@ def run_bind(
     cursor = 0
     for record, path in zip(records, files, strict=True):
         text = path.read_text(encoding="utf-8").rstrip("\n")
+        text = text.replace(CHAPTER_IMAGE_PREFIX, ROOT_IMAGE_PREFIX)
         found = written.find(text, cursor)
         if found < 0:
             errors.append(f"{record['filename']} is missing from the assembled book")
@@ -148,6 +158,7 @@ def run_bind(
         chars=len(written),
         lines=len(written.splitlines()),
         sha256=file_sha256(target) if target.is_file() and not dry_run else "",
+        image_refs=image_count(written),
         dry_run=dry_run,
         files=records,
         errors=errors,
@@ -170,6 +181,7 @@ def write_bind_manifest(output_path: Path, result: BindResult) -> Path:
         "toc_included": result.toc_included,
         "chars": result.chars,
         "lines": result.lines,
+        "image_refs": result.image_refs,
         "sha256": result.sha256,
         "files": result.files,
         "errors": result.errors,

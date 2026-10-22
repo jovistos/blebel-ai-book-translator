@@ -11,10 +11,11 @@ header it contains:
 * and a deterministic **recommendation** derived from those flags alone.
 
 The recommendation is deliberately conservative and never destructive: it says
-"keep", "demote to a paragraph" or "remove as a page artefact". Merging two lines
-requires both sides to look like one split heading. When the evidence is thin the
-recommendation is a suggestion only — the agent decides, and a validator checks
-whatever it decides against the same evidence.
+"keep", "promote a plain ALL-CAPS heading", "demote to a paragraph" or "remove as
+a page artefact". Merging two lines requires both sides to look like one split
+heading. When the evidence is thin the recommendation is a suggestion only — the
+agent decides, and a validator checks whatever it decides against the same
+evidence.
 
 The important property: the cost of reviewing a chapter is proportional to its
 *header count*, not to its length. A 3000-line chapter with 6 headers costs 6
@@ -39,15 +40,19 @@ from ..documents.bodyline import (
     is_caption_line,
     starts_with_lowercase,
 )
+from ..documents.images import has_images
 from ..documents.io import load_lines
 from ..documents.markdown import (
     header_body,
     header_of,
     is_all_caps,
     is_page_number_line,
+    is_plain_heading_candidate,
+    is_standalone_line,
     page_number_of,
 )
 from ..documents.text import excerpt
+from ..documents.window import is_body_chapter_name
 
 #: Words that start a caption rather than a heading.
 CAPTION_MARKERS = (
@@ -64,6 +69,9 @@ STRUCTURAL_TOKENS = (
 #: Decision vocabulary, shared with the validator and the applier.
 KEEP = "keep"
 DEMOTE = "demote"
+#: A plain ALL-CAPS line that is a real heading but lost its ``#`` markup:
+#: add the markup back, keep every word.
+PROMOTE = "promote"
 REMOVE = "remove"
 MERGE_WITH_NEXT = "merge_with_next"
 #: The second half of a split heading: merge (it is referenced by its partner),
@@ -72,7 +80,7 @@ MERGE_DEMOTE = "merge_demote"
 #: A figure/table caption: real content, but not part of the book's text flow.
 REMOVE_CAPTION = "remove_caption"
 
-DECISIONS = (KEEP, DEMOTE, REMOVE, REMOVE_CAPTION, MERGE_WITH_NEXT, MERGE_DEMOTE)
+DECISIONS = (KEEP, PROMOTE, DEMOTE, REMOVE, REMOVE_CAPTION, MERGE_WITH_NEXT, MERGE_DEMOTE)
 #: Decisions that delete a line instead of rewriting it.
 DESTRUCTIVE_DECISIONS = (REMOVE, REMOVE_CAPTION, MERGE_WITH_NEXT)
 
@@ -260,10 +268,11 @@ def _recommend(record: HeaderRecord, merge_partner: int | None = None) -> tuple[
     if record.is_page_number:
         return REMOVE, "very_low"
 
-    # A caption is a label for a picture that is not in the Markdown at all:
-    # "## Slika 7. Protok ..." is deleted, never kept as a paragraph.
+    # A caption belongs to a picture, and images are now preserved through the
+    # whole pipeline. A caption that was marked up as a heading is demoted to a
+    # paragraph so its words survive and can be translated with the picture.
     if record.has_caption_marker:
-        return REMOVE_CAPTION, "low"
+        return DEMOTE, "low"
 
     # This line is the second half of a heading the previous header claimed.
     if merge_partner is not None:
@@ -307,21 +316,35 @@ def inspect_body_candidates(
     lines: list[str],
     header_lines: set[int],
     max_candidates: int = 200,
+    *,
+    filename: str = "",
 ) -> list[dict[str, Any]]:
-    """Page numbers and captions that the converter left as *plain* body lines.
+    """Interesting lines that the converter left as *plain* body text.
 
-    Some artefacts never got a ``#``: ``19``, ``- 19 -``, ``- 1 3 -`` or
-    ``- \\_ 1 1 \\_`` sits alone between two paragraphs and ``Slika 4. Blokada
-    ljubavi. ...`` is a caption without markup. They are found by shape (a line
-    that is only a page number; a line that opens with a caption marker and a
-    number), so the agent can decide about them without reading any prose.
+    Three shapes are reported by shape alone, never by reading prose:
+
+    * a printed page number that never got its ``#`` (``19``, ``- 19 -``,
+      ``- 1 3 -``, ``- \\_ 1 1 \\_``);
+    * a figure/table caption without markup (``Slika 4. Blokada ljubavi. ...``),
+      reported with ``keep`` now that the pipeline preserves images;
+    * an ALL-CAPS standalone line that is a real section heading whose ``#``
+      markup was lost (``JUTRO``, ``POPOLE``, ``ČETVRTAK, 16. AVGUST 2012.``).
+      Those are suggested for ``promote``, which only adds the markup; every
+      word stays.
+
+    Heading candidates are only reported for body chapter files: a dedication or
+    a title page is full of short ALL-CAPS names that are not headings.
     """
+    allow_headings = not filename or is_body_chapter_name(filename)
     found: list[dict[str, Any]] = []
     for idx, raw in enumerate(lines, start=1):
         if idx in header_lines:
             continue
         text = raw.strip()
         if not text:
+            continue
+        if has_images(text):
+            # A picture line is not prose, a caption or a heading: no decision.
             continue
         if is_page_number_line(text):
             found.append(
@@ -339,12 +362,30 @@ def inspect_body_candidates(
                 {
                     "line_number": idx,
                     "kind": "caption",
-                    "suggested": REMOVE_CAPTION,
+                    "suggested": KEEP,
                     "risk": "low",
                     "text": excerpt(text, 110),
                     "evidence": [
                         "opens with a figure/table caption marker and a number",
-                        "the picture itself is not in the Markdown",
+                        "the picture is preserved by the pipeline, so the caption stays",
+                    ],
+                }
+            )
+        elif (
+            allow_headings
+            and is_standalone_line(lines, idx - 1)
+            and is_plain_heading_candidate(text)
+        ):
+            found.append(
+                {
+                    "line_number": idx,
+                    "kind": "heading",
+                    "suggested": PROMOTE,
+                    "risk": "low",
+                    "text": excerpt(text, 110),
+                    "evidence": [
+                        "standalone ALL-CAPS line with no '#' markup",
+                        "looks like a section heading the conversion left as plain text",
                     ],
                 }
             )
@@ -362,9 +403,9 @@ def inspect_chapter(
     """Header-level picture of one chapter, plus a compact review list.
 
     ``headers`` always carries every header record (capped by ``max_headers``);
-    ``body_candidates`` carries page numbers and captions that were left as plain
-    body lines; ``review`` is the union of both that deserves a decision, which is
-    what an agent should be shown.
+    ``body_candidates`` carries page numbers, captions and ALL-CAPS heading
+    candidates that were left as plain body lines; ``review`` is the union of both
+    that deserves a decision, which is what an agent should be shown.
     """
     p = Path(path).expanduser()
     lines = load_lines(p)
@@ -383,7 +424,7 @@ def inspect_chapter(
     for record in records:
         counts[record.recommendation] = counts.get(record.recommendation, 0) + 1
 
-    body_candidates = inspect_body_candidates(lines, set(numbers))
+    body_candidates = inspect_body_candidates(lines, set(numbers), filename=p.name)
     review = [
         {
             "line_number": r.line_number,
@@ -476,6 +517,7 @@ __all__ = [
     "KEEP",
     "MERGE_DEMOTE",
     "MERGE_WITH_NEXT",
+    "PROMOTE",
     "REMOVE",
     "REMOVE_CAPTION",
     "chapter_digest",

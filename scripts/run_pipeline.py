@@ -1,15 +1,20 @@
 #!/usr/bin/env python
 """The whole book pipeline in one command: convert → recon → split → scan →
 preprocess → dictionary → chunk → chunk-glossary → matter (→ translate →
-concatenate → postprocess → bind).
+concatenate → postprocess → bind → epub).
 
 `convert` (stage 0), `split`, `preprocess`, `dictionary`, `chunk`, `chunk-glossary`,
-`matter`, `translate`, `concatenate`, `postprocess` and `bind` are separate stages
-behind their own CLIs (the dictionary stage is also the book's glossary builder).
+`matter`, `translate`, `concatenate`, `postprocess`, `bind` and `epub` are separate
+stages behind their own CLIs (the dictionary stage is also the book's glossary
+builder).
 Stage 0 is skipped for a Markdown source and runs automatically for an EPUB, a
 text-based PDF or a TXT: docling converts EPUB/PDF to `00-markdown/`, an
 image-based PDF is rejected instead of OCR'd, and a TXT is copied under a `.md`
-name. This script runs the stages in the only order that works, from one place,
+name. Pictures are extracted to `00-markdown/images/` by default (`--no-images`
+switches that off) and the Markdown references them, so they survive translation
+and binding into the final `10-translated-book.md` and into the EPUB 3 book
+`11-translated-book.epub`. This script runs the stages
+in the only order that works, from one place,
 and narrates each
 phase with the numbers that matter: how big the book is, which strategy won,
 whether the chapters reassemble byte for byte, what damage was found, how many
@@ -40,11 +45,18 @@ chapters were assembled from them.
         --translate-provider lmstudio                     # stage 7 on the local LM Studio model
                                                           # (front/back matter and other stages
                                                           # stay on the shared provider)
+    python scripts/run_pipeline.py --llm split.model=deepseek-flash \
+        --llm translate.provider=lmstudio                 # one override per stage, no file edit
+    python scripts/run_pipeline.py --llm-config /tmp/cheap.toml
+                                                          # another per-stage config file
     python scripts/run_pipeline.py --start-at concatenate
                                                           # stage 8 only, over existing translations
     python scripts/run_pipeline.py --start-at postprocess --with-postprocess
                                                           # stage 9 only, over existing chapters
     python scripts/run_pipeline.py --start-at bind         # stage 10 only, over existing output
+    python scripts/run_pipeline.py --start-at epub         # stage 11 only: -> 11-translated-book.epub
+    python scripts/run_pipeline.py --no-epub               # write the Markdown book, no EPUB
+    python scripts/run_pipeline.py --epub-cover cover.jpg  # pack the book with a cover
     python scripts/run_pipeline.py --with-translate --translate-limit 3
                                                           # translate three chunks, then stop
     python scripts/run_pipeline.py --first-chapters 5 --with-translate
@@ -156,6 +168,13 @@ Stage 10 (``bind``) is deterministic: it concatenates the postprocessed chapters
 in reading order, into one ``10-translated-book.md``. It is selected with stage 9,
 or on its own with ``--start-at bind``.
 
+Stage 11 (``epub``) is deterministic too: it packages the same chapter folder as
+an EPUB 3 book, ``11-translated-book.epub`` — one XHTML document per chapter, a
+navigation document built from the chapters' headings, the referenced pictures
+embedded once, and the title/author/language stage 6b recorded. The printed table
+of contents is not shipped (the reader's navigation replaces it). It is selected
+with stage 10, or on its own with ``--start-at epub``, and ``--no-epub`` drops it.
+
 ``--first-chapters N`` is the one window that applies to every **body** stage
 after splitting: the preprocessing, the dictionary reduction, the glossary, the
 chunker, the per-chunk glossary, translation and assembly all see only the first
@@ -175,7 +194,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import sys
 import tempfile
@@ -227,12 +245,18 @@ from book_splitter.core.constants import (  # noqa: E402
 )
 from book_splitter.core.errors import ConfigError, MissingDependencyError, ToolError  # noqa: E402
 from book_splitter.core.settings import (  # noqa: E402
+    LLM_CONFIG_FILENAME,
     PROVIDERS,
+    STAGES,
     TRANSLATION_CHOICES,
+    llm_config_path,
     load_dotenv_files,
+    load_llm_config,
+    normalize_stage,
+    parse_llm_overrides,
     resolve_settings,
     resolve_translation_settings,
-    translation_model_label,
+    stage_model_label,
 )
 from book_splitter.documents.chapters import (  # noqa: E402
     chapters_dir,
@@ -254,6 +278,7 @@ from book_splitter.documents.chapters import (  # noqa: E402
     reduced_dir,
     translated_book_path,
     translated_chapters_dir,
+    translated_epub_path,
     translation_prompts_dir,
     translations_dir,
     unique_dir,
@@ -304,6 +329,7 @@ PHASES = (
     "concatenate",
     "postprocess",
     "bind",
+    "epub",
 )
 
 #: Phases that need the folder stage 1 writes.
@@ -318,6 +344,7 @@ NEEDS_CHAPTERS = (
     "concatenate",
     "postprocess",
     "bind",
+    "epub",
 )
 
 # Stage 2 (preprocess) repairs the converter's artefacts before anything reads
@@ -381,6 +408,7 @@ TITLES = {
     "concatenate": "stage 8 — glue the translated chunks back into chapters (no LLM)",
     "postprocess": "stage 9 — make the translated headings and table of contents consistent",
     "bind": "stage 10 — concatenate the postprocessed chapters into one Markdown book",
+    "epub": "stage 11 — package the chapters as an EPUB 3 book (no LLM)",
 }
 
 RULE = "─" * 72
@@ -647,11 +675,21 @@ class Pipeline:
                 or self.args.start_at == "bind"
             )
         )
+        # Stage 11 packages the same chapters as an EPUB: it follows the bind, and
+        # `--start-at epub` runs it alone over an existing chapter folder.
+        self.epub_enabled = bool(
+            not getattr(args, "no_epub", False)
+            and (self.bind_enabled or self.args.start_at == "epub")
+        )
         self.records: list[PhaseRecord] = []
         self.exit_code = 0
         self.started = time.monotonic()
         self._settings = None
         self._translation_settings = None
+        self._stage_settings: dict[str, Any] = {}
+        self._llm_config = None
+        # ``--llm <stage>.<field>=VALUE``: parsed once, applied per phase.
+        self._llm_overrides = parse_llm_overrides(getattr(args, "llm", None))
         self._progress_lock = threading.Lock()
         self._bar_stop = threading.Event()
         self._bar_thread: threading.Thread | None = None
@@ -755,6 +793,11 @@ class Pipeline:
             if getattr(args, "book_out", None)
             else translated_book_path(self.postprocess_out)
         )
+        self.epub_out = (
+            Path(args.epub_out).expanduser()
+            if getattr(args, "epub_out", None)
+            else translated_epub_path(self.postprocess_out)
+        )
 
         log_path = None
         if not args.no_log:
@@ -767,76 +810,83 @@ class Pipeline:
 
     # -- setup ------------------------------------------------------------- #
     @property
+    def llm_config(self):
+        """The per-stage model file, read once and only when a phase needs it."""
+        if self._llm_config is None:
+            self._llm_config = load_llm_config(self.args.llm_config)
+        return self._llm_config
+
+    def _shared_model_args(self) -> dict[str, Any]:
+        """The flags shared by every stage.
+
+        The resolver applies them only to a stage whose provider matches the one
+        they were written for, so ``--model`` never leaks a cloud model id into a
+        stage that a config section pinned to a local server.
+        """
+        return {
+            "provider": self.args.provider,
+            "model": self.args.model,
+            "base_url": self.args.base_url,
+            "api_key": self.args.api_key,
+            "temperature": self.args.temperature,
+        }
+
+    @property
     def settings(self):
-        """Resolve the model connection once, and only when a phase needs it."""
-        if self._settings is None:
-            self._settings = resolve_settings(
-                provider=self.args.provider,
-                model=self.args.model,
-                base_url=self.args.base_url,
-                api_key=self.args.api_key,
-                temperature=self.args.temperature,
+        """Stage 1's model connection (the shared default stage)."""
+        return self.settings_for("split")
+
+    def settings_for(self, stage: str):
+        """One stage's connection, resolved lazily, cached, and keyless until needed.
+
+        ``stage`` is one of :data:`STAGES` (``split``, ``preprocess``,
+        ``dictionary``, ``matter``, ``translate``, ``postprocess``). Each stage
+        reads its own ``[llm.<stage>]`` section from ``book_splitter.toml``.
+        """
+        canonical = normalize_stage(stage)
+        if canonical is None:
+            raise ConfigError(
+                f"unknown pipeline stage {stage!r}; choose one of {', '.join(STAGES)}"
             )
-        return self._settings
+        if canonical == "translate":
+            return self.translation_settings
+        if canonical == "split" and self._settings is not None:
+            return self._settings
+        if canonical in self._stage_settings:
+            return self._stage_settings[canonical]
+        resolved = resolve_settings(
+            stage=canonical,
+            shared=self._shared_model_args(),
+            config=self.llm_config,
+            overrides=self._llm_overrides.get(canonical),
+        )
+        if canonical == "split":
+            self._settings = resolved
+        self._stage_settings[canonical] = resolved
+        return resolved
 
     @property
     def translation_settings(self):
         """Stage 7's model: DeepSeek, or the local LM Studio server.
 
-        Deliberately separate from :attr:`settings`: ``--translate-provider
-        lmstudio`` must not move the split, dictionary, chunk-glossary, matter or
-        postprocess stages onto the local model. Resolution stays lazy so a fully
-        resumed translation needs no key and a run without translation never
-        touches it.
-
-        The shared ``--model`` / ``--base-url`` / ``--api-key`` are reused only
-        when no translation-specific provider was chosen, so an old command line
-        without ``--translate-*`` keeps working and a local run never inherits a
-        DeepSeek model id.
+        Its ``[llm.translate]`` section is independent of every other stage, so
+        switching translation to LM Studio never moves the split, dictionary,
+        matter or postprocess stages onto the local model. Resolution stays lazy
+        so a fully resumed translation needs no key and a run without translation
+        never touches it.
         """
         if self._translation_settings is None:
-            specific = self._translation_specific_provider()
-            shared_supported = (
-                self.args.provider is None or self.args.provider in TRANSLATION_CHOICES
-            )
-            use_shared = specific is None and shared_supported
             self._translation_settings = resolve_translation_settings(
-                provider=self._translation_provider(),
-                model=self.args.translate_model
-                or (self.args.model if use_shared else None),
-                base_url=self.args.translate_base_url
-                or (self.args.base_url if use_shared else None),
-                api_key=self.args.translate_api_key
-                or (self.args.api_key if use_shared else None),
-                temperature=(
-                    self.args.translate_temperature
-                    if self.args.translate_temperature is not None
-                    else self.args.temperature
-                ),
+                provider=self.args.translate_provider,
+                model=self.args.translate_model,
+                base_url=self.args.translate_base_url,
+                api_key=self.args.translate_api_key,
+                temperature=self.args.translate_temperature,
+                shared=self._shared_model_args(),
+                config=self.llm_config,
+                overrides=self._llm_overrides.get("translate"),
             )
         return self._translation_settings
-
-    def _translation_specific_provider(self) -> str | None:
-        """The stage-7 provider named by a translation-only flag or ``.env``."""
-        explicit = getattr(self.args, "translate_provider", None)
-        if explicit:
-            return str(explicit).strip().lower()
-        value = os.environ.get("TRANSLATION_PROVIDER")
-        return str(value).strip().lower() if value else None
-
-    def _translation_provider(self) -> str | None:
-        """The provider to pass to the resolver, if one is explicit.
-
-        Precedence is ``--translate-provider`` → ``TRANSLATION_PROVIDER`` env →
-        an explicit shared ``--provider`` that is one of the two choices. A
-        shared provider outside those choices is ignored: it describes stages
-        1/2/4/6b, not stage 7.
-        """
-        specific = self._translation_specific_provider()
-        if specific is not None:
-            return None if specific not in TRANSLATION_CHOICES else specific
-        shared = getattr(self.args, "provider", None)
-        return shared if shared in TRANSLATION_CHOICES else None
 
     def _refresh_chapter_limit(self) -> None:
         """Turn the body-chapter window into the file count each stage takes.
@@ -972,6 +1022,8 @@ class Pipeline:
             phases = [name for name in phases if name != "postprocess"]
         if not self.bind_enabled:
             phases = [name for name in phases if name != "bind"]
+        if not self.epub_enabled:
+            phases = [name for name in phases if name != "epub"]
         return phases
 
     def _switched_off_phases(self) -> list[str]:
@@ -1011,6 +1063,7 @@ class Pipeline:
                 "concatenate": "--no-concat",
                 "postprocess": "--with-postprocess",
                 "bind": "--no-bind",
+                "epub": "--no-epub",
             }.get(name, "--with-" + name)
             self.console.info(f"  · {name}: switched off — skipped (see {flag})")
         for index, name in enumerate(phases, start=1):
@@ -1147,6 +1200,13 @@ class Pipeline:
         except OSError as exc:  # the path was resolved, so this is unusual
             console.kv("book", f"{rel(self.source)} — unreadable: {exc}")
         console.kv("output", rel(self.book_dir))
+        model_config = llm_config_path(self.args.llm_config)
+        console.kv(
+            "llm config",
+            rel(model_config)
+            if model_config
+            else f"built-in defaults (no {LLM_CONFIG_FILENAME})",
+        )
         if self.convert_needed:
             console.kv("stage 0", rel(self.markdown_out) + "/  (converted source)")
         console.kv("chapters", rel(self.chapters_dir))
@@ -1235,6 +1295,10 @@ class Pipeline:
             console.kv("stage 10", "bind switched off — remove --no-bind to write one book file")
         else:
             console.kv("stage 10", rel(self.translated_book_out))
+        if not self.epub_enabled:
+            console.kv("stage 11", "epub switched off — remove --no-epub to write one")
+        else:
+            console.kv("stage 11", rel(self.epub_out))
         console.kv("phases", " → ".join(phases) or "(none — every selected phase is switched off)")
         if not self.preprocess_enabled:
             console.kv("stage 2", "preprocess switched off — remove --no-preprocess to run it")
@@ -1266,7 +1330,12 @@ class Pipeline:
                     tempfile.mkdtemp(prefix="book-splitter-convert-")
                 )
             out_dir = self._convert_temp_dir
-        result = run_conversion(self.source, out_dir, force=self.args.force_convert)
+        result = run_conversion(
+            self.source,
+            out_dir,
+            force=self.args.force_convert,
+            images=getattr(self.args, "images", True),
+        )
         self.source = Path(result.markdown_path)
         self.console.kv(
             "stage 0",
@@ -1284,7 +1353,12 @@ class Pipeline:
                     tempfile.mkdtemp(prefix="book-splitter-convert-")
                 )
             target_dir = self._convert_temp_dir
-        result = run_conversion(self.source, target_dir, force=self.args.force_convert)
+        result = run_conversion(
+            self.source,
+            target_dir,
+            force=self.args.force_convert,
+            images=getattr(self.args, "images", True),
+        )
         if result.markdown_path:
             self.source = Path(result.markdown_path)
 
@@ -1298,6 +1372,11 @@ class Pipeline:
             )
         console.kv("method", result.method)
         console.kv("markdown", rel(result.markdown_path))
+        if result.images or result.image_refs:
+            console.kv(
+                "images",
+                f"{result.images} file(s) · {result.image_refs} reference(s) in the Markdown",
+            )
         for line in result.log:
             console.info(f"     · {line}")
         if self.args.dry_run:
@@ -1785,7 +1864,7 @@ class Pipeline:
         console.kv("sentences", rel(sentences_path) + f"  ({args.sentences})")
         console.kv("output", rel(self.glossary_out))
         console.kv("languages", f"{args.source_language} → {args.target_language}")
-        console.kv("model", self._model_label())
+        console.kv("model", self._stage_model_label("dictionary"))
         console.kv(
             "skips",
             ("front matter, " if not getattr(args, "include_front_matter", False) else "")
@@ -1802,7 +1881,7 @@ class Pipeline:
                 sentences=args.sentences,
                 source_language=args.source_language,
                 target_language=args.target_language,
-                settings_factory=lambda: self.settings,
+                settings_factory=lambda: self.settings_for("dictionary"),
                 max_attempts=args.max_attempts,
                 max_context_entries=args.max_context_entries,
                 include_front_matter=getattr(args, "include_front_matter", False),
@@ -1882,27 +1961,26 @@ class Pipeline:
                 summary += f" · {result.skipped_count} block(s) skipped"
         return summary, result.to_dict()
 
-    def _model_label(self) -> str:
-        """The configured provider/model, without resolving (or requiring) a key."""
-        provider = (
-            self.args.provider or os.environ.get("SPLITTER_PROVIDER") or "deepseek"
-        ).lower()
-        spec = PROVIDERS.get(provider, {})
-        model = self.args.model or os.environ.get("SPLITTER_MODEL") or spec.get("model") or "—"
-        return f"{provider}/{model}"
+    def _stage_model_label(self, stage: str) -> str:
+        """One stage's provider/model, without a key or an LM Studio request."""
+        return stage_model_label(
+            stage,
+            shared=self._shared_model_args(),
+            config=self.llm_config,
+            overrides=self._llm_overrides.get(stage),
+        )
 
     def _translation_model_label(self) -> str:
         """Stage 7's label, without resolving a key or asking LM Studio for its model."""
-        model = self.args.translate_model
-        if (
-            model is None
-            and self._translation_specific_provider() is None
-            and (self.args.provider is None or self.args.provider in TRANSLATION_CHOICES)
-        ):
-            model = self.args.model
-        return translation_model_label(
-            provider=self._translation_provider(),
-            model=model,
+        return stage_model_label(
+            "translate",
+            provider=self.args.translate_provider,
+            model=self.args.translate_model,
+            base_url=self.args.translate_base_url,
+            shared=self._shared_model_args(),
+            config=self.llm_config,
+            overrides=self._llm_overrides.get("translate"),
+            allowed=TRANSLATION_CHOICES,
         )
 
     # -- live progress for the glossary ------------------------------------ #
@@ -2010,7 +2088,11 @@ class Pipeline:
         chapters = discover_chapters(self.chapters_dir)
         console.kv("input", rel(self.chapters_dir))
         console.kv("output", rel(self.preprocessed_out))
-        console.kv("provider", f"{self.settings.provider} · {self.settings.model}")
+        preprocess_settings = self.settings_for("preprocess")
+        console.kv(
+            "provider",
+            f"{preprocess_settings.provider} · {preprocess_settings.model}",
+        )
         shown = (
             len(chapters)
             if self.chapter_limit is None
@@ -2035,7 +2117,7 @@ class Pipeline:
         result = run_preprocess(
             str(self.chapters_dir),
             str(self.preprocessed_out),
-            settings=self.settings,
+            settings=preprocess_settings,
             max_attempts=args.max_attempts,
             dry_run=args.dry_run,
             recursion_limit=args.recursion_limit,
@@ -2061,6 +2143,14 @@ class Pipeline:
         console.kv("edits", f"{operations} operations · {dropped} lines dropped · {fixes} fixes")
         if not args.dry_run:
             console.kv("lines", f"{lines_in:,} → {lines_out:,}")
+        openings = getattr(result, "openings", {}) or {}
+        if openings and not openings.get("skipped"):
+            console.kv(
+                "openings",
+                f"{int(openings.get('inspected_count') or 0)} checked · "
+                f"{int(openings.get('fixed_count') or 0)} line(s) removed · "
+                f"{int(openings.get('remaining_count') or 0)} need attention",
+            )
         console.kv("llm", f"{calls} call(s) · {tokens:,} tokens")
         if result.parallel:
             console.kv("parallel", f"{args.workers} workers · completion order")
@@ -2366,7 +2456,7 @@ class Pipeline:
         console.kv("plan", rel(self.matter_out))
         console.kv("prompts", rel(self.matter_prompts_out))
         console.kv("languages", f"{args.source_language} → {args.target_language}")
-        console.kv("model", self._model_label())
+        console.kv("model", self._stage_model_label("matter"))
         console.kv(
             "policy",
             "no dictionary · web search for an existing translated title · "
@@ -2385,7 +2475,7 @@ class Pipeline:
             matter_path=str(self.matter_out),
             source_language=args.source_language,
             target_language=args.target_language,
-            settings_factory=lambda: self.settings,
+            settings_factory=lambda: self.settings_for("matter"),
             max_attempts=args.max_attempts,
             recursion_limit=args.recursion_limit,
             resume=args.skip_if_present,
@@ -2762,7 +2852,7 @@ class Pipeline:
 
         console.kv("input", rel(self.translated_chapters_out))
         console.kv("output", rel(self.postprocess_out))
-        console.kv("model", self._model_label())
+        console.kv("model", self._stage_model_label("postprocess"))
         console.kv(
             "policy",
             "one naming policy from the full title list; mandatory web search for the "
@@ -2778,7 +2868,7 @@ class Pipeline:
         result = run_postprocess(
             str(self.translated_chapters_out),
             str(self.postprocess_out),
-            settings=self.settings,
+            settings=self.settings_for("postprocess"),
             max_attempts=args.max_attempts,
             dry_run=args.dry_run,
             recursion_limit=args.recursion_limit,
@@ -2809,6 +2899,14 @@ class Pipeline:
             f"{toc.get('action') or '—'} · {int(totals.get('toc_entries') or 0)} entries"
             + (f" · {toc.get('filename')}" if toc.get("filename") else ""),
         )
+        openings = getattr(result, "openings", {}) or {}
+        if openings and not openings.get("skipped"):
+            console.kv(
+                "openings",
+                f"{int(openings.get('inspected_count') or 0)} checked · "
+                f"{int(openings.get('fixed_count') or 0)} line(s) removed · "
+                f"{int(openings.get('remaining_count') or 0)} need attention",
+            )
         web = result.web or {}
         console.kv(
             "web",
@@ -2886,6 +2984,68 @@ class Pipeline:
             detail = "\n".join(f"     - {error}" for error in result.errors)
             raise PhaseFailed(detail or "the bind run failed", summary="bind failed")
         summary = f"{result.chapter_count} files · {result.chars:,} characters"
+        if args.dry_run:
+            summary += " · dry run"
+        return summary, result.to_dict()
+
+    def phase_epub(self) -> tuple[str, dict[str, Any]]:
+        """Stage 11: package the postprocessed chapters as an EPUB 3 book."""
+        from book_splitter.epub import run_epub
+
+        args, console = self.args, self.console
+        from book_splitter.documents.chapters import has_translated_chapter_files
+
+        if has_postprocessed_chapter_files(self.postprocess_out):
+            source = self.postprocess_out
+        elif has_translated_chapter_files(self.translated_chapters_out):
+            # Same fallback as stage 10: an EPUB is still worth having when the
+            # optional heading pass was not selected.
+            source = self.translated_chapters_out
+        else:
+            console.info(
+                f"  · skipped: no postprocessed or translated chapters in "
+                f"{rel(self.translated_chapters_out)} — run translate first"
+            )
+            return (
+                "skipped — no chapters to package",
+                {"missing_chapters": str(self.translated_chapters_out)},
+            )
+        console.kv("input", rel(source))
+        console.kv("output", rel(self.epub_out))
+        try:
+            result = run_epub(
+                str(source),
+                str(self.epub_out),
+                cover=getattr(args, "epub_cover", None),
+                title=getattr(args, "epub_title", None),
+                author=getattr(args, "epub_author", None),
+                language=getattr(args, "epub_language", None),
+                dry_run=args.dry_run,
+                write_manifest=not args.no_manifest and not args.dry_run,
+            )
+        except ToolError as exc:
+            raise PhaseFailed(str(exc), summary="epub failed") from exc
+        console.kv(
+            "book",
+            f"{result.title!r} · {result.language} · {result.document_count} document(s)",
+        )
+        console.kv(
+            "size",
+            f"{result.bytes:,} bytes · {result.image_count} picture(s)",
+        )
+        if result.toc_dropped:
+            console.kv("toc", "dropped — the reader's navigation is the table of contents")
+        for warning in result.warnings:
+            console.info(f"  · warning: {warning}")
+        self._log_paths("manifest", result.manifest_path)
+        self._log_paths("trace", result.trace_path)
+        if not result.ok:
+            detail = "\n".join(f"     - {error}" for error in result.errors)
+            raise PhaseFailed(detail or "the epub run failed", summary="epub failed")
+        summary = (
+            f"{result.document_count} document(s) · {result.bytes:,} bytes · "
+            f"{result.image_count} picture(s)"
+        )
         if args.dry_run:
             summary += " · dry run"
         return summary, result.to_dict()
@@ -2991,6 +3151,8 @@ class Pipeline:
         console.info(f"    translated ch {rel(self.translated_chapters_out)}/")
         console.info(f"    postprocessed {rel(self.postprocess_out)}/")
         console.info(f"    book          {rel(self.translated_book_out)}")
+        if self.epub_enabled:
+            console.info(f"    epub          {rel(self.epub_out)}")
         if console.log_path is not None:
             console.info(f"    log           {rel(console.log_path)}")
         for label, path in self._artifact_files():
@@ -3056,6 +3218,12 @@ class Pipeline:
             and int((record.payload or {}).get("chapter_count") or 0) > 0
             for record in self.records
         )
+        epubbed = any(
+            record.name == "epub"
+            and record.ok
+            and int((record.payload or {}).get("document_count") or 0) > 0
+            for record in self.records
+        )
         glossaried = any(
             record.name == "dictionary"
             and record.ok
@@ -3079,7 +3247,12 @@ class Pipeline:
         elif self.args.dry_run:
             console.info("  dry run — every plan was validated, no chapter file was written")
         else:
-            if bound:
+            if epubbed:
+                console.info(
+                    f"  next: {rel(self.epub_out)} is the translated book — "
+                    "open it in any EPUB reader"
+                )
+            elif bound:
                 console.info(
                     f"  next: {rel(self.translated_book_out)} is the whole translated book — "
                     "one Markdown file assembled from the postprocessed chapters"
@@ -3207,6 +3380,8 @@ class Pipeline:
             CHUNK_MANIFEST_FILENAME,
             CHUNK_TRACE_FILENAME,
             CONVERT_MANIFEST_FILENAME,
+            EPUB_MANIFEST_FILENAME,
+            EPUB_TRACE_FILENAME,
             GLOSSARY_FILENAME,
             GLOSSARY_MANIFEST_FILENAME,
             GLOSSARY_MARKDOWN_FILENAME,
@@ -3254,6 +3429,8 @@ class Pipeline:
             ("stage-9 trace", self.postprocess_out / "_postprocess_trace.json"),
             ("stage-10 manifest", self.translated_book_out.parent / "_bind_manifest.json"),
             ("stage-10 trace", self.translated_book_out.parent / "_bind_trace.json"),
+            ("stage-11 manifest", self.epub_out.parent / EPUB_MANIFEST_FILENAME),
+            ("stage-11 trace", self.epub_out.parent / EPUB_TRACE_FILENAME),
         ]
         return [(label, path) for label, path in candidates if path.is_file()]
 
@@ -3284,6 +3461,7 @@ class Pipeline:
             "translated_chapters_dir": str(self.translated_chapters_out),
             "postprocessed_chapters_dir": str(self.postprocess_out),
             "translated_book_path": str(self.translated_book_out),
+            "translated_epub_path": str(self.epub_out),
             "first_chapters": self.first_chapters,
             "translate_first_chapters": self.translate_first_chapters,
             "chapter_limit": self.chapter_limit,
@@ -3501,6 +3679,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="drop stage 10 (single Markdown book concatenation) from this run",
     )
     parser.add_argument(
+        "--epub-out",
+        default=None,
+        help="stage 11: where the EPUB 3 book goes "
+        "(default: <book>/11-translated-book.epub)",
+    )
+    parser.add_argument(
+        "--no-epub",
+        action="store_true",
+        help="drop stage 11 (EPUB 3 packaging) from this run",
+    )
+    parser.add_argument(
+        "--epub-cover",
+        default=None,
+        help="stage 11: cover picture — a path, or a file name inside the book's "
+        "00-markdown/images/ folder",
+    )
+    parser.add_argument("--epub-title", default=None, help="stage 11: override the title")
+    parser.add_argument("--epub-author", default=None, help="stage 11: override the author")
+    parser.add_argument(
+        "--epub-language",
+        default=None,
+        help="stage 11: override the language, an ISO 639 code",
+    )
+    parser.add_argument(
         "--first-chapters",
         "--chapters",
         dest="first_chapters",
@@ -3620,6 +3822,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="stage 0: convert again even when the Markdown in 00-markdown/ still "
         "matches the source hash",
+    )
+    parser.add_argument(
+        "--no-images",
+        dest="images",
+        action="store_false",
+        help="stage 0: do not extract pictures from the EPUB/PDF (images are "
+        "extracted into 00-markdown/images/ by default)",
     )
     parser.add_argument(
         "--dry-run",
@@ -3792,7 +4001,31 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", default=None)
     parser.add_argument("--base-url", default=None)
     parser.add_argument("--api-key", default=None)
-    parser.add_argument("--temperature", type=float, default=0.0)
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="shared sampling temperature for every stage (default: the config file, "
+        "else 0.0); use --llm <stage>.temperature to set one stage only",
+    )
+    parser.add_argument(
+        "--llm-config",
+        default=None,
+        metavar="FILE",
+        help=f"per-stage model config (default: ./{LLM_CONFIG_FILENAME}, or "
+        f"$BOOK_SPLITTER_CONFIG); one [llm] table plus an optional [llm.<stage>] "
+        "table per stage",
+    )
+    parser.add_argument(
+        "--llm",
+        action="append",
+        default=[],
+        metavar="STAGE.FIELD=VALUE",
+        help="override one model field for one stage, repeatable; stages: "
+        f"{', '.join(STAGES)}; fields: provider, model, base_url, temperature, "
+        "timeout, max_retries, api_key_env (e.g. --llm translate.provider=lmstudio "
+        "--llm translate.model=my-model)",
+    )
     parser.add_argument("--recursion-limit", type=int, default=DEFAULT_RECURSION_LIMIT)
 
     parser.add_argument(

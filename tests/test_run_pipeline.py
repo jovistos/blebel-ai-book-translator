@@ -1171,7 +1171,8 @@ def test_translate_is_opt_in_and_runs_only_with_the_flag(
     captured = capsys.readouterr()
 
     assert code == 0
-    assert "[8/10] TRANSLATE" in captured.out
+    # Eleven phases now: the EPUB package follows the bound Markdown book.
+    assert "[8/11] TRANSLATE" in captured.out
     assert len(calls) == 1
     assert calls[0]["chunks_path"] == str(out / SAMPLE.stem / "05-chunks")
     assert calls[0]["glossary_scope"] == "chunk"

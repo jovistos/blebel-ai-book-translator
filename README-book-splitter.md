@@ -4,7 +4,11 @@ The repository holds the pipeline that turns one long book into a consistent
 translation. **Stage 0** turns the source document — EPUB, a text-based PDF or a
 TXT — into the Markdown every later stage reads: docling does the EPUB/PDF
 conversion with OCR **off**, so an image-based PDF is rejected instead of OCR'd,
-and a TXT is copied under a `.md` name. A Markdown source skips stage 0 entirely.
+and a TXT is copied under a `.md` name. Stage 0 also extracts the source's
+pictures into `00-markdown/images/` and writes Markdown image references, so the
+illustrations travel through every later stage into the final translated book;
+`--no-images` keeps the old text-only conversion. A Markdown source skips stage 0
+entirely.
 Stages 1, 2, 6b and 9 each have their **own
 specialised agent** with its **own toolset**, and the tools are grouped by the
 stage that uses them (plus a generic `shared` group used by all of them). Stage 3 has no
@@ -26,18 +30,20 @@ stage 5 applied to those translated chunks: it concatenates them back into one
 file per chapter, in a folder separate from the source. Stage 9 is the heading
 pass over those translated chapters: one book-level naming policy, one chapter at
 a time, a table of contents made consistent with the final titles, and a separate
-`09-postprocessed-chapters/` folder. Stage 10 is the final deterministic
-concatenation of that folder into one `10-translated-book.md`.
+`09-postprocessed-chapters/` folder. Stage 10 is the deterministic
+concatenation of that folder into one `10-translated-book.md`, and stage 11
+packages the same folder as an EPUB 3 book, `11-translated-book.epub` — the file
+you actually open in a reader.
 
 Every artifact folder is prefixed with the number of the stage that writes it
 (`00-markdown/`, `01-chapters/`, `02-preprocessed/`, …, `09-postprocessed-chapters/`,
-and the final `10-translated-book.md`), so a plain sort of a book's output folder
-follows the pipeline order. Folders written by earlier runs keep their old
+and the final `10-translated-book.md` and `11-translated-book.epub`), so a plain
+sort of a book's output folder follows the pipeline order. Folders written by earlier runs keep their old
 names; only new writes use the numbered layout.
 
 | Stage | Module | Question it answers | Writes |
 | --- | --- | --- | --- |
-| 0. **Convert** | `book_splitter.conversion` | *What does this EPUB/PDF/TXT say as plain Markdown?* | `data/output/<book>/00-markdown/` |
+| 0. **Convert** | `book_splitter.conversion` | *What does this EPUB/PDF/TXT say as plain Markdown — and what do its pictures look like?* | `data/output/<book>/00-markdown/` + `00-markdown/images/` |
 | 1. **Split** | `book_splitter.agent` | *Where does each chapter start?* | `data/output/<book>/01-chapters/` |
 | 2. **Preprocess** | `book_splitter.preprocess_agent` | *What in this chapter is not part of the book's text?* | `data/output/<book>/02-preprocessed/` (the text stages 3–5 read by default) |
 | 3. **Dictionary** | `book_splitter.dictionary` | *Which sentences carry a proper noun worth keeping consistent?* | `data/output/<book>/03-reduced/` + `03-reduced-unique/` |
@@ -49,6 +55,7 @@ names; only new writes use the numbered layout.
 | 8. **Assemble** | `book_splitter.assembly` | *What does each whole chapter say, now that every chunk is translated?* | `data/output/<book>/08-translated-chapters/` |
 | 9. **Postprocess** | `book_splitter.postprocess_agent` | *Are the translated chapter titles, the other headings and the table of contents consistent?* | `data/output/<book>/09-postprocessed-chapters/` |
 | 10. **Bind** | `book_splitter.binding` | *What does the whole translated book look like as one document?* | `data/output/<book>/10-translated-book.md` |
+| 11. **EPUB** | `book_splitter.epub` | *What does the book look like in a reader — images, navigation, metadata?* | `data/output/<book>/11-translated-book.epub` |
 
 Stage 0 reads the source from `data/input/` and writes `00-markdown/<book>.md`.
 Three formats are accepted. A `.txt` is copied **byte for byte** and only its name
@@ -64,6 +71,18 @@ hash, the method and the PDF page evidence; a second run reuses the output while
 that hash still matches, and `--force` converts again. `inspect` and `split` call
 stage 0 automatically when the source is not Markdown; the one-command pipeline
 does the same as its first phase.
+
+**Pictures.** Unless `--no-images` is passed, docling also extracts every picture
+of an EPUB/PDF into `00-markdown/images/` and the Markdown references it as
+`![Image](../00-markdown/images/<name>).` The `../00-markdown/images/` prefix is
+deliberate: it resolves from `00-markdown/` itself and from every later stage
+folder (`01-chapters/`, `05-chunks/`, `07-translations/`, …), all of which are one
+level below the book folder. Duplicate exports of the same bytes (a repeated
+section break) are merged. Stage 10 rewrites the prefix once to
+`00-markdown/images/` for the final book at the book root, so the links resolve
+there too, and stage 11 copies the pictures it references into the EPUB itself.
+The manifest records `images` and `image_refs`; a conversion whose `images/`
+folder has been deleted is not reused.
 
 Stage 1 turns one long Markdown book into a folder of chapter files
 **without ever reading the book's body**. The LLM only ever *routes*: it looks at
@@ -189,7 +208,10 @@ data/
     └── Aleksandar_Loven_-_Ljubav_seks_i_vase_srce/
         ├── 00-markdown/                         # stage 0 output — only for EPUB/PDF/TXT
         │   ├── <book>.md                       # the converted source stage 1 reads
-        │   └── _convert_manifest.json          # source hash, method, PDF text-layer evidence
+        │   ├── images/                         # pictures extracted from the EPUB/PDF
+        │   │   └── image_000001_<hash>.png     # referenced as ../00-markdown/images/…
+        │   └── _convert_manifest.json          # source hash, method, PDF text-layer evidence,
+        │                                       #   image and image-reference counts
         ├── 01-chapters/                         # stage 1 output
         │   ├── 00-front-matter.md
         │   ├── 01-predgovor.md
@@ -259,8 +281,10 @@ data/
         │   ├── …
         │   ├── _postprocess_manifest.json    # plan, per-chapter decisions, TOC, hashes
         │   └── _postprocess_trace.json       # + every chapter's log and verification
-        └── 10-translated-book.md                # stage 10 — the whole book as one file
-            # _bind_manifest.json / _bind_trace.json sit next to it
+        ├── 10-translated-book.md                # stage 10 — the whole book as one file
+        │   # _bind_manifest.json / _bind_trace.json sit next to it
+        └── 11-translated-book.epub               # stage 11 — the same book, as EPUB 3
+            # _epub_manifest.json / _epub_trace.json sit next to it
 ```
 
 Stage 2 never overwrites stage 1's files, and stage 3 never overwrites either:
@@ -672,9 +696,10 @@ cleaning but sends the later stages back to the raw text.
 | `- 1 3 -`, `- 1 0 4 -`, `- 3 3` — the conversion put a space between every digit | the line is only digits, with whitespace allowed between them | `remove` the line |
 | `- \_ 1 1 \_`, `\_ 1 3 \_` — the underscores printed around the page number survived, escaped or not | the line is only a number framed by a pair of underscores (optionally with dashes outside them) | `remove` the line |
 | `- 2 0 "Well`, `… to be mean to him the - 6 8 -`, `… a year. - 117 "Obviously,"`, `… Valerie 265` — a page number merged into a text line | a dashed token inside a line, or a bare number at a line edge, listed with the words on both sides and the nearby printed page markers | `inline_page_number` — delete only the token, keep every word around it |
-| `## Slika 7. Protok uzbuđ enja u telu.`, `Slika 4. Blokada ljubavi.` — a figure caption, marked or not | caption marker + number, short or single-sentence body | `remove_caption` — the picture is not in the Markdown, so the label is not book text |
+| `## Slika 7. Protok uzbuđ enja u telu.`, `Slika 4. Blokada ljubavi.` — a figure caption, marked or not | caption marker + number, short or single-sentence body | keep the caption (`keep` in body text, `demote` when it was marked up as a heading); the picture itself is preserved by stage 0 |
 | `## GLAVA 2` / `## SEKS I SRCE` — one heading split over two lines | structural label with no title, next line a short header | `merge_with_next` |
 | `## … i želja za smrć` / `## u` — the first half cut mid-word | unfinished tail continued by the next header | `merge_with_next` |
+| `JUTRO`, `POPOLE`, `ČETVRTAK, 16. AVGUST 2012.` — a real ALL-CAPS section heading the conversion left as plain body text | standalone ALL-CAPS line, short and title-shaped, inside a body chapter (never a dedication/title page) | `promote` — add the `##` markup, keep every word |
 | `… psi182 ljutnje` — a page number printed *inside* a word | lowercase, digits, lowercase | drop the digits, glue the word (`psiljutnje`) |
 | `1otkucaja u minuti` — a page number glued to the next word | digits at the start of a line, fused to a lowercase word | drop the digits (`otkucaja`) |
 | `mišić ,` — whitespace before punctuation | space before `, . ; : ! ?` | delete the space |
@@ -690,8 +715,19 @@ dash around spaced digits (`- 3 3`) is accepted, because that is a page number
 shape rather than list content. A wrong
 `remove_caption` can only ever delete a line that opens with a caption marker and
 a number, is at most 200 characters or a single sentence, and does not read as
-prose about the figures (`Slike 12a i 12b ilustruju …` is left alone). The
-verifier re-checks both shapes after the fact.
+prose about the figures (`Slike 12a i 12b ilustruju …` is left alone). It is kept
+in the vocabulary for old plans, but the agent prompt no longer uses it: with
+images preserved, captions are part of the book and stay with their picture.
+`promote` can only add `##` to a standalone ALL-CAPS line in a body chapter and
+changes no word. The verifier re-checks all these shapes after the fact.
+
+**Pictures are never a cleaning decision.** A line that carries a Markdown image
+(`![…](…)`) or an HTML `<img …>` tag is not prose: the validator rejects any
+`remove`, `demote`, `merge_with_next` or text fix aimed at it, and the verifier
+compares the before/after image-reference list, in order, so a plan cannot lose
+or reorder a picture even by accident. Caption lines are kept (see above), which
+is what puts the illustration and its label next to each other in the final
+book.
 
 A page number that was merged into a text line is the one case the rule does not
 decide alone. The damage scan (`inspect_chapter_damage`) lists every candidate
@@ -707,6 +743,24 @@ before and after remains.
 Removed lines leave a **blank slot** rather than shortening the file, so a line
 number in the log, the manifest or the trace still points at the same text in
 `01-chapters/`.
+
+#### Final phase — the chapter-opening audit (`book_splitter.openings`)
+
+Every per-chapter decision is local, so after the folder is written the stage runs
+one deterministic pass over the **whole book's openings** — the first lines of
+every chapter, and nothing else. It asks one question: does the opening read like
+a chapter opening? A title followed by a stray copy of its number
+(`# Poglavlje 2` then `2`), a line that repeats the title and a printed page
+number that survived next to the heading are provable junk, so they are removed
+immediately. A title that is only a number, a title that is only `Poglavlje` and a
+chapter that opens on prose are **reported, never deleted** — a title is a naming
+decision (stage 9's book plan), not a line edit.
+
+The pass keeps stage 2's semantics: a removed line leaves an empty line, so the
+stage's line numbers stay valid. `PreprocessResult.openings` (also in
+`_preprocess_manifest.json` and `_preprocess_trace.json`) records what was checked,
+what was clean, what was removed and what still needs a human. `--dry-run` reports
+the same findings and writes nothing.
 
 ### Stage 3 — dictionary (`book_splitter.dictionary`), run once **per chapter**
 
@@ -940,6 +994,12 @@ tokenizer) cannot be loaded — no package, no vocabulary cache, an offline mach
 — the stage falls back to a local four-characters-per-token estimate and records
 the fallback and its reason in the manifest. It never downloads a model in the
 middle of a run and never fails a book because a vocabulary did not load.
+
+**A picture is never cut in half.** If chonkie's boundary lands inside a
+Markdown image reference, the stage moves that one cut to the image's left or
+right edge (whichever keeps both chunks within the token limit). The chunk files
+are still exact slices of the chapter, but a translator now always sees a whole
+`![…](…)` reference rather than a path fragment split across two calls.
 
 **Reversibility is the contract.** The text written for a chunk is
 `chapter_text[start_char:end_char]`, with no trimming, no re-wrapping and no
@@ -1243,6 +1303,18 @@ the system prompt says the renderings are final: a name may be declined for
 grammar, its stem may not change. `--glossary-scope book` sends the whole
 `glossary.json` with every chunk instead (more consistent, much more input tokens).
 
+**Pictures are opaque markers to the model.** A chunk never sends a real image
+path to the LLM. Every `![…](…)` (and every raw `<img …>`) is replaced by a
+unique `[[IMG_n]]` marker before the prompt is built; the system prompt says to
+copy each marker exactly once in its original place. When the answer comes back,
+the marker is restored to the original reference and the chunk is written. The
+translator rejects a dropped, duplicated or invented marker exactly like an
+empty answer — it is retried, and the chunk fails rather than publishing a book
+with a missing illustration. A chunk that contains nothing but pictures is
+passed through unchanged with no model call. The marker map is kept in
+`07-translation-prompts/<chunk>.md.json` under `images.markers`, next to the
+protected prompt and the original source chunk.
+
 **Every call is structured and validated.** The model is asked for a JSON object
 with one field:
 
@@ -1309,10 +1381,12 @@ With no `--model`, the loaded id is read from the server's `GET /v1/models`
 (a translation-tuned `en2sr` id is preferred when several models are loaded), and
 no API key is needed. `--base-url` points at another port. The choice is
 **translation-body only**: stage 6b's front/back-matter localization and stages 1,
-2, 4 and 9 keep the shared `SPLITTER_*` settings, so switching stage 7 does not
-move the rest of the pipeline to the local model. The same values can be put in
-`.env` as `TRANSLATION_PROVIDER`, `TRANSLATION_MODEL` and
-`TRANSLATION_BASE_URL` (see [.env.example](.env.example)).
+2, 4 and 9 keep the rest of the configuration, so switching stage 7 does not move
+the rest of the pipeline to the local model. The same choice lives in
+[book_splitter.toml](book_splitter.toml) as the `[llm.translate]` table, or on one
+command line as `--llm translate.provider=lmstudio` (see
+[Configuration](#configuration)). `TRANSLATION_PROVIDER`, `TRANSLATION_MODEL` and
+`TRANSLATION_BASE_URL` still work as stage-specific environment overrides.
 
 `--chunks-in` accepts the chunks folder, the book folder or
 `_chunk_manifest.json`; `--chunk-glossary-in` accepts stage 6's folder (or the book
@@ -1442,12 +1516,17 @@ consistent. It is the third agent stage, and it is deliberately not a prose edit
 2. **Chapter pass, one chapter at a time.** `inspect_chapter_opening` returns at
    most **8 clipped lines** — the only place a chapter title can be.
    `inspect_chapter_headings` returns one record per heading with a deterministic
-   suggestion (`keep`/`demote`) and one line of evidence; ambiguous headings get
-   `inspect_heading_context`. The agent then submits `report_chapter_postprocess`:
+   suggestion (`keep`/`demote`/`promote`) and one line of evidence; ambiguous
+   headings get `inspect_heading_context`. A real ALL-CAPS section heading whose
+   `#` markup the translation lost (`JUTRO`, `POPOLE`,
+   `ČETVRTAK, 16. AVGUST 2012.`) is also in the candidate list, with `level: 0`
+   and `suggested: promote`; front/back matter is excluded. The agent then submits
+   `report_chapter_postprocess`:
    - `title`: `keep`, `set` (rewrite the existing title line) or `insert` (the
      chapter has no title at all);
-   - `headings`: `keep` or `demote` for every other heading. **`demote` removes
-     only the `#` markup and leaves the words as a paragraph** — there is no
+   - `headings`: `keep`, `demote` or `promote` for every other heading.
+     **`demote` removes only the `#` markup and leaves the words as a paragraph;
+     `promote` is its inverse and only adds the markup back** — there is no
      delete operation, so a mistaken heading can never delete text.
    When the book policy folds a subtitle into the title, the now-duplicate
    subtitle line is recorded as `subtitle_merged` and removed; its words are in
@@ -1459,8 +1538,27 @@ consistent. It is the third agent stage, and it is deliberately not a prose edit
    the stored entries no longer match.
 4. **Verify.** The validator checks every title action and heading line against the
    real file; `verify_chapter_plan` proves that undeclared lines are verbatim and
-   only declared headings were demoted; `verify_toc` proves every expected title
-   appears once, in order.
+   only declared headings were demoted or promoted; `verify_toc` proves every
+   expected title appears once, in order.
+5. **Opening audit (final phase).** After every chapter is written — reused ones
+   included — the stage walks the first lines of all of them, the same deterministic
+   pass stage 2 runs (`book_splitter.openings`). It removes a stray copy of the
+   chapter number under the title (`# Poglavlje 2` then `2`), a duplicated title
+   line and a leftover page number, collapsing the blank around the removed line,
+   and reports what still needs a human (a title that is only a number, a chapter
+   that opens on prose). It runs **before** the TOC, which is built from the final
+   titles, and `PostprocessResult.openings` / `_postprocess_manifest.json` record
+   the counts and the per-chapter findings.
+
+   This is also why a translated untitled chapter is handled correctly. A
+   translated `CHAPTER 2` can arrive as `## 2`: that first-line bare number is the
+   chapter's **title** (the filename says chapter 2), not a printed page number, so
+   the book plan `set`s it to `Poglavlje 2` instead of treating the chapter as
+   title-less, inserting a second heading and demoting the number into a stray
+   paragraph — the failure the audit now repairs even in folders written by an
+   older run. `--resume` is title-aware for the same reason: a chapter whose stored
+   title is no longer the title the stage reads today is reprocessed instead of
+   reused, so a resume run heals a folder written before the fix.
 
 The output is a **separate folder**, `09-postprocessed-chapters/`. The translated
 chapters are input and are never edited in place. A chapter plan that fails
@@ -1485,6 +1583,22 @@ python -m book_splitter postprocess --translated-chapters-in /tmp/book/translate
 canonical title from the book plan, so a chapter cannot silently invent a name
 that the rest of the book does not use.
 
+The opening audit can also be run on its own, with no model and no key, over any
+chapter folder — for a finished book, that is how an already-written
+`09-postprocessed-chapters/` is repaired in place:
+
+```bash
+python -m book_splitter openings mybook                    # the most advanced folder: 09 → 08 → 02 → 01
+python -m book_splitter openings mybook --dry-run          # report every finding, write nothing
+python -m book_splitter openings mybook --chapters-in /tmp/book/02-preprocessed --keep-blank-slot
+python -m book_splitter openings --chapters-in /tmp/book/09-postprocessed-chapters --json
+```
+
+`--keep-blank-slot` is stage 2's semantics (a removed line leaves an empty line,
+so line numbers stay valid); the default is stage 9's (remove the line and collapse
+the blank). Only a line that is nothing but a stray number or a copy of the title
+is ever deleted.
+
 ### Stage 10 — bind (`book_splitter.binding`), one Markdown book
 
 The final step is deterministic. `run_bind` reads
@@ -1506,6 +1620,71 @@ python -m book_splitter bind --postprocessed-in /tmp/book/postprocessed-chapters
 `--postprocessed-in` defaults to `data/output/<book>/09-postprocessed-chapters/`;
 `--book-out` defaults to `10-translated-book.md` next to it. `_bind_manifest.json`
 records every file, its hash and the final size.
+
+**Image links are rebased once.** Chapter files live one folder below the book
+folder and reference pictures as `../00-markdown/images/…`; the bound book lives
+at the book root, so stage 10 rewrites that prefix to `00-markdown/images/…` as
+it joins the files. The verification step applies the same rewrite to each input
+before looking for it in the output, and `image_refs` in the result/manifest is
+the number of pictures the final book points at.
+
+### Stage 11 — EPUB (`book_splitter.epub`), the book a reader opens
+
+`10-translated-book.md` is the reading copy for a human and the input for nothing;
+a reader wants an EPUB. Stage 11 packages the **same** chapter folder as an EPUB 3
+book, `11-translated-book.epub`, and it reads `09-postprocessed-chapters/*.md` —
+not the bound Markdown — because one XHTML document per chapter is exactly what an
+EPUB's spine wants. Re-splitting the single file on `#` headings would have to
+guess those boundaries back.
+
+```bash
+python -m book_splitter epub mybook                   # -> data/output/<book>/11-translated-book.epub
+python -m book_splitter epub mybook --cover cover.jpg # with a cover page
+python -m book_splitter epub mybook --title "Naslov" --author "Autor" --language sr
+python -m book_splitter epub mybook --dry-run         # build and verify, write nothing
+```
+
+`--postprocessed-in` defaults to `data/output/<book>/09-postprocessed-chapters/`,
+`--epub-out` to `11-translated-book.epub` next to it. What the stage does:
+
+- **One document per chapter.** The chapter's first `#` heading is the document
+  `<title>` and the navigation label. `#` becomes `<h1>`, `##` an `<h2>` with an
+  anchor, and the navigation nests the sections under the chapter that contains
+  them.
+- **No printed table of contents.** `00-table-of-contents.md` is skipped: every
+  reader builds its own from the navigation document, and shipping the numbered
+  list as well would give the reader two tables of contents, one of them dead.
+  `toc_dropped` in the result says whether one was there.
+- **Pictures are embedded once.** Each referenced picture is copied into
+  `OEBPS/images/` and its `src` rewritten; ten references to the same picture
+  become one file and ten links. A reference that cannot be resolved is an error
+  in the result and a visible `[path]` placeholder in the book — the package is
+  still written, so nothing is silently lost.
+- **Metadata is re-read, not invented.** The title, author and target language
+  stage 6b recorded in `06b-matter/_matter_manifest.json` become `dc:title`,
+  `dc:creator` and `dc:language`; `--title/--author/--language/--identifier/
+  --description/--publisher` override any of them. The identifier is a UUID
+  derived from the book folder, so a rebuild is still the same publication.
+- **Deterministic.** Zip timestamps come from the newest chapter file, entries are
+  written in a fixed order, and item ids are positional: rebuilding unchanged
+  chapters produces the **same bytes and the same SHA-256**.
+- **Verified after writing.** The stage re-opens its own package and checks the
+  mandatory first (uncompressed) `mimetype` entry, `META-INF/container.xml`, the
+  package document (EPUB 3, metadata, manifest, spine), the navigation document
+  (every entry points at a real document), every spine item's XHTML, and every
+  `<img src>`. `_epub_manifest.json` records the verdict, the files, the picture
+  hashes and the final size; `_epub_trace.json` records the whole result.
+
+The package uses only the standard library for the container and `markdown-it-py`
+for the Markdown-to-XHTML render, imported lazily: no pandoc, no calibre, no
+ebooklib. The stylesheet is a small file shipped with the package
+(`book_splitter/epub/assets/style.css`): justified prose with a first-line indent,
+hyphenation driven by the document's `lang`, an `<hr>` scene divider that survives
+every reader, and `max-width: 100%` on pictures.
+
+The one-command pipeline runs stage 11 after stage 10 (`--no-epub` drops it,
+`--start-at epub` runs it alone over an existing chapter folder, `--epub-cover`
+adds a cover).
 
 ## Tools, grouped by stage
 
@@ -1566,13 +1745,14 @@ No write tool is exposed: the graph writes the validated text.
 
 | Tool | Purpose |
 | --- | --- |
-| `collect_chapter_headers` | **the first step**: every header of one chapter with its evidence and a deterministic recommendation |
+| `collect_chapter_headers` | **the first step**: every header of one chapter with its evidence and a deterministic recommendation, plus plain page-number/caption/ALL-CAPS-heading body candidates |
 | `collect_book_headers` | the same inventory across the whole book, in one call |
 | `extract_headers_from_file` | a bare header list for any single file |
 | `inspect_chapter_damage` | body-text damage by shape (line number + fragments + reconstructed word) |
 | `scan_book_damage` | the book-wide damage profile plus a text digest |
 | `validate_chapter_cleaning` | dry-run a chapter's plan against the real file |
 | `report_chapter_cleaning` | **the tool the agent submits its plan through** |
+| `audit_chapter_opening` | the opening check: ≤12 clipped opening lines plus every provable opening issue (stray number under the title, duplicated title, leftover page number, bare-number title) |
 | `apply_chapter_cleaning` | writes the cleaned chapter (blocked until its plan is validated) |
 | `verify_preprocessed_chapters` | re-checks a whole `02-preprocessed/` folder against `01-chapters/` |
 
@@ -1585,12 +1765,14 @@ No write tool is exposed: the graph writes the validated text.
 | `web_search` | **mandatory** published-contents lookup: original title + author → chapter list/table of contents; a failed call still counts if its outcome is recorded in `title_evidence` |
 | `fetch_web_page` | reads a publisher/library/bookstore page returned by `web_search` as text, so the contents list can be read |
 | `inspect_chapter_opening` | at most 8 clipped opening lines; the chapter-title candidate and subtitle |
-| `inspect_chapter_headings` | every heading with its line, suggested `keep`/`demote`, risk and one-line evidence |
+| `audit_book_openings` | every chapter's opening in one bounded call: the book-level counts and the chapters that need a look (a title that is only a number, a stray number under the title, a duplicated title line) |
+| `audit_chapter_opening` | one chapter's opening audit (≤12 clipped lines), shared with stage 2 |
+| `inspect_chapter_headings` | every heading with its line, suggested `keep`/`demote`/`promote`, risk and one-line evidence; plain ALL-CAPS heading candidates are included with `level: 0` |
 | `inspect_heading_context` | one heading plus at most two clipped non-blank lines on each side |
 | `validate_book_plan_tool` | dry-run the naming policy and TOC action against the book |
 | `report_book_plan` | **the book-level answer**: naming policy + TOC action + `title_evidence` from the mandatory web search |
 | `validate_chapter_postprocess` | dry-run one chapter's title/heading plan |
-| `report_chapter_postprocess` | **the chapter-level answer**: title action + `keep`/`demote` decisions |
+| `report_chapter_postprocess` | **the chapter-level answer**: title action + `keep`/`demote`/`promote` decisions |
 | `apply_chapter_postprocess` | writes one postprocessed chapter (blocked until validated) |
 | `apply_book_toc` | creates or updates the TOC from the final titles (blocked until validated) |
 | `verify_postprocessed_chapters` | checks the output folder and its TOC |
@@ -1647,7 +1829,7 @@ up. Its whole vocabulary is command-line flags:
 | `--dry-run` | ask about every chapter, write nothing |
 | `--provider` / `--model` / `--base-url` / `--api-key` / `--temperature` | the same model flags as stages 1 and 2; the default provider is DeepSeek |
 
-### Stages 5, 6, 7, 8 and 10 — no tools either
+### Stages 5, 6, 7, 8, 10 and 11 — no tools either
 
 `chunk` binds no tools because it calls no model at all: its input is the chapter
 text and its vocabulary is `--chunk-size`, `--chunk-tokenizer`, `--limit`,
@@ -1664,7 +1846,11 @@ answer) and its vocabulary is `--chunks-in`, `--chunk-glossary-in`,
 `--max-tokens`, `--context-chars`, `--translator` (`deepseek` or `lmstudio`,
 its own provider choice), `--no-prompts`, `--no-manifest` and `--dry-run`.
 `bind` binds no tools either: it is a deterministic file concatenation with
-`--postprocessed-in`, `--book-out`, `--no-manifest` and `--dry-run`.
+`--postprocessed-in`, `--book-out`, `--no-manifest` and `--dry-run`. `epub` is
+the same kind of stage: a deterministic package build whose whole vocabulary is
+`--postprocessed-in`, `--epub-out`, the metadata overrides (`--title`,
+`--author`, `--language`, `--identifier`, `--description`, `--publisher`),
+`--cover`, `--no-manifest` and `--dry-run`.
 
 ## Guardrails
 
@@ -1711,15 +1897,21 @@ its own provider choice), `--no-prompts`, `--no-manifest` and `--dry-run`.
   consisting of nothing but a printed page number (bare digits or a dash-framed number)
   *and* the plan declared it.
 - **No arbitrary rewriting.** Stage 2 has no free-text edit. A plan entry can only choose one of
-  six decisions (`keep` / `demote` / `remove` / `remove_caption` / `merge_with_next` /
-  `merge_demote`) plus four named text fixes, each with a machine-checkable rule; `apply`
-  re-derives the output with that rule and the verifier re-runs it.
+  seven decisions (`keep` / `promote` / `demote` / `remove` / `remove_caption` /
+  `merge_with_next` / `merge_demote`) plus four named text fixes, each with a
+  machine-checkable rule; `apply` re-derives the output with that rule and the verifier
+  re-runs it.
 - **No path escapes.** Filenames are normalised to `NN-slug.md`; directory components are
   stripped and duplicates are disambiguated instead of overwritten. A filename whose slug is a
   near-miss of its own short heading (`15-belestke.md` for `## BELEŠKE`) is repaired from the
   heading, while descriptive names such as `05-glava-2-seks-i-srce.md` are left untouched.
   Stage 2 keeps each chapter's filename, so `01-chapters/` and `02-preprocessed/` line up one to one,
   and stage 3 does the same with `03-reduced/` and `03-reduced-unique/`.
+- **The opening audit deletes only provable junk.** The final phase of stages 2 and 9 can remove
+  a line only when it is *nothing but* a stray number next to the title, a copy of the title, or a
+  printed page number in the same run — and it re-audits the written file to prove that no fixable
+  issue survives. A title that is only a number, a title that is only a label and a chapter that
+  opens on prose are reported, never deleted: a title is a naming decision for stage 9's book plan.
 - **Stage 3 drops, never edits.** A reduced chapter contains only whole sentences copied
   verbatim from the chapter, one per line. No word is changed, no NER markup is written, and the
   manifest records exactly how many sentences each filter removed and why (with clipped examples
@@ -1731,6 +1923,10 @@ its own provider choice), `--no-prompts`, `--no-manifest` and `--dry-run`.
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements-book-splitter.txt -r requirements-dev.txt
 ```
+
+Then copy [.env.example](.env.example) to `.env` and fill in the key(s); which
+model each stage uses is set in [book_splitter.toml](book_splitter.toml) (see
+[Configuration](#configuration)).
 
 Stage 0 (`convert`) needs `docling` only when the source is an EPUB or a PDF; a
 TXT or Markdown source needs no dependency at all. docling pulls its own layout
@@ -1768,6 +1964,15 @@ pip install -r requirements-dictionary.txt   # the tagger, if stage 3 already ru
 tagger is only needed for phase 1, and `--language` / `--gpu` / `--cpu` behave
 exactly as they do for `dictionary`. A missing tagger or missing `rapidfuzz` is one
 `pip install` line, not a traceback.
+
+Stage 11 (`epub`) renders the Markdown to XHTML with `markdown-it-py` and writes
+the EPUB 3 container with the standard library — no pandoc, calibre or ebooklib:
+
+```bash
+pip install markdown-it-py          # EPUB packaging only; imported lazily
+```
+
+A run that stops at `10-translated-book.md` needs none of it.
 
 Optional, only for `extract_native_toc` with PDF/EPUB sources:
 `pip install PyMuPDF ebooklib beautifulsoup4`.
@@ -1810,6 +2015,7 @@ python -m book_splitter convert BOOK.pdf              # rejected if it has no te
 python -m book_splitter convert BOOK.txt              # just copies the bytes under a .md name
 python -m book_splitter convert BOOK.pdf --dry-run    # text-layer check only, no writes
 python -m book_splitter convert BOOK.pdf --force      # convert again despite a matching hash
+python -m book_splitter convert BOOK.epub --no-images # text only; write no images/ folder
 
 # 1. What does the book actually contain? (no LLM, no API key, no writes;
 #    stage 0 may write 00-markdown/ first for a non-Markdown source)
@@ -1918,10 +2124,22 @@ python -m book_splitter postprocess --first-chapters 3
 python -m book_splitter postprocess --resume          # reuse unchanged chapters
 python -m book_splitter postprocess --dry-run         # validate every plan, write nothing
 
+# 12b. The chapter-opening audit on its own (the final phase of stages 2 and 9;
+#      no LLM, no API key; the default folder is the book's most advanced stage)
+python -m book_splitter openings                      # audit and repair every opening
+python -m book_splitter openings --dry-run            # report every finding, write nothing
+python -m book_splitter openings --chapters-in data/output/BOOK/02-preprocessed --keep-blank-slot
+
 # 13. Stage 10 — concatenate the postprocessed chapters into one book
 #     (writes data/output/<book>/10-translated-book.md; no LLM, no API key)
 python -m book_splitter bind                          # every postprocessed file, in order
 python -m book_splitter bind --dry-run                # assemble in memory, write nothing
+
+# 14. Stage 11 — package the same chapters as an EPUB 3 book
+#     (writes data/output/<book>/11-translated-book.epub; no LLM, no API key)
+python -m book_splitter epub                          # images embedded, reader navigation
+python -m book_splitter epub --cover cover.jpg         # with a cover page
+python -m book_splitter epub --dry-run                 # build and verify, write nothing
 
 # Optional: list the toolset per stage / verify a folder layout
 python -m book_splitter tools --stage postprocess
@@ -1954,7 +2172,8 @@ Useful flags: `--in-dir`, `--out`, `--map`, `--preprocessed-out`, `--reduced-out
 `--chunk-glossary-in`, `--glossary-scope`, `--translations-out`, `--prompts-out`,
 `--translations-in`, `--chapters-out`, `--first-chapters`, `--translated-chapters-out`,
 `--translated-chapters-in`, `--postprocessed-out`, `--postprocessed-in`, `--book-out`,
-`--with-postprocess`, `--no-postprocess`, `--no-bind`,
+`--with-postprocess`, `--no-postprocess`, `--no-bind`, `--no-epub`,
+`--epub-out`, `--epub-cover`, `--epub-title`, `--epub-author`, `--epub-language`,
 `--context-chars`, `--method`, `--no-prompts`, `--translator`,
 `--translate-provider`, `--translate-model`, `--translate-base-url`,
 `--translate-api-key`, `--translate-temperature`,
@@ -1972,8 +2191,8 @@ installed dependencies.
 ### One command for the whole pipeline
 
 [scripts/run_pipeline.py](scripts/run_pipeline.py) runs the phases in the only order that works —
-convert → recon → split → scan → preprocess → dictionary → chunk → chunk-glossary → matter (→ translate and
-concatenate, opt-in) — and narrates each one: book size and header verdict, the strategy the agent
+convert → recon → split → scan → preprocess → dictionary → chunk → chunk-glossary → matter
+(→ translate and concatenate, opt-in → postprocess → bind → epub) — and narrates each one: book size and header verdict, the strategy the agent
 chose, the byte-for-byte proof, the damage profile, how many sentences survived the dictionary funnel
 and how many of those are first mentions, how many entities were locked into the glossary — with a
 live progress bar while that runs — what the LLM pass cost in tokens, how many reversible chunks the
@@ -2071,8 +2290,9 @@ flight. `--translate-glossary-scope book` sends the whole glossary instead of th
 line. `--translate-provider deepseek|lmstudio` chooses stage 7's model without
 moving any other phase: `lmstudio` talks to `http://127.0.0.1:1234/v1`,
 auto-detects the loaded model (or takes it from `--translate-model`), and needs no
-key; front/back matter and every other stage keep the shared `SPLITTER_*`
-settings. A `--dry-run` reports stage 7 as skipped instead of spending, exactly
+key; front/back matter and every other stage keep their own `[llm.<stage>]`
+section from [book_splitter.toml](book_splitter.toml). A `--dry-run` reports
+stage 7 as skipped instead of spending, exactly
 like the glossary half of `dictionary`. The closing report lists
 `07-translations/`, `07-translation-prompts/` and the stage-7 manifest and trace.
 
@@ -2113,16 +2333,82 @@ object — as one JSON document.
 
 ### Configuration
 
-Copy [.env.example](.env.example) to `.env`, or pass flags. Credential lookup order:
-`--api-key` → `SPLITTER_API_KEY` / the provider's own variable → `.env` → `refs:` in
-`~/.dsh/.credentials.yaml`. Local endpoints (`localhost`, `127.0.0.1`) may run keyless.
-Stages 1, 2 and 4 share the `SPLITTER_*` provider settings (DeepSeek by default).
-Stage 7 has its own two-way choice — `TRANSLATION_PROVIDER=deepseek` or `lmstudio`,
-with optional `TRANSLATION_MODEL` / `TRANSLATION_BASE_URL` — and only falls back to
-`SPLITTER_*` when both name the same provider. Stages 3, 5 and 6 call no model at
-all, so they need no key. Stage 4 needs one only when there is a chapter left to
-mine, and stage 7 only when there is a chunk left to translate: a `--resume` run
-over a finished book exits without resolving a model (and without a key).
+**One file holds every model.** [book_splitter.toml](book_splitter.toml) has an
+`[llm]` table with the shared defaults and one optional table per stage that calls
+a model:
+
+| table | stage |
+|---|---|
+| `[llm.split]` | stage 1 — the routing agent |
+| `[llm.preprocess]` | stage 2 — the per-chapter cleaning agent |
+| `[llm.dictionary]` | stages 3–4 — the glossary extractor |
+| `[llm.matter]` | stage 6b — the front/back matter localizer |
+| `[llm.translate]` | stage 7 — the chunk translator |
+| `[llm.postprocess]` | stage 9 — the headings/TOC agent |
+
+`[llm.glossary]` is accepted as an alias for `[llm.dictionary]` (the standalone
+`glossary` command's stage).
+
+Each field is optional: `provider`, `model`, `base_url`, `temperature`, `timeout`,
+`max_retries`, `api_key_env`. `model` / `base_url` never cross a provider boundary:
+`[llm]` values, the shared flags and a stage's own model are used only for the
+provider they were written for, so switching translation to a local server never
+inherits a cloud model id. Temperature and timeouts are generic and always apply:
+
+```toml
+[llm]
+provider = "deepseek"
+model = "deepseek-flash"
+
+[llm.split]
+model = "deepseek-flash"   # the default; use deepseek-v4-pro for a stronger pass
+
+[llm.translate]
+provider = "lmstudio"
+base_url = "http://127.0.0.1:1234/v1"
+# model omitted: the loaded id is discovered from GET /v1/models
+```
+
+`deepseek-flash` is the default in `[llm]` and is set explicitly in every stage
+table, so every stage uses it unless you change that table. DeepSeek's current ids
+are `deepseek-flash` (V4.1 Flash, the default) and `deepseek-v4-pro` (stronger,
+thinking); the older `deepseek-chat` and `deepseek-reasoner` aliases are retired.
+
+Override one field for one run without editing the file — the pipeline and every
+module command that calls a model accept the same switches:
+
+```bash
+python scripts/run_pipeline.py mybook.md \
+    --llm split.model=deepseek-flash \
+    --llm translate.provider=lmstudio
+python -m book_splitter split mybook.md --llm model=deepseek-flash
+BOOK_SPLITTER_CONFIG=/tmp/cheap.toml python scripts/run_pipeline.py mybook.md
+```
+
+The pipeline also takes `--llm-config FILE`. A module command may omit the stage
+prefix (`--llm model=...` applies to that command's stage); the pipeline requires
+it (`--llm translate.model=...`), because one run touches several stages.
+
+Precedence for one stage and one field, highest first: `--llm` → the stage's own
+flag (`--translate-model`, or `--model` on a single command) → stage-specific
+environment (`SPLITTER_<STAGE>_<FIELD>`, `TRANSLATION_*`, `LMSTUDIO_*`) → the
+shared pipeline flags (`--provider`/`--model`/`--base-url`/`--api-key`) →
+`[llm.<stage>]` → `[llm]` → the legacy `SPLITTER_*` variables → the provider
+default.
+
+**Keys stay in `.env`.** Copy [.env.example](.env.example) to `.env` and set the
+key for each provider you configured: `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`,
+`OPENROUTER_API_KEY`, `LM_STUDIO_API_KEY`, `OLLAMA_API_KEY`. A stage may name a
+different variable with `api_key_env = "MY_KEY"`. Lookup order: `--api-key` / the
+stage's `api_key_env` → `SPLITTER_<STAGE>_API_KEY` / `TRANSLATION_API_KEY` → the
+provider's own variable → `SPLITTER_API_KEY` → `refs:` in
+`~/.dsh/.credentials.yaml`. Local endpoints (`localhost`, `127.0.0.1`) may run
+keyless.
+
+Stages 3, 5 and 6 (reduction, chunking, NER matching) call no model at all. Stage 4
+needs a key only when there is a chapter left to mine, and stage 7 only when there
+is a chunk left to translate: a `--resume` run over a finished book exits without
+resolving a model (and without a key).
 
 ### Output
 
@@ -2214,6 +2500,16 @@ data/output/<book-stem>/09-postprocessed-chapters/  # stage 9 — headings/TOC f
 └── _postprocess_trace.json               # + every chapter's log and verification
 
 data/output/<book-stem>/10-translated-book.md  # stage 10 — all postprocessed files, in order
+
+data/output/<book-stem>/11-translated-book.epub   # stage 11 — the same chapters, as EPUB 3
+├── mimetype, META-INF/container.xml      # the container: stored, uncompressed, first
+├── OEBPS/content.opf                     # EPUB 3 package: dc metadata, manifest, spine
+├── OEBPS/nav.xhtml                       # the reader's table of contents (no printed TOC)
+├── OEBPS/text/<chapter>.xhtml            # one spine document per postprocessed file
+├── OEBPS/css/style.css                   # the typography the book ships with
+└── OEBPS/images/<picture>                # every referenced picture, embedded once
+  plus _epub_manifest.json                # metadata, spine, picture hashes, verification
+  plus _epub_trace.json                   # the whole result, for replay and debugging
 ```
 
 The two stage-3 folders are two views of one pass: `03-reduced/` holds every sentence the NER gate
@@ -2366,6 +2662,30 @@ window: splitting still runs over the full book, every later stage receives the 
 chunk-based stages receive the chapter-aligned chunk count, and widening N with `--skip-if-present`
 forwards the resume flags to every stage.
 
+The opening audit (`tests/test_openings.py`) is pinned end to end, with no model: the exact
+failure that motivated it — `# Poglavlje 2` followed by a stray `2` — is found and removed, with the
+blank collapsed for stage 9 and kept as a slot for stage 2; a duplicated title, a leftover page
+number and a heading that repeats the chapter number are removed; a numbered section heading
+(`## 1`), a title that is only a number, a label-only title and a front matter page that opens on
+prose are not; a first-line `## 2` is the *title* for stage 9 (so the plan sets it instead of
+inserting a second heading), while a `## 18` page number above a real `## Poglavlje 1` is still
+skipped; both stage runners apply the pass as their final phase (stage 2 keeping the line count,
+its manifest/trace recording the counts); a dry run writes nothing; `--resume` reprocesses a
+chapter whose detected title no longer matches the canonical title; and the tools return bounded
+openings, never a paragraph.
+
+Stage 11's tests (`tests/test_epub.py`) build a tiny book on disk and then read the zip the stage
+produced, the way a reader would: the `mimetype` entry is first and stored, `META-INF/container.xml`
+points at a package document that says EPUB 3 and carries `dc:title`/`dc:creator`/`dc:language`/
+`dc:identifier`/`dcterms:modified`, the navigation document lists one entry per chapter with the
+sections nested underneath and **no printed `Sadržaj` page**, and every spine document is
+well-formed XHTML with its own `<title>`. One picture referenced twice is embedded once and both
+`src` attributes are rewritten; a picture that cannot be resolved is an error *and* a visible
+placeholder while the book is still written; a cover becomes the first page and the
+`cover-image` manifest item. The package is byte-identical on a rebuild, a dry run writes nothing,
+explicit metadata beats the recorded metadata, and a hand-built broken package (wrong mimetype,
+compressed mimetype, truncated zip) is reported as a problem instead of a traceback.
+
 ### Replaying a map without the model
 
 A chapter map is data, and it can be supplied instead of discovered. `--map FILE` skips the agent
@@ -2428,12 +2748,13 @@ The package is split by responsibility; each folder can be read on its own.
 | Path | Role |
 | --- | --- |
 | [book_splitter/paths.py](book_splitter/paths.py) | where documents live: `data/input/` in, `data/output/` out |
-| [book_splitter/conversion/runner.py](book_splitter/conversion/runner.py) | stage 0: EPUB/PDF/TXT → Markdown (`00-markdown/`), the PDF text-layer gate (no OCR) and the conversion manifest |
-| [book_splitter/cli.py](book_splitter/cli.py) | `convert` / `inspect` / `split` / `scan` / `preprocess` / `dictionary` / `glossary` / `chunk` / `chunk-glossary` / `translate` / `tools` commands |
+| [book_splitter/conversion/runner.py](book_splitter/conversion/runner.py) | stage 0: EPUB/PDF/TXT → Markdown (`00-markdown/`), picture extraction to `00-markdown/images/`, the PDF text-layer gate (no OCR) and the conversion manifest |
+| [book_splitter/cli.py](book_splitter/cli.py) | `convert` / `inspect` / `split` / `scan` / `preprocess` / `dictionary` / `glossary` / `chunk` / `chunk-glossary` / `matter` / `translate` / `concatenate` / `postprocess` / `openings` / `bind` / `epub` / `tools` commands |
 | [book_splitter/core/constants.py](book_splitter/core/constants.py) | every guardrail and default in one place |
 | [book_splitter/core/settings.py](book_splitter/core/settings.py) | provider and credential resolution |
 | [book_splitter/core/errors.py](book_splitter/core/errors.py) | `ToolError`, `ConfigError` |
 | [book_splitter/documents/io.py](book_splitter/documents/io.py) | cached source reading |
+| [book_splitter/documents/images.py](book_splitter/documents/images.py) | find/protect/restore Markdown and HTML image references; the `[[IMG_n]]` round-trip every stage shares |
 | [book_splitter/documents/markdown.py](book_splitter/documents/markdown.py) | header/standalone/prose line shapes (both stages) |
 | [book_splitter/documents/bodyline.py](book_splitter/documents/bodyline.py) | body-line *damage* shapes: split words, mid-word page numbers |
 | [book_splitter/documents/chapters.py](book_splitter/documents/chapters.py) | reads `01-chapters/` (or the cleaned `02-preprocessed/`) back as chapter records, from `_manifest.json` or `_preprocess_manifest.json`; resolves the `02-preprocessed/`, `03-reduced/`, `03-reduced-unique/`, `04-glossary/`, `05-chunks/`, `06-chunk-glossary/`, `07-translations/`, `07-translation-prompts/` and `08-translated-chapters/` siblings |
@@ -2451,6 +2772,9 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_splitter/preprocess/damage.py](book_splitter/preprocess/damage.py) | damage detection and the three repair rules |
 | [book_splitter/preprocess/corpus.py](book_splitter/preprocess/corpus.py) | sampling and the book-wide damage profile |
 | [book_splitter/preprocess/transform.py](book_splitter/preprocess/transform.py) | plan validation, application, provenance, verification |
+| [book_splitter/openings/inspect.py](book_splitter/openings/inspect.py) | the final phase of stages 2/9: one chapter's opening — title candidate, ≤12 clipped lines and the provable issue vocabulary |
+| [book_splitter/openings/repair.py](book_splitter/openings/repair.py) | the final phase: pure removal of the audited junk lines (blank slot for stage 2, collapsed blank for stage 9) |
+| [book_splitter/openings/phase.py](book_splitter/openings/phase.py) | the final phase: the book-wide pass, counts/findings and the per-chapter report both stage runners store |
 | [book_splitter/dictionary/sentences.py](book_splitter/dictionary/sentences.py) | stage 3: sentence splitting and the two dependency-free filters |
 | [book_splitter/dictionary/language.py](book_splitter/dictionary/language.py) | stage 3: sampled language detection (`lingua-py`), the ekavian/ijekavian tie-breaker, backend routing |
 | [book_splitter/dictionary/ner.py](book_splitter/dictionary/ner.py) | stage 3: the CLASSLA/stanza gate, entity rules, GPU selection and the device actually used |
@@ -2480,12 +2804,18 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_splitter/postprocess_agent/graph.py](book_splitter/postprocess_agent/graph.py) | stage 9: the book-level and per-chapter LangGraphs |
 | [book_splitter/postprocess_agent/runner.py](book_splitter/postprocess_agent/runner.py) | stage 9: `run_postprocess`, the book pass, the ordered chapter walk and the TOC write |
 | [book_splitter/binding/runner.py](book_splitter/binding/runner.py) | stage 10: `run_bind`, the ordered single-file concatenation and its verification |
+| [book_splitter/epub/runner.py](book_splitter/epub/runner.py) | stage 11: `run_epub`, the chapter render, picture embedding, metadata resolution, the package write and the post-write verification |
+| [book_splitter/epub/render.py](book_splitter/epub/render.py) | stage 11: Markdown → XHTML (`markdown_it`, imported lazily), heading anchors, picture figures |
+| [book_splitter/epub/package.py](book_splitter/epub/package.py) | stage 11: the EPUB 3 container — zip layout, package document, navigation document, cover page |
+| [book_splitter/epub/metadata.py](book_splitter/epub/metadata.py) | stage 11: `dc:` metadata from stage 6b's records, the stable UUID and the package timestamp |
+| [book_splitter/epub/assets/style.css](book_splitter/epub/assets/style.css) | stage 11: the stylesheet every package ships |
 | [book_splitter/agent/prompts.py](book_splitter/agent/prompts.py) | stage 1 system prompt and the fallback protocol |
 | [book_splitter/agent/llm.py](book_splitter/agent/llm.py) | the chat model with the toolset bound |
 | [book_splitter/agent/tools/registry.py](book_splitter/agent/tools/registry.py) | tool registry with the `shared` / `split` / `preprocess` stage tags |
 | [book_splitter/agent/tools/shared.py](book_splitter/agent/tools/shared.py) | the generic tools both stages bind |
 | [book_splitter/agent/tools/](book_splitter/agent/tools/__init__.py) | stage 1 tools: `extract` / `toc` / `proposal` / `execution` |
 | [book_splitter/agent/tools/preprocess.py](book_splitter/agent/tools/preprocess.py) | stage 2 tools: header collection, damage, plan submission, apply |
+| [book_splitter/agent/tools/openings.py](book_splitter/agent/tools/openings.py) | the chapter-opening audit tools shared by stages 2 and 9 (`audit_chapter_opening`, `audit_book_openings`) |
 | [book_splitter/agent/nodes/](book_splitter/agent/nodes/__init__.py) | `scout` / `agent` / `tools` / `validate` / `slice` / `verify` |
 | [book_splitter/agent/routing.py](book_splitter/agent/routing.py) | the conditional edges of the splitting graph |
 | [book_splitter/agent/graph.py](book_splitter/agent/graph.py) | splitting graph assembly |
@@ -2546,15 +2876,18 @@ side-by-side use. The whole folder is gitignored (only its README is tracked), a
   let the agent decide from a two-line window — the decision would be validated and verified like
   every other one — but that is not implemented, and guessing it in a rule would risk gluing real
   prose together.
-- **A caption that takes more than one sentence to describe its picture is kept as text.**
-  `Slika 10. Rascep jedinstva na ego-centar i srce … Svi impuls … Kada postoji rascep …` is a
-  250-character, five-sentence label; the shape `Slika <n> <lowercase word>` is also how prose that
-  refers to a figure begins, so the rule refuses to delete it. It stays as a paragraph. One such
-  line exists in the sample book; the other fifteen captions are removed.
-- Stage 2's `merge_with_next` joins two source lines into one, and `remove` / `remove_caption` leave
-  a **blank slot** where the artefact was. Neither output line is byte-equal to its source by
-  design, which is why the provenance map records the source lines and the verifier re-derives the
-  transformation instead of comparing bytes.
+- **A caption now stays with its picture.** Before stage 0 extracted images, a
+  figure caption was a label for something the Markdown did not contain, so
+  stage 2 deleted it. Since images are preserved, captions are kept: a body
+  caption is left alone (`keep`) and a caption that the converter marked up as a
+  heading is `demote`d to a paragraph. The old `remove_caption` decision remains
+  accepted for compatibility, but the prompt no longer recommends it.
+- Stage 2's `merge_with_next` joins two source lines into one, `remove` (and the
+  legacy `remove_caption`) leave a **blank slot** where the artefact was, and
+  `promote` adds `##` to a plain ALL-CAPS heading. Those output lines are not
+  byte-equal to their source by design, which is why the provenance map records
+  the source lines and the verifier re-derives the transformation instead of
+  comparing bytes.
 - Stage 2 reads only the *headers* of a chapter, plus the page numbers and captions it recognises in
   the body, unless the agent explicitly asks for a window or a damage scan — so a defect that has no
   header and no recognised shape is invisible to it. A blank slot also means the cleaned chapter has

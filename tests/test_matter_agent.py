@@ -33,6 +33,7 @@ from book_splitter.matter.plan import (
     validate_matter_translation,
 )
 from book_splitter.matter_agent import run_matter
+from book_splitter.matter_agent.prompts import BOOK_SYSTEM_PROMPT
 from book_splitter.translation import run_translation
 from book_splitter.translation.models import ChunkTranslationAnswer
 from book_splitter.translation.translator import TranslationOutcome
@@ -202,6 +203,37 @@ def test_a_back_matter_section_gets_the_plan_title(tmp_path: Path):
     assert result["text"].count("#") == 1
 
 
+def test_matter_localization_must_keep_every_image_reference(tmp_path: Path):
+    chapters, chunks = _book(tmp_path)
+    book = discover_matter_sections(chapters, chunks)
+    back = next(section for section in book if section.kind == "back")
+    validation = validate_matter_plan(book, _plan())
+    image = "![Image](../00-markdown/images/portrait.png)"
+    source = BACK + f"\n{image}\n"
+
+    dropped = validate_matter_translation(
+        source_text=source,
+        section_kind="back",
+        section_filename=back.filename,
+        section_title=back.title,
+        plan=validation["plan"],
+        translation="# Knjiga\n\nNeka napomena.\n",
+    )
+    assert dropped["ok"] is False
+    assert any("dropped an image" in issue for issue in dropped["issues"])
+
+    kept = validate_matter_translation(
+        source_text=source,
+        section_kind="back",
+        section_filename=back.filename,
+        section_title=back.title,
+        plan=validation["plan"],
+        translation=f"# Knjiga\n\nNeka napomena.\n\n{image}\n",
+    )
+    assert kept["ok"], kept["issues"]
+    assert image in kept["text"]
+
+
 def test_run_matter_localizes_matter_chunks_and_keeps_a_plan(tmp_path: Path):
     chapters, chunks = _book(tmp_path)
     book_model = ScriptedModel([_tool_call("report_matter_plan", {"plan": _plan()})])
@@ -357,6 +389,14 @@ def test_the_matter_tools_reuse_the_splitter_web_search_and_shared_tools():
     assert "web_search" in [tool.name for tool in SPLIT_TOOLS]
     assert "web_search" in [tool.name for tool in POSTPROCESS_TOOLS]
     assert "web_search" not in [tool.name for tool in PREPROCESS_TOOLS]
+
+
+def test_the_plan_prompt_forbids_omitting_the_authors_own_preface():
+    # The Alice preface ("For this eighty-sixth thousand ...") is printing history and
+    # prices written by the author himself: it must be translated, not dropped, even
+    # though the plan may omit publisher imprint material of the same kind.
+    assert "Never omit the author's own words" in BOOK_SYSTEM_PROMPT
+    assert "eighty-sixth thousand" in BOOK_SYSTEM_PROMPT
 
 
 def test_a_fully_localized_book_resumes_without_a_model(tmp_path: Path):

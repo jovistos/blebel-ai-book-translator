@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -31,6 +32,7 @@ from ..core.constants import (
     TOC_FILENAME,
     TRANSLATED_BOOK_FILENAME,
     TRANSLATED_CHAPTERS_DIRNAME,
+    TRANSLATED_EPUB_FILENAME,
     TRANSLATION_PROMPTS_DIRNAME,
     TRANSLATIONS_DIRNAME,
     UNIQUE_DIRNAME,
@@ -337,6 +339,25 @@ def postprocessed_chapters_dir(output_dir: str | Path) -> Path:
     return out / POSTPROCESSED_CHAPTERS_DIRNAME
 
 
+def is_toc_filename(name: str) -> bool:
+    """True for the table-of-contents file (created or pre-existing).
+
+    The TOC is book structure, not a chapter: the stage-9 inventory, the binder
+    and the opening audit all skip it.
+    """
+    filename = Path(str(name or "")).name
+    lower = filename.lower()
+    if filename == TOC_FILENAME:
+        return True
+    stem = Path(lower).stem
+    if stem in {"toc", "contents", "sadrzaj", "sadržaj", "table-of-contents"}:
+        return True
+    compact = re.sub(r"[^a-z0-9]+", "-", stem).strip("-")
+    return compact in {"table-of-contents", "toc", "contents"} or compact.startswith(
+        "table-of-contents"
+    )
+
+
 def translated_book_path(output_dir: str | Path) -> Path:
     """Where stage 10 writes the whole translated book as one Markdown file.
 
@@ -350,6 +371,21 @@ def translated_book_path(output_dir: str | Path) -> Path:
     elif out.suffix.lower() == ".md":
         return out
     return out / TRANSLATED_BOOK_FILENAME
+
+
+def translated_epub_path(output_dir: str | Path) -> Path:
+    """Where stage 11 writes the book as an EPUB 3 file.
+
+    A sibling of ``09-postprocessed-chapters/`` (or of the book folder, when that
+    folder is handed in), next to stage 10's Markdown reading copy. An explicit
+    ``.epub`` path is returned unchanged.
+    """
+    out = Path(output_dir).expanduser()
+    if out.name in {POSTPROCESSED_CHAPTERS_DIRNAME, TRANSLATED_CHAPTERS_DIRNAME}:
+        out = out.parent
+    elif out.suffix.lower() == ".epub":
+        return out
+    return out / TRANSLATED_EPUB_FILENAME
 
 
 def has_translation_files(path: str | Path) -> bool:

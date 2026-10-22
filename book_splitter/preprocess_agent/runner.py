@@ -39,6 +39,8 @@ from ..documents.chapters import (
     file_sha256,
     preprocessed_dir,
 )
+from ..documents.io import load_lines
+from ..openings import OpeningAuditResult, audit_openings
 from ..preprocess.corpus import scan_corpus_damage
 from .graph import build_preprocess_graph
 from .state import PreprocessState
@@ -88,6 +90,7 @@ class PreprocessResult:
     dry_run: bool = False
     parallel: bool = False
     corpus_scan: dict[str, Any] = field(default_factory=dict)
+    openings: dict[str, Any] = field(default_factory=dict)
     chapters: list[dict[str, Any]] = field(default_factory=list)
     usage: dict[str, int] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
@@ -274,8 +277,17 @@ def run_preprocess(
     by_name = {result.filename: result for result in processed}
     results = [reused.get(chapter.filename) or by_name[chapter.filename] for chapter in chapters]
 
+    # Final phase: the deterministic opening audit. It looks only at the first
+    # lines of every chapter and removes the lines that are provably junk (a
+    # stray copy of the chapter number, a duplicated title, a leftover page
+    # number). A removed line leaves a blank slot, exactly like the stage's own
+    # cleaner, so every line number in the log, the manifest and the trace keeps
+    # pointing at the same text.
+    openings = _audit_openings(out_dir, chapters, results, dry_run=dry_run)
+    errors.extend(openings.errors)
+
     result = PreprocessResult(
-        ok=bool(results) and all(r.ok for r in results),
+        ok=bool(results) and all(r.ok for r in results) and openings.ok,
         chapters_path=str(source_dir),
         output_dir=str(out_dir),
         chapter_count=len(results),
@@ -285,6 +297,7 @@ def run_preprocess(
         dry_run=dry_run,
         parallel=bool(workers and workers > 1),
         corpus_scan=corpus_scan,
+        openings=openings.summary(),
         chapters=[r.to_dict() for r in results],
         usage=usage_total,
         errors=errors,
@@ -295,6 +308,42 @@ def run_preprocess(
         )
         result.trace_path = str(write_preprocess_trace(out_dir, result))
     return result
+
+
+def _audit_openings(
+    out_dir: Path,
+    chapters: list[Chapter],
+    results: list[ChapterResult],
+    *,
+    dry_run: bool,
+) -> OpeningAuditResult:
+    """Run the stage-2 flavour of the opening audit over the written chapters."""
+    if dry_run:
+        return OpeningAuditResult(
+            dry_run=True,
+            folder=str(out_dir),
+            chapter_count=len(chapters),
+            skipped="dry run — no chapter files were written",
+        )
+    openings = audit_openings(
+        out_dir,
+        [chapter.filename for chapter in chapters],
+        keep_blank_slot=True,
+    )
+    by_name = {result.filename: result for result in results}
+    for record in openings.chapters:
+        chapter_result = by_name.get(str(record.get("filename")))
+        applied = list(record.get("fixes") or [])
+        if chapter_result is None or not applied:
+            continue
+        path = Path(chapter_result.output_path or out_dir / chapter_result.filename)
+        if path.is_file():
+            chapter_result.output_lines = len(load_lines(path))
+        detail = ", ".join(
+            f"line {fix.get('line_number')} ({fix.get('text')!r})" for fix in applied
+        )
+        chapter_result.log.append(f"openings: removed {detail}")
+    return openings
 
 
 def summarise_chapter(chapter: Chapter, final: dict, dry_run: bool) -> ChapterResult:
@@ -409,6 +458,7 @@ def write_preprocess_manifest(
             "counts": result.corpus_scan.get("counts", {}),
             "total_findings": result.corpus_scan.get("total_findings", 0),
         },
+        "openings": result.openings,
         "usage": result.usage,
         "errors": result.errors,
     }

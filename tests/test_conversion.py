@@ -8,7 +8,9 @@ and an existing conversion is reused only while the source hash still matches.
 
 from __future__ import annotations
 
+import base64
 import json
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -28,7 +30,7 @@ def fake_docling(monkeypatch, markdown: str = "# Chapter One\n\nSome converted t
     """Replace docling: record the calls and return fixed Markdown."""
     calls: list[tuple[str, str]] = []
 
-    def _convert(path, kind):
+    def _convert(path, kind, **_kwargs):
         calls.append((str(path), kind))
         return markdown
 
@@ -142,7 +144,7 @@ def test_an_image_based_pdf_is_rejected_and_docling_is_never_asked(tmp_path, mon
     # Page numbers only: not a text layer worth converting.
     fake_pdf_pages(monkeypatch, ["18", "19", "", "20", ""] * 2, pages=400)
 
-    def _must_not_run(path, kind):  # noqa: ARG001
+    def _must_not_run(path, kind, **_kwargs):  # noqa: ARG001
         raise AssertionError("docling must not run for an image-based PDF")
 
     monkeypatch.setattr(conversion_runner, "_convert_with_docling", _must_not_run)
@@ -195,6 +197,89 @@ def test_an_epub_is_converted_with_docling(tmp_path, monkeypatch):
     assert calls == [(str(source), "epub")]
     assert result.method == "docling-epub" and result.written
     assert (tmp_path / "out" / "novel.md").is_file()
+
+
+#: A valid 1x1 PNG, so docling's image loader has real bytes to open.
+_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
+
+def _tiny_epub(path: Path, *, with_image: bool = True) -> Path:
+    """A two-file EPUB: one chapter, optionally one picture."""
+    opf = """<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="bookid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Picture Book</dc:title>
+    <dc:creator>A. Author</dc:creator>
+    <dc:identifier id="bookid">tiny</dc:identifier>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="ch1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
+    <item id="pic" href="images/rabbit.png" media-type="image/png"/>
+  </manifest>
+  <spine><itemref idref="ch1"/></spine>
+</package>
+"""
+    image_tag = '<img src="images/rabbit.png" alt="Rabbit"/>' if with_image else ""
+    chapter = f"""<html xmlns="http://www.w3.org/1999/xhtml"><body>
+<h1>Chapter One</h1>
+<p>Alice looked at the picture and smiled.</p>
+{image_tag}
+<p>Then she ran away.</p>
+</body></html>
+"""
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+        archive.writestr(
+            "META-INF/container.xml",
+            """<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OEBPS/content.opf"
+    media-type="application/oebps-package+xml"/></rootfiles>
+</container>
+""",
+        )
+        archive.writestr("OEBPS/content.opf", opf)
+        archive.writestr("OEBPS/chapter1.xhtml", chapter)
+        if with_image:
+            archive.writestr("OEBPS/images/rabbit.png", _PNG)
+    return path
+
+
+def test_a_real_epub_extracts_its_images_and_links_them(tmp_path):
+    """The one integration test for stage 0's image export (tiny fixture)."""
+    pytest.importorskip("docling")
+    source = _tiny_epub(tmp_path / "picture.epub")
+    markdown_dir = tmp_path / "book" / "00-markdown"
+
+    result = run_conversion(source, markdown_dir)
+
+    assert result.ok and result.written
+    assert result.images == 1
+    assert result.image_refs == 1
+    assert result.images_dir == str(markdown_dir / "images")
+
+    markdown = Path(result.markdown_path).read_text(encoding="utf-8")
+    assert "![Image](../00-markdown/images/" in markdown
+    # The reference resolves from the Markdown file *and* from a stage folder.
+    reference = markdown.split("](", 1)[1].split(")", 1)[0]
+    assert (markdown_dir / reference).is_file()
+    (tmp_path / "book" / "01-chapters").mkdir()
+    assert (tmp_path / "book" / "01-chapters" / reference).is_file()
+
+
+def test_image_extraction_can_be_switched_off(tmp_path):
+    pytest.importorskip("docling")
+    source = _tiny_epub(tmp_path / "picture.epub")
+    markdown_dir = tmp_path / "book" / "00-markdown"
+
+    result = run_conversion(source, markdown_dir, images=False)
+
+    assert result.ok and result.images == 0 and result.image_refs == 0
+    assert not (markdown_dir / "images").exists()
+    assert "![" not in Path(result.markdown_path).read_text(encoding="utf-8")
 
 
 def test_docling_is_a_lazy_missing_dependency(tmp_path, monkeypatch):
@@ -321,7 +406,7 @@ def test_a_dry_run_validates_without_writing(tmp_path, monkeypatch):
     pdf.write_bytes(b"%PDF-1.7 fake")
     fake_pdf_pages(monkeypatch, ["A text page. " * 10] * 3)
 
-    def _must_not_run(path, kind):  # noqa: ARG001
+    def _must_not_run(path, kind, **_kwargs):  # noqa: ARG001
         raise AssertionError("a dry run must not invoke docling")
 
     monkeypatch.setattr(conversion_runner, "_convert_with_docling", _must_not_run)

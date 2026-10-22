@@ -35,13 +35,17 @@ from datetime import datetime
 from pathlib import Path
 
 from ..core.constants import (
+    CHAPTER_IMAGE_PREFIX,
     CONVERT_MANIFEST_FILENAME,
+    IMAGES_DIRNAME,
+    MARKDOWN_DIRNAME,
     MIN_CONVERTED_MARKDOWN_CHARS,
     PDF_MIN_TEXT_CHARS_PER_PAGE,
     PDF_MIN_TEXT_PAGE_RATIO,
     PDF_TEXT_SAMPLE_PAGES,
 )
 from ..core.errors import MissingDependencyError, ToolError
+from ..documents.images import image_count
 from ..paths import SOURCE_SUFFIXES, book_markdown_dir, book_slug
 
 #: Formats whose content is already Markdown (stage 0 does nothing).
@@ -71,6 +75,11 @@ class ConversionResult:
     sampled_pages: int | None = None
     text_pages: int | None = None
     text_based: bool | None = None
+    #: Files written to ``00-markdown/images/`` (0 when the source has no pictures).
+    images: int = 0
+    #: Image references in the converted Markdown (after duplicate files are merged).
+    image_refs: int = 0
+    images_dir: str | None = None
     error: str | None = None
     log: list[str] = field(default_factory=list)
 
@@ -142,6 +151,7 @@ def run_conversion(
     output_root: str | Path | None = None,
     dry_run: bool = False,
     force: bool = False,
+    images: bool = True,
 ) -> ConversionResult:
     """Convert one source document to Markdown under ``00-markdown/``.
 
@@ -149,10 +159,22 @@ def run_conversion(
     what would happen without running docling or writing a file. An image-based
     PDF raises :class:`ToolError` in both modes: OCR is deliberately not an
     option here.
+
+    With ``images`` (the default) docling extracts the pictures of an EPUB/PDF
+    into ``images/`` next to the Markdown and the Markdown references them. The
+    links are written relative to the book folder (``../00-markdown/images/…``),
+    which is correct for every stage folder one level below it. ``images=False``
+    keeps the old text-only conversion.
     """
     book = Path(source).expanduser()
     kind = classify_source(book)
     target = converted_markdown_path(book, out_dir, output_root=output_root)
+    image_dir = target.parent / IMAGES_DIRNAME
+    # Every later stage lives one folder below the book output folder, where
+    # `../00-markdown/images/` is the same path. A caller-supplied --out outside
+    # the canonical layout only gets a local `images/` reference.
+    canonical = target.parent.name == MARKDOWN_DIRNAME
+    image_prefix = CHAPTER_IMAGE_PREFIX if canonical else f"{IMAGES_DIRNAME}/"
     result = ConversionResult(
         source=str(book.resolve()),
         source_kind=kind,
@@ -160,6 +182,7 @@ def run_conversion(
         method="already-markdown" if kind == "markdown" else "",
         dry_run=dry_run,
         bytes=book.stat().st_size,
+        images_dir=str(image_dir) if kind in {"pdf", "epub"} and images else None,
     )
 
     if kind == "markdown":
@@ -182,15 +205,24 @@ def run_conversion(
     manifest_path = target.parent / CONVERT_MANIFEST_FILENAME
     if not force and target.is_file():
         manifest = _load_manifest(manifest_path)
-        if _manifest_matches(manifest, book, target):
+        if _manifest_matches(
+            manifest, book, target, image_dir=image_dir if result.images_dir else None
+        ):
             result.method = str(manifest.get("method") or _method_for(kind))
             result.reused = True
             result.written = False
+            result.images = int(manifest.get("images") or 0)
+            result.image_refs = int(manifest.get("image_refs") or 0)
             result.log.append(f"reusing the existing Markdown: {target.name}")
             return result
 
     if dry_run:
         result.method = _method_for(kind)
+        if result.images_dir:
+            result.log.append(
+                "images will be extracted to "
+                f"{Path(result.images_dir).relative_to(target.parent)}/"
+            )
         result.log.append("dry run — the conversion was validated but nothing was written")
         return result
 
@@ -202,16 +234,28 @@ def run_conversion(
         result.written = True
         result.log.append(f"copied {book.name} to {target.name} (content unchanged)")
     else:
-        markdown = _convert_with_docling(book, kind)
+        markdown = _convert_with_docling(
+            book,
+            kind,
+            image_dir=image_dir if result.images_dir else None,
+            image_prefix=image_prefix,
+        )
         if len(markdown.strip()) < MIN_CONVERTED_MARKDOWN_CHARS:
             raise ToolError(
                 f"docling produced no usable Markdown from {book.name} — the source may be "
                 "empty, encrypted or built only from images"
             )
+        result.images = len([p for p in image_dir.glob("*") if p.is_file()]) if result.images_dir else 0
+        result.image_refs = image_count(markdown)
         target.write_text(markdown, encoding="utf-8")
         result.method = _method_for(kind)
         result.written = True
         result.bytes = len(markdown.encode("utf-8"))
+        if result.images:
+            result.log.append(
+                f"extracted {result.images} image(s) to "
+                f"{Path(result.images_dir).relative_to(target.parent)}/"
+            )
         result.log.append(f"converted {book.name} to {target.name} with docling")
 
     _write_manifest(manifest_path, book, target, result)
@@ -339,13 +383,24 @@ def _close(obj) -> None:
 # --------------------------------------------------------------------------- #
 # docling
 # --------------------------------------------------------------------------- #
-def _convert_with_docling(path: Path, kind: str) -> str:
+def _convert_with_docling(
+    path: Path,
+    kind: str,
+    *,
+    image_dir: Path | None = None,
+    image_prefix: str = "",
+) -> str:
     """Convert a PDF/EPUB to Markdown with docling, with OCR switched off.
 
     For a PDF the text layer was already verified by :func:`inspect_pdf_text_layer`;
     ``do_ocr = False`` makes sure docling never silently falls back to OCR. Table
     structure is off too: a novel's tables are not the point, and the model that
     recognises them is an avoidable download.
+
+    When ``image_dir`` is given the document's pictures are exported there and the
+    Markdown references them with ``image_prefix``. EPUB images are fetched from
+    the archive; PDF pictures are cropped by the same layout model that already
+    locates the text.
     """
     try:
         from docling.datamodel.base_models import InputFormat
@@ -356,6 +411,7 @@ def _convert_with_docling(path: Path, kind: str) -> str:
             "(TXT and Markdown sources need no dependency)"
         ) from exc
 
+    fetch_images = image_dir is not None
     if kind == "pdf":
         from docling.datamodel.pipeline_options import PdfPipelineOptions
 
@@ -363,18 +419,65 @@ def _convert_with_docling(path: Path, kind: str) -> str:
         options.do_ocr = False
         options.do_table_structure = False
         options.generate_page_images = False
-        options.generate_picture_images = False
+        options.generate_picture_images = fetch_images
         converter = DocumentConverter(
             format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)}
+        )
+    elif fetch_images:
+        from docling.datamodel.backend_options import EpubBackendOptions
+        from docling.document_converter import EpubFormatOption
+
+        # EPUB is a zip of XHTML: the backend extracts it to a temp folder so the
+        # HTML image loader may read the pictures from disk.
+        converter = DocumentConverter(
+            format_options={
+                InputFormat.EPUB: EpubFormatOption(
+                    backend_options=EpubBackendOptions(
+                        fetch_images=True, enable_local_fetch=True
+                    )
+                )
+            }
         )
     else:
         converter = DocumentConverter()
 
     try:
         converted = converter.convert(str(path))
+        if image_dir is None:
+            return converted.document.export_to_markdown()
+        from docling_core.types.doc import ImageRefMode
+
+        image_dir.mkdir(parents=True, exist_ok=True)
+        markdown = converted.document.export_to_markdown(
+            image_mode=ImageRefMode.REFERENCED,
+            image_dir=image_dir,
+            image_uri_prefix=image_prefix,
+        )
+        return _dedupe_images(markdown, image_dir, image_prefix)
     except Exception as exc:
         raise ToolError(f"docling could not convert {path.name}: {exc}") from exc
-    return converted.document.export_to_markdown()
+
+
+def _dedupe_images(markdown: str, image_dir: Path, image_prefix: str) -> str:
+    """Keep one file per distinct picture and repoint its duplicates.
+
+    docling names each exported picture by its position as well as its content
+    hash, so a section break used ten times becomes ten identical PNGs. Merging
+    them keeps the output book's image folder proportional to the book, not to
+    the number of times an ornament is repeated.
+    """
+    by_digest: dict[str, str] = {}
+    for path in sorted(image_dir.iterdir()):
+        if not path.is_file():
+            continue
+        digest = _sha256(path)
+        keeper = by_digest.get(digest)
+        if keeper is None:
+            by_digest[digest] = path.name
+            continue
+        markdown = markdown.replace(f"{image_prefix}{path.name}", f"{image_prefix}{keeper}")
+        path.unlink()
+    return markdown
 
 
 # --------------------------------------------------------------------------- #
@@ -392,11 +495,16 @@ def _write_manifest(
         "output": target.name,
         "output_sha256": _sha256(target),
         "method": result.method,
-        "docling_version": _docling_version() if result.source_kind in DOCLING_SUFFIXES else None,
+        "docling_version": (
+            _docling_version() if result.source_kind in {"pdf", "epub"} else None
+        ),
         "pages": result.pages,
         "sampled_pages": result.sampled_pages,
         "text_pages": result.text_pages,
         "text_based": result.text_based,
+        "images": result.images,
+        "image_refs": result.image_refs,
+        "images_dir": Path(result.images_dir).name if result.images_dir else None,
         "created": datetime.now().isoformat(timespec="seconds"),
     }
     manifest_path.write_text(
@@ -412,14 +520,30 @@ def _load_manifest(path: Path) -> dict:
     return payload if isinstance(payload, dict) else {}
 
 
-def _manifest_matches(manifest: dict, source: Path, target: Path) -> bool:
+def _manifest_matches(
+    manifest: dict,
+    source: Path,
+    target: Path,
+    *,
+    image_dir: Path | None = None,
+) -> bool:
     if not manifest:
         return False
     if manifest.get("source") != str(source.resolve()):
         return False
     if manifest.get("source_sha256") != _sha256(source):
         return False
-    return manifest.get("output_sha256") == _sha256(target)
+    if manifest.get("output_sha256") != _sha256(target):
+        return False
+    # A converted source with pictures is only reusable when the pictures are
+    # still there; a deleted/partial images folder must trigger a conversion.
+    if image_dir is None:
+        return True
+    expected = int(manifest.get("images") or 0)
+    if expected <= 0:
+        return True
+    present = sum(1 for path in image_dir.glob("*") if path.is_file())
+    return present >= expected
 
 
 def _sha256(path: Path) -> str:

@@ -14,6 +14,7 @@ from __future__ import annotations
 import re
 
 from ..core.constants import MAX_PAGE_NUMBER_DIGITS, MAX_TITLE_LINE_CHARS
+from .images import has_images
 
 MD_HEADER_RE = re.compile(r"^(#{1,6})\s*(.*)$")
 #: Dashes a converter may print around a page number (``- 18 -``, ``— 208 —``).
@@ -38,6 +39,9 @@ LEADING_NUMBER_RE = re.compile(
 )
 #: Markdown emphasis markers, the only inline markup PDF conversions leave behind.
 EMPHASIS_RE = re.compile(r"(?<!\w)(\*{1,3})(?!\s)(.+?)(?<!\s)\1(?!\w)")
+#: A four-digit year, which makes a final full stop a date's period, not a sentence.
+_YEAR_RE = re.compile(r"\b(?:1[0-9]{3}|20[0-9]{2})\b")
+_SENTENCE_END_RE = re.compile(r"[.!?…]\s*$")
 
 
 def header_of(line: str) -> tuple[int, str] | None:
@@ -131,6 +135,46 @@ def is_all_caps(text: str, max_chars: int = MAX_TITLE_LINE_CHARS) -> bool:
     if len(letters) < 2 or len(text) > max_chars:
         return False
     return all(ch.isupper() for ch in letters)
+
+
+def is_plain_heading_candidate(text: str, *, max_chars: int = MAX_TITLE_LINE_CHARS) -> bool:
+    """True for an ALL-CAPS line that looks like a heading whose markup was lost.
+
+    PDF conversions and translation chunks sometimes leave a real section
+    heading as plain text rather than a ``##`` line: ``JUTRO``, ``POPOLE`` or
+    ``ČETVRTAK, 16. AVGUST 2012.``. The shape is checked without looking at the
+    content:
+
+    * not already a Markdown header;
+    * fully uppercase (at least three letters, so ``NO`` is left alone);
+    * short and title-like, at most sixteen words;
+    * not a printed page number;
+    * not a clause fragment ending in ``,``/``;``;
+    * a line ending in sentence punctuation is only accepted when it is short
+      (``PART ONE.``) or date-like (a four-digit year, which makes the final
+      period part of the date).
+    """
+    clean = (text or "").strip()
+    if not clean or header_of(clean) is not None:
+        return False
+    # A picture is not a heading, even when its alt text is written in capitals.
+    if has_images(clean):
+        return False
+    if not is_all_caps(clean, max_chars=max_chars):
+        return False
+    if is_page_number_line(clean):
+        return False
+    if sum(1 for char in clean if char.isalpha()) < 3:
+        return False
+    words = re.findall(r"\w+", clean)
+    if len(words) > 16:
+        return False
+    if clean.endswith((",", ";")):
+        return False
+    sentence_without_year = bool(_SENTENCE_END_RE.search(clean)) and not _YEAR_RE.search(
+        clean
+    )
+    return not (sentence_without_year and len(words) > 4)
 
 
 def page_number_of(line: str) -> int | None:

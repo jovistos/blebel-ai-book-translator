@@ -12,8 +12,10 @@ The stage is deliberately different from a prose editor. It looks at:
 
 It never returns a chapter's body. The agent describes edits in a fixed
 vocabulary (``keep`` / ``set`` / ``insert`` for the chapter title; ``keep`` /
-``demote`` for every other heading) and a deterministic validator checks every
-entry against the real file before the graph writes the output folder.
+``demote`` / ``promote`` for every other heading) and a deterministic validator
+checks every entry against the real file before the graph writes the output
+folder. ``promote`` puts the ``#`` markup back on a plain ALL-CAPS section
+heading that lost it, so the candidate list is not limited to Markdown headers.
 
 The public surface is intentionally small::
 

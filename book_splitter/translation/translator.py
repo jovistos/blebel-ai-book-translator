@@ -37,6 +37,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from ..core.constants import DEFAULT_TRANSLATION_RAW_CHARS
 from ..core.errors import TranslationError
+from ..documents.images import image_token_problems, image_tokens
 from ..glossary.extract import (
     TokenUsage,
     message_text,
@@ -145,6 +146,12 @@ def translation_problem(text: str, source_text: str = "") -> str | None:
         return "the translation holds no words"
     source = " ".join(str(source_text or "").split())
     answer = " ".join(cleaned.split())
+    # Image markers are placeholders for the book's pictures. A translation that
+    # drops, doubles or invents one is unusable even when its prose is perfect.
+    marker_map = {token: token for token in dict.fromkeys(image_tokens(source))}
+    image_problems = image_token_problems(cleaned, marker_map)
+    if image_problems:
+        return image_problems[0]
     if not source:
         return None
     if len(source) >= MIN_CHECK_CHARS and answer.casefold() == source.casefold():

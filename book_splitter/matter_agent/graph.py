@@ -71,7 +71,7 @@ def build_matter_graph(
 ):
     """Build and compile the book-level localization-plan graph."""
     if model is None:
-        settings = settings or resolve_settings()
+        settings = settings or resolve_settings(stage="matter")
         model = make_book_llm(settings)
 
     graph = StateGraph(MatterPlanState)
@@ -116,7 +116,7 @@ def build_matter_chunk_graph(
 ):
     """Build and compile one matter chunk's localization graph."""
     if model is None:
-        settings = settings or resolve_settings()
+        settings = settings or resolve_settings(stage="matter")
         model = make_chunk_llm(settings)
 
     graph = StateGraph(MatterChunkState)

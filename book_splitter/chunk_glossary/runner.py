@@ -84,6 +84,7 @@ from ..dictionary.ner import (
     normalize_type,
 )
 from ..documents.chapters import Chapter, chunk_glossary_dir
+from ..documents.images import strip_images
 from .matching import (
     LexiconEntry,
     MatchCandidate,
@@ -910,8 +911,10 @@ def run_chunk_glossary(
         record = ChunkGlossary(chunk=chunk)
         tag_started = clock()
         try:
-            if chunk.text.strip():
-                entities = backend.entities(chunk.text)
+            ner_text = strip_images(chunk.text)
+            if ner_text.strip():
+                # Image paths are not named entities; the tagger only sees prose.
+                entities = backend.entities(ner_text)
                 record.ner_calls = 1
                 terms, mentions = aggregate_entities(
                     entities,
