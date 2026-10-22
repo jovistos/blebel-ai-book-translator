@@ -22,12 +22,12 @@ Two of those fields are invented rather than read:
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
 from ..core.constants import DEFAULT_TARGET_LANGUAGE
+from ..documents.book import BookMetadata
 
 #: Prefix of the deterministic identifier: an EPUB identifier is a URN here.
 IDENTIFIER_PREFIX = "urn:uuid:"
@@ -35,42 +35,30 @@ IDENTIFIER_PREFIX = "urn:uuid:"
 UUID_NAMESPACE = "urn:book_splitter:epub:"
 
 
-@dataclass
-class BookMetadata:
-    """The ``dc:`` metadata of one EPUB package."""
+def zip_timestamp(modified: str) -> tuple[int, int, int, int, int, int]:
+    """``modified`` as the tuple a zip entry timestamp wants.
 
-    title: str
-    author: str
-    language: str
-    identifier: str
-    modified: str
-    description: str = ""
-    publisher: str = ""
-    warnings: list[str] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-    @property
-    def zip_datetime(self) -> tuple[int, int, int, int, int, int]:
-        """``modified`` as the tuple a zip entry timestamp wants."""
-        try:
-            moment = datetime.fromisoformat(self.modified.replace("Z", "+00:00"))
-        except ValueError:  # pragma: no cover - defensive, the runner formats it
-            moment = datetime.now(UTC)
-        if moment.tzinfo is not None:
-            moment = moment.astimezone(UTC)
-        if moment.year < 1980:
-            # The zip format cannot express a date before 1980.
-            return (1980, 1, 1, 0, 0, 0)
-        return (
-            moment.year,
-            moment.month,
-            moment.day,
-            moment.hour,
-            moment.minute,
-            moment.second,
-        )
+    The zip format cannot express a date before 1980, and a missing or malformed
+    timestamp falls back to "now" rather than failing the stage; both rules are
+    about the ZIP container, not about the book, which is why this lives here and
+    not on :class:`~book_splitter.documents.book.BookMetadata`.
+    """
+    try:
+        moment = datetime.fromisoformat(modified.replace("Z", "+00:00"))
+    except ValueError:  # pragma: no cover - defensive, the runner formats it
+        moment = datetime.now(UTC)
+    if moment.tzinfo is not None:
+        moment = moment.astimezone(UTC)
+    if moment.year < 1980:
+        return (1980, 1, 1, 0, 0, 0)
+    return (
+        moment.year,
+        moment.month,
+        moment.day,
+        moment.hour,
+        moment.minute,
+        moment.second,
+    )
 
 
 def resolve_metadata(
@@ -162,4 +150,5 @@ __all__ = [
     "book_identifier",
     "file_timestamp",
     "resolve_metadata",
+    "zip_timestamp",
 ]

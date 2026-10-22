@@ -31,7 +31,7 @@ from ..core.constants import (
     EPUB_STYLESHEET_FILENAME,
     EPUB_TEXT_DIRNAME,
 )
-from .metadata import BookMetadata
+from .metadata import BookMetadata, zip_timestamp
 
 #: The container's fixed entry point.
 CONTAINER_XML = (
@@ -139,7 +139,7 @@ def build_epub(
     cover: ImageAsset | None = None,
 ) -> bytes:
     """Assemble the whole container in memory and return its bytes."""
-    when = metadata.zip_datetime
+    when = zip_timestamp(metadata.modified)
     entries: list[tuple[str, bytes, bool]] = [
         ("mimetype", EPUB_MIMETYPE.encode("ascii"), True),
         ("META-INF/container.xml", CONTAINER_XML.encode("utf-8"), False),

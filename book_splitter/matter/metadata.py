@@ -13,8 +13,9 @@ splits on markers a human put there on purpose (`` - ``, `` — ``, `` by ``,
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from pathlib import Path
+
+from ..documents.book import BookMetadata
 
 #: Separators a filename uses between the title and the author.
 _DASH_SEPARATORS = re.compile(r"\s+[-\u2013\u2014]\s+")
@@ -73,18 +74,6 @@ _TITLE_TAIL = re.compile(
     r"\s*[:\-]\s*(?:a\s+)?(?:novel|novella|short\s+stories|stories)\s*$",
     re.IGNORECASE,
 )
-
-
-@dataclass(frozen=True)
-class BookMetadata:
-    """What a filename says about a book; either field may be empty."""
-
-    title: str = ""
-    author: str = ""
-    stem: str = ""
-
-    def to_dict(self) -> dict[str, str]:
-        return {"title": self.title, "author": self.author, "stem": self.stem}
 
 
 def _clean(value: str) -> str:

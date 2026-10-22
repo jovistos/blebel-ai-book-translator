@@ -18,6 +18,7 @@ from .bodyline import (
     is_word_continuation,
     starts_with_lowercase,
 )
+from .book import BookMetadata
 from .chapters import (
     Chapter,
     chapter_by_id,
@@ -80,6 +81,7 @@ from .text import (
 __all__ = [
     "STAGE_DIRS",
     "STAGE_DIRNAMES",
+    "BookMetadata",
     "Chapter",
     "ChunkInput",
     "book_root",
