@@ -46,7 +46,7 @@ from .nodes import (
 from .policy import extract_split_plan
 from .prompts import FINAL_TURN_NUDGE, NUDGE_NO_PROPOSAL
 from .state import SplitterState
-from .tools import BLOCKED_MESSAGE, SPLIT_TOOL_BY_NAME, SPLIT_WRITE_TOOLS
+from .tools import SPLIT_TOOL_BY_NAME, SPLIT_WRITE_TOOLS
 
 #: The node ``verify`` follows ``slice``.
 VERIFY = "verify"
@@ -74,7 +74,6 @@ SPLIT = StageSpec(
     write_tools=SPLIT_WRITE_TOOLS,
     plan_tool="propose_split_map",
     plan_extract=extract_split_plan,
-    write_block_message=BLOCKED_MESSAGE,
     nudge_no_plan=NUDGE_NO_PROPOSAL,
     nudge_final_turn=FINAL_TURN_NUDGE,
     final_turn_policy="no_plan",

@@ -1689,7 +1689,9 @@ adds a cover).
 
 `python -m book_splitter tools` prints exactly this grouping, and each stage
 binds only its own tools plus the `shared` ones — so the splitting agent cannot
-reach the cleaning tools and the preprocessing agent cannot slice the book.
+reach the cleaning tools, and it has no write tool at all: its chapter files are
+written by the deterministic `slice` node after validation. The preprocessing
+agent likewise cannot slice the book.
 Stage 0 (`convert`) binds no tools and calls no model: it is one deterministic
 docling pass plus the PDF text-layer preflight described above.
 
@@ -1715,11 +1717,9 @@ docling pass plus the PDF text-layer preflight described above.
 | `inspect_book_tail` | The end of the book: is there back matter, and where does it start — read through a window the agent widens | ✔ |
 | `web_search` | The published contents list of a book that lost its own TOC: one bounded query against a public search engine | ✔ |
 | `fetch_web_page` | Reads one public `http(s)` page as block-separated text, so a contents list stays one title per line | ✔ |
-| `slice_book_by_line_numbers` | Writes one file per chapter, verbatim | |
 | `detect_toc_block_tool` | Locates the printed TOC block and its line range | ✔ |
 | `propose_split_map` | The tool the agent *submits its answer* through | ✔ |
 | `validate_split_map_tool` | Dry-run scoring of a plan before anything is written | ✔ |
-| `verify_sliced_output` | Re-reads the output and checks it against the source | ✔ |
 
 ### `matter` — stage 6b, its own agent and no dictionary
 
@@ -1887,9 +1887,10 @@ the same kind of stage: a deterministic package build whose whole vocabulary is
   last allowed turn the agent is told that a submission is the only useful call left — a run
   that spends its final turn inspecting writes nothing, which is how *We Need to Talk About
   Kevin* failed before its [recovered map](#replaying-a-map-without-the-model) was written.
-- **No writes before validation.** `slice_book_by_line_numbers` is blocked at the graph level
-  until validation passes, even if the model calls it. Stage 2 does the same per chapter:
-  `apply_chapter_cleaning` is blocked until *that* chapter's plan has been validated.
+- **No writes before validation.** Stage 1's `slice` is a deterministic tail node reachable
+  only from a validated plan; there is no model-reachable write tool in that graph at all.
+  Stage 2 does the same per chapter: `apply_chapter_cleaning` is blocked until *that*
+  chapter's plan has been validated.
 - **No content loss.** The verifier recomputes SHA-256 over the files on disk and compares it
   with the source slice the manifest claims to cover. Stage 2 goes further: every source line is
   accounted for in a provenance map, and a line may only disappear when it was a header
@@ -2852,7 +2853,6 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_splitter/preprocess/plan.py](book_splitter/preprocess/plan.py) | the legal-edit vocabulary, its predicates and the two validators (no writes) |
 | [book_splitter/preprocess/apply.py](book_splitter/preprocess/apply.py) | pure line rewriting, the provenance map and the `LineProvenance` index |
 | [book_splitter/preprocess/verify.py](book_splitter/preprocess/verify.py) | the content proof that only declared lines changed |
-| [book_splitter/preprocess/transform.py](book_splitter/preprocess/transform.py) | compatibility facade for the three modules above (kept for one phase) |
 | [book_splitter/openings/inspect.py](book_splitter/openings/inspect.py) | the final phase of stages 2/9: one chapter's opening — title candidate, ≤12 clipped lines and the provable issue vocabulary |
 | [book_splitter/openings/repair.py](book_splitter/openings/repair.py) | the final phase: pure removal of the audited junk lines (blank slot for stage 2, collapsed blank for stage 9) |
 | [book_splitter/openings/phase.py](book_splitter/openings/phase.py) | the final phase: the book-wide pass, counts/findings and the per-chapter report both stage runners store |
@@ -2923,10 +2923,6 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_splitter/preprocess_agent/runner.py](book_splitter/preprocess_agent/runner.py) | `run_preprocess`: the sequential (or pooled) chapter loop |
 | [book_splitter/preprocess_agent/state.py](book_splitter/preprocess_agent/state.py) | stage 2 graph state (metadata only, never prose); the shared keys come from `AgentStateBase` |
 | [tests/](tests/conftest.py) | the test suite, split the same way as the code |
-
-The old flat module paths (`book_splitter.tools`, `book_splitter.graph`,
-`book_splitter.config`, `book_splitter.prompts`, `book_splitter.state`) are kept as thin
-re-export shims, so existing imports and notebooks keep working.
 
 ## Related but external
 

@@ -119,24 +119,6 @@ def test_graph_rejects_a_bad_plan_and_loops_back(plain, tmp_path, plan):
     assert "inside the printed table of contents" in joined
 
 
-def test_graph_blocks_slicing_before_validation(plain, tmp_path, plan):
-    mapping = plan([(12, "01-a.md"), (18, "02-b.md"), (28, "03-c.md")])
-    model = ScriptedModel([
-        _tool_call(
-            "slice_book_by_line_numbers",
-            {"file_path": str(plain), "split_mapping": mapping, "output_dir": str(tmp_path)},
-            "c1",
-        ),
-        _tool_call("propose_split_map", {"split_mapping": mapping, "strategy": "toc_titles"}, "c2"),
-    ])
-    final = _invoke_graph(model, plain, tmp_path)
-    blocked = [
-        m for m in final["messages"] if getattr(m, "name", "") == "slice_book_by_line_numbers"
-    ]
-    assert blocked and "blocked until the map passes validation" in blocked[0].content
-    assert final["verification"]["ok"]
-
-
 def test_graph_reports_unknown_tools(plain, tmp_path, plan):
     mapping = plan([(12, "01-a.md"), (18, "02-b.md"), (28, "03-c.md")])
     model = ScriptedModel([
@@ -325,6 +307,16 @@ def test_the_splitter_binds_only_its_stage_toolset():
     # The other stage's tools are real, registered tools; they are just not the
     # splitter's to bind.
     assert "collect_chapter_headers" in {tool.name for tool in PREPROCESS_TOOLS}
+
+
+def test_the_splitter_has_no_model_reachable_write_tool():
+    from book_splitter.agent.graph import SPLIT
+    from book_splitter.agent.tools import SPLIT_TOOLS
+
+    assert SPLIT.write_tools == frozenset()
+    names = {tool.name for tool in SPLIT_TOOLS}
+    assert "slice_book_by_line_numbers" not in names
+    assert "verify_sliced_output" not in names
 
 
 def test_the_splitter_tool_node_dispatches_only_its_stage_table():

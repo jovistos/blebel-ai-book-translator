@@ -162,7 +162,7 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING, Any
 
-__version__ = "2.5.0"
+__version__ = "3.0.0"
 
 if TYPE_CHECKING:  # pragma: no cover - typing surface only
     from .agent import SplitterResult, SplitterState, build_graph, run_split

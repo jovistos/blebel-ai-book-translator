@@ -31,19 +31,16 @@ tools live here. The other stages' tools live next to those stages in
     chapter list of a book that lost its own TOC, and — for the matter stage — an
     existing published translation whose title should be reused; these are the
     only tools here that use the network, shared by the split and matter
-    stages), ``proposal.py`` (the tools the agent answers through),
-    ``execution.py`` (slicing and verification), ``openings.py`` (the
-    chapter-opening audit shared by stages 2 and 9).
+    stages), ``proposal.py`` (the tools the agent answers through), and
+    ``openings.py`` (the chapter-opening audit shared by stages 2 and 9).
 
 Modules
 -------
 ``registry``
-    Name -> tool lookup, stage tags, and the ``WRITE_TOOLS`` sets.
+    Name -> tool lookup, stage tags, and the per-stage write sets.
 ``shared``
     The generic tools described above.
-``policy``
-    The "no writes before validation" rule the shared executor enforces.
-``extract`` / ``toc`` / ``search`` / ``proposal`` / ``execution`` / ``tail``
+``extract`` / ``toc`` / ``search`` / ``proposal`` / ``tail``
     Stage 1.
 
 Importing this package registers stage 1's and the shared tools, which is why
@@ -51,7 +48,6 @@ the modules below are imported for their side effect as well as for their names.
 """
 
 from . import (  # noqa: F401
-    execution,
     extract,
     openings,
     proposal,
@@ -61,7 +57,6 @@ from . import (  # noqa: F401
     toc,
     websearch,
 )
-from .execution import slice_book_by_line_numbers, verify_sliced_output
 from .extract import (
     detect_native_toc,
     extract_front_matter,
@@ -70,7 +65,6 @@ from .extract import (
     scan_markdown_headers,
 )
 from .openings import audit_book_openings, audit_chapter_opening
-from .policy import BLOCKED_MESSAGE, blocked_payload, is_blocked
 from .proposal import propose_split_map, validate_split_map_tool
 from .registry import (
     MATTER,
@@ -83,12 +77,10 @@ from .registry import (
     SPLIT,
     SPLIT_WRITE_TOOLS,
     STAGES,
-    WRITE_TOOLS,
     all_tools,
     bind_all,
     describe_tools,
     grouped_tools,
-    is_write_tool,
     matter_stage,
     postprocess_stage,
     preprocess_stage,
@@ -127,7 +119,6 @@ TOOLS = all_tools()
 TOOL_BY_NAME = {tool.name: tool for tool in TOOLS}
 
 __all__ = [
-    "BLOCKED_MESSAGE",
     "MATTER",
     "MATTER_WRITE_TOOLS",
     "POSTPROCESS",
@@ -142,12 +133,10 @@ __all__ = [
     "STAGES",
     "TOOLS",
     "TOOL_BY_NAME",
-    "WRITE_TOOLS",
     "all_tools",
     "audit_book_openings",
     "audit_chapter_opening",
     "bind_all",
-    "blocked_payload",
     "describe_tools",
     "detect_native_toc",
     "extract_front_matter",
@@ -159,8 +148,6 @@ __all__ = [
     "grouped_tools",
     "inspect_book_tail",
     "inspect_line_window",
-    "is_blocked",
-    "is_write_tool",
     "list_chapter_files",
     "locate_toc_titles_in_file",
     "matter_stage",
@@ -172,7 +159,6 @@ __all__ = [
     "scan_corpus_damage_tool",
     "scan_markdown_headers",
     "shared_tool",
-    "slice_book_by_line_numbers",
     "split_stage",
     "stage_of",
     "stages_of",
@@ -180,6 +166,5 @@ __all__ = [
     "tool_names",
     "tools_for_stage",
     "validate_split_map_tool",
-    "verify_sliced_output",
     "web_search",
 ]

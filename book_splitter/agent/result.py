@@ -1,4 +1,4 @@
-"""Result container returned by :func:`book_splitter.graph.run_split`.
+"""Result container returned by :func:`book_splitter.agent.runner.run_split`.
 
 A plain dataclass so callers (CLI, tests, notebooks) get a typed object instead
 of a loose dictionary, while still being able to serialise it with ``to_dict``.

@@ -42,24 +42,10 @@ _STAGE: dict[str, str] = {}
 #: Additional stage tags for a tool that is useful to more than one agent.
 _EXTRA_STAGES: dict[str, set[str]] = {}
 
-#: Tools that must never be reachable before a plan has been validated.
-WRITE_TOOLS: frozenset[str] = frozenset(
-    {
-        "slice_book_by_line_numbers",
-        "verify_sliced_output",
-        "apply_chapter_cleaning",
-        "verify_preprocessed_chapters",
-        "apply_chapter_postprocess",
-        "apply_book_toc",
-        "verify_postprocessed_chapters",
-    }
-)
-
 #: Write tools belonging to each stage, used by that stage's write policy.
-#: ``verify_sliced_output`` reads files the slicer wrote, so it is gated with it.
-SPLIT_WRITE_TOOLS: frozenset[str] = frozenset(
-    {"slice_book_by_line_numbers", "verify_sliced_output"}
-)
+#: Stage 1 has no model-reachable write tool: the deterministic ``slice`` tail
+#: writes only after validation, so the executor has nothing to gate here.
+SPLIT_WRITE_TOOLS: frozenset[str] = frozenset()
 PREPROCESS_WRITE_TOOLS: frozenset[str] = frozenset({"apply_chapter_cleaning"})
 POSTPROCESS_WRITE_TOOLS: frozenset[str] = frozenset(
     {
@@ -169,11 +155,6 @@ def tool_names(stage: str | None = None) -> list[str]:
         for name in _REGISTRY
         if _STAGE.get(name) in wanted or bool(_EXTRA_STAGES.get(name, set()) & wanted)
     ]
-
-
-def is_write_tool(name: str) -> bool:
-    """True when a tool writes (or verifies) book content on disk."""
-    return name in WRITE_TOOLS
 
 
 def describe_tools(stage: str | None = None) -> list[tuple[str, str, str]]:
