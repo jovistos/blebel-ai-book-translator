@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import pytest
 from book_splitter.core.run import RunContext, run_items
 
 
@@ -51,7 +52,7 @@ def test_a_broken_progress_hook_never_breaks_the_run():
 def test_run_items_continues_after_a_failed_item_and_keeps_the_order():
     items = [1, 2, 3, 4]
 
-    def worker(item: int) -> int:
+    def worker(item: int, _position: int) -> int:
         if item == 2:
             raise ValueError("bad item")
         return item * 10
@@ -74,8 +75,32 @@ def test_run_items_continues_after_a_failed_item_and_keeps_the_order():
     assert seen == [(1, 1, 4), (2, 2, 4), (3, 3, 4), (4, 4, 4)]
 
 
+def test_run_items_passes_a_one_based_position():
+    positions: list[tuple[int, int]] = []
+
+    def worker(item: int, position: int) -> int:
+        positions.append((item, position))
+        return item
+
+    run_items(["a", "b", "c"], worker)
+    assert positions == [("a", 1), ("b", 2), ("c", 3)]
+
+
+def test_a_broken_on_item_fails_the_run_instead_of_dropping_an_item():
+    """on_item is bookkeeping, not reporting: a bug there must not be silent."""
+
+    def worker(item: int, _position: int) -> int:
+        return item
+
+    def broken(_outcome, _completed, _total) -> None:
+        raise RuntimeError("collector bug")
+
+    with pytest.raises(RuntimeError, match="collector bug"):
+        run_items([1], worker, on_item=broken)
+
+
 def test_run_items_honours_completed_before_and_a_broken_progress_hook():
-    def worker(item: int) -> int:
+    def worker(item: int, _position: int) -> int:
         return item
 
     def broken(_record, _completed, _total):
@@ -86,7 +111,7 @@ def test_run_items_honours_completed_before_and_a_broken_progress_hook():
 
 
 def test_run_items_without_an_error_handler_records_none():
-    def worker(item: int) -> int:
+    def worker(item: int, _position: int) -> int:
         raise RuntimeError(f"no {item}")
 
     outcomes = run_items([1], worker)

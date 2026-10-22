@@ -23,6 +23,7 @@ from ..core.constants import (
     TOC_FILENAME,
 )
 from ..core.errors import ToolError
+from ..core.store import ArtifactStore
 from ..documents.chapters import (
     file_sha256,
     has_postprocessed_chapter_files,
@@ -146,30 +147,58 @@ def run_bind(
             continue
         cursor = found + len(text)
     front_toc = bool((scan_book_structure(source).get("toc") or {}).get("exists"))
-    result = BindResult(
-        ok=not errors,
-        chapters_path=str(source),
-        output_path=str(target),
-        chapter_count=len(files),
+    result = build_bind_result(
+        source=source,
+        target=target,
+        records=records,
+        written=written,
+        errors=errors,
         toc_included=any(is_toc_filename(path.name) for path in files)
         or (source / TOC_FILENAME).is_file()
         or front_toc,
+        sha256=file_sha256(target) if target.is_file() and not dry_run else "",
+        dry_run=dry_run,
+    )
+    store = ArtifactStore(
+        target.parent,
+        BIND_MANIFEST_FILENAME,
+        BIND_TRACE_FILENAME,
+        enabled=write_manifest and not dry_run,
+    )
+    return store.write_result(result, bind_manifest_payload(result))
+
+
+def build_bind_result(
+    *,
+    source: Path,
+    target: Path,
+    records: list[dict[str, Any]],
+    written: str,
+    errors: list[str],
+    toc_included: bool,
+    sha256: str,
+    dry_run: bool,
+) -> BindResult:
+    """The whole run as a result value; no file is read or written here."""
+    return BindResult(
+        ok=not errors,
+        chapters_path=str(source),
+        output_path=str(target),
+        chapter_count=len(records),
+        toc_included=toc_included,
         chars=len(written),
         lines=len(written.splitlines()),
-        sha256=file_sha256(target) if target.is_file() and not dry_run else "",
+        sha256=sha256,
         image_refs=image_count(written),
         dry_run=dry_run,
         files=records,
         errors=errors,
     )
-    if write_manifest and not dry_run:
-        result.manifest_path = str(write_bind_manifest(target, result))
-        result.trace_path = str(write_bind_trace(target, result))
-    return result
 
 
-def write_bind_manifest(output_path: Path, result: BindResult) -> Path:
-    payload = {
+def bind_manifest_payload(result: BindResult) -> dict[str, Any]:
+    """The manifest body, kept separate from the write so it can be reused."""
+    return {
         "stage": "bind",
         "generated_at": timestamp(),
         "ok": result.ok,
@@ -184,7 +213,12 @@ def write_bind_manifest(output_path: Path, result: BindResult) -> Path:
         "files": result.files,
         "errors": result.errors,
     }
-    return write_manifest(output_path.parent, BIND_MANIFEST_FILENAME, payload)
+
+
+def write_bind_manifest(output_path: Path, result: BindResult) -> Path:
+    return write_manifest(
+        output_path.parent, BIND_MANIFEST_FILENAME, bind_manifest_payload(result)
+    )
 
 
 def write_bind_trace(output_path: Path, result: BindResult) -> Path:
@@ -193,6 +227,8 @@ def write_bind_trace(output_path: Path, result: BindResult) -> Path:
 
 __all__ = [
     "BindResult",
+    "bind_manifest_payload",
+    "build_bind_result",
     "run_bind",
     "write_bind_manifest",
     "write_bind_trace",

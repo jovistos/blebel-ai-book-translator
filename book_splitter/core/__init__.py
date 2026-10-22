@@ -79,8 +79,10 @@ from .settings import (
     stage_overrides,
     translation_model_label,
 )
+from .store import ArtifactStore
 
 __all__ = [
+    "ArtifactStore",
     "ConfigError",
     "ItemOutcome",
     "JSON_ONLY_NOTE",

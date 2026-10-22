@@ -32,24 +32,17 @@ assembles the new chapters.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Sequence
-from dataclasses import asdict, dataclass, field
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from ..core.artifacts import (
-    sha256_text,
-    timestamp,
-    write_manifest,
-    write_text,
-    write_trace,
-)
 from ..core.constants import (
     ASSEMBLY_MANIFEST_FILENAME,
     ASSEMBLY_TRACE_FILENAME,
 )
 from ..core.errors import ToolError
-from ..core.run import RunContext
+from ..core.run import RunContext, run_items
+from ..core.store import ArtifactStore
 from ..documents.chapters import translated_chapters_dir, translations_dir
 from ..documents.chunks import chunk_files, resolve_chunks_dir
 from ..documents.manifest import load_assembly_manifest
@@ -59,67 +52,19 @@ from ..documents.window import (
     is_body_chapter_name,
     normalize_limit,
 )
-
-#: Monotonic clock used for the timings; injectable so tests can be exact.
-Clock = Callable[[], float]
-#: Called once per visited chapter as ``(chapter_record, completed, total)``.
-ProgressHook = Callable[[dict[str, Any], int, int], None]
-
-
-# --------------------------------------------------------------------------- #
-# records
-# --------------------------------------------------------------------------- #
-@dataclass
-class TranslatedChapter:
-    """One translated chapter file: what went in, what came out and its state."""
-
-    chapter_id: str
-    filename: str
-    chapter_index: int
-    chunk_count: int = 0
-    translated_chunks: int = 0
-    source_chars: int = 0
-    translation_chars: int = 0
-    sha256: str = ""
-    output_path: str | None = None
-    reused: bool = False
-    skipped: bool = False
-    ok: bool = True
-    error: str | None = None
-    note: str | None = None
-    missing_chunks: list[str] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
-
-
-@dataclass
-class AssemblyResult:
-    """Outcome of a whole stage-8 run."""
-
-    ok: bool
-    chunks_path: str
-    translations_path: str
-    output_dir: str
-    chapter_count: int = 0
-    ok_count: int = 0
-    assembled_count: int = 0
-    reused_count: int = 0
-    incomplete_count: int = 0
-    skipped_count: int = 0
-    dry_run: bool = False
-    limited: bool = False
-    first_chapters: int | None = None
-    settings: dict[str, Any] = field(default_factory=dict)
-    totals: dict[str, int] = field(default_factory=dict)
-    timing: dict[str, float] = field(default_factory=dict)
-    chapters: list[dict[str, Any]] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
-    manifest_path: str | None = None
-    trace_path: str | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+from .artifacts import (
+    assembly_manifest_payload,
+    write_assembly_manifest,
+    write_assembly_trace,
+)
+from .models import (
+    AssemblyInputs,
+    AssemblyResult,
+    Clock,
+    ProgressHook,
+    TranslatedChapter,
+)
+from .worker import assemble_chapter, failed_chapter
 
 
 # --------------------------------------------------------------------------- #
@@ -192,8 +137,49 @@ def _group_by_chapter(
     return grouped
 
 
-def _chunk_path(translations_path: Path, entry: dict[str, Any]) -> Path:
-    return translations_path / str(entry.get("filename") or "")
+# --------------------------------------------------------------------------- #
+# discovery
+# --------------------------------------------------------------------------- #
+def _discover_assembly(
+    chunks_path: str | Path,
+    translations_path: str | Path | None,
+    output_dir: str | Path | None,
+    first_chapters: int | None,
+) -> AssemblyInputs:
+    """Resolve the folders, the chapter window and the chunk grouping."""
+    chunk_folder = resolve_chunks_dir(chunks_path)
+    translations_folder = resolve_translations_dir(translations_path, chunk_folder)
+    out_dir = resolve_output_dir(output_dir, chunk_folder)
+    if not translations_folder.is_dir():
+        raise ToolError(
+            f"translations folder not found: {translations_folder} — run `translate` first"
+        )
+
+    entries, all_names = _chapter_records(chunk_folder)
+    limit = normalize_limit(first_chapters)
+    body_names = body_chapter_names(all_names)
+    limited = limit is not None and limit < len(body_names)
+    # A window limits the *body* chapters, never the front/back matter: a book
+    # built from the first N chapters still needs its title page and its back
+    # page, and the matter stage localizes them for exactly this assembly.
+    if limit is None:
+        names = list(all_names)
+    else:
+        selected = set(body_names[:limit])
+        names = [
+            name
+            for name in all_names
+            if not is_body_chapter_name(name) or name in selected
+        ]
+    return AssemblyInputs(
+        chunk_folder=chunk_folder,
+        translations_folder=translations_folder,
+        out_dir=out_dir,
+        names=names,
+        grouped=_group_by_chapter(entries, names),
+        limit=limit,
+        limited=limited,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -219,118 +205,84 @@ def run_assembly(
     write only the five new chapters. ``dry_run`` reads and verifies everything
     but writes no chapter, manifest or trace.
     """
-    context = RunContext(clock=clock, dry_run=dry_run, limited=False, progress=progress)
-    chunk_folder = resolve_chunks_dir(chunks_path)
-    translations_folder = resolve_translations_dir(translations_path, chunk_folder)
-    out_dir = resolve_output_dir(output_dir, chunk_folder)
-    if not translations_folder.is_dir():
-        raise ToolError(
-            f"translations folder not found: {translations_folder} — run `translate` first"
-        )
-
-    entries, all_names = _chapter_records(chunk_folder)
-    limit = normalize_limit(first_chapters)
-    body_names = body_chapter_names(all_names)
-    limited = limit is not None and limit < len(body_names)
-    context.limited = limited
-    # A window limits the *body* chapters, never the front/back matter: a book
-    # built from the first N chapters still needs its title page and its back
-    # page, and the matter stage localizes them for exactly this assembly.
-    if limit is None:
-        names = list(all_names)
-    else:
-        selected = set(body_names[:limit])
-        names = [
-            name
-            for name in all_names
-            if not is_body_chapter_name(name) or name in selected
-        ]
-    grouped = _group_by_chapter(entries, names)
-
-    records: list[TranslatedChapter] = []
-    errors: list[str] = []
-    assembled_count = 0
-    reused_count = 0
-    incomplete_count = 0
-    skipped_count = 0
-    written_ok = 0
-
+    inputs = _discover_assembly(
+        chunks_path, translations_path, output_dir, first_chapters
+    )
+    context = RunContext(
+        clock=clock,
+        dry_run=dry_run,
+        limited=inputs.limited,
+        progress=progress,
+    )
     if not dry_run:
-        out_dir.mkdir(parents=True, exist_ok=True)
+        inputs.out_dir.mkdir(parents=True, exist_ok=True)
 
-    for index, name in enumerate(names):
-        chapter_entries = grouped.get(name) or []
-        record = TranslatedChapter(
-            chapter_id=Path(name).stem,
-            filename=name,
-            chapter_index=index,
-            chunk_count=len(chapter_entries),
-            translated_chunks=len(chapter_entries),
-            source_chars=sum(int(entry.get("chars") or 0) for entry in chapter_entries),
+    def work(name: str, position: int) -> TranslatedChapter:
+        return assemble_chapter(
+            name,
+            position - 1,
+            inputs=inputs,
+            skip_if_present=skip_if_present,
+            dry_run=dry_run,
         )
-        missing = [
-            str(entry.get("filename") or "?")
-            for entry in chapter_entries
-            if not _chunk_path(translations_folder, entry).is_file()
-        ]
-        if missing:
-            # A chapter is all-or-nothing: a partial prefix would look like a
-            # complete chapter to the reader, so it is reported instead.
-            record.skipped = True
-            record.translated_chunks = len(chapter_entries) - len(missing)
-            record.missing_chunks = missing
-            record.note = (
-                f"{len(missing)} of {len(chapter_entries)} chunk(s) not translated"
-            )
-            incomplete_count += 1
-            skipped_count += 1
-        else:
-            try:
-                parts = [
-                    _chunk_path(translations_folder, entry).read_text(encoding="utf-8")
-                    for entry in chapter_entries
-                ]
-                text = "".join(parts)
-            except OSError as exc:  # a read error is one chapter's failure
-                record.ok = False
-                record.error = f"{type(exc).__name__}: {exc}"
-                errors.append(f"{name}: {record.error}")
-            else:
-                record.translation_chars = len(text)
-                record.sha256 = sha256_text(text)
-                target = out_dir / name
-                record.output_path = str(target)
-                if dry_run:
-                    record.reused = bool(
-                        skip_if_present
-                        and target.is_file()
-                        and target.read_text(encoding="utf-8") == text
-                    )
-                    if record.reused:
-                        reused_count += 1
-                    else:
-                        assembled_count += 1
-                else:
-                    try:
-                        if skip_if_present and target.is_file() and target.read_text(
-                            encoding="utf-8"
-                        ) == text:
-                            record.reused = True
-                            reused_count += 1
-                        else:
-                            write_text(target, text)
-                            record.reused = False
-                            assembled_count += 1
-                    except OSError as exc:
-                        record.ok = False
-                        record.error = f"{type(exc).__name__}: {exc}"
-                        errors.append(f"{name}: {record.error}")
 
-        if record.ok and not record.skipped:
-            written_ok += 1
-        records.append(record)
-        context.emit(record.to_dict(), index + 1, len(names))
+    def failed(name: str, exc: Exception) -> TranslatedChapter:
+        return failed_chapter(name, inputs.names.index(name), inputs, exc)
 
+    outcomes = run_items(
+        inputs.names,
+        work,
+        on_error=failed,
+        progress=lambda record, done, total: context.emit(
+            record.to_dict(), done, total
+        ),
+    )
+    records = [outcome.value for outcome in outcomes if outcome.value is not None]
+    result = build_assembly_result(
+        records=records,
+        chunk_folder=inputs.chunk_folder,
+        translations_folder=inputs.translations_folder,
+        out_dir=inputs.out_dir,
+        limit=inputs.limit,
+        limited=inputs.limited,
+        dry_run=dry_run,
+        skip_if_present=skip_if_present,
+        write_manifest=write_manifest,
+        run_seconds=context.elapsed(),
+    )
+    store = ArtifactStore(
+        inputs.out_dir,
+        ASSEMBLY_MANIFEST_FILENAME,
+        ASSEMBLY_TRACE_FILENAME,
+        enabled=write_manifest and not dry_run,
+    )
+    return context.finish(store.write_result(result, assembly_manifest_payload(result)))
+
+
+def build_assembly_result(
+    *,
+    records: list[TranslatedChapter],
+    chunk_folder: Path,
+    translations_folder: Path,
+    out_dir: Path,
+    limit: int | None,
+    limited: bool,
+    dry_run: bool,
+    skip_if_present: bool,
+    write_manifest: bool,
+    run_seconds: float,
+) -> AssemblyResult:
+    """The run as one value; counts are derived from the records, not counters."""
+    errors = [
+        f"{record.filename}: {record.error}"
+        for record in records
+        if record.error
+    ]
+    assembled_count = sum(
+        1 for record in records if record.ok and not record.skipped and not record.reused
+    )
+    reused_count = sum(1 for record in records if record.reused)
+    incomplete_count = sum(1 for record in records if record.skipped)
     totals = {
         "chapters": len(records),
         "assembled": assembled_count,
@@ -340,17 +292,19 @@ def run_assembly(
         "translated_chunks": sum(record.translated_chunks for record in records),
         "translation_chars": sum(record.translation_chars for record in records),
     }
-    result = AssemblyResult(
+    return AssemblyResult(
         ok=not errors,
         chunks_path=str(chunk_folder),
         translations_path=str(translations_folder),
         output_dir=str(out_dir),
         chapter_count=len(records),
-        ok_count=written_ok,
+        ok_count=sum(
+            1 for record in records if record.ok and not record.skipped
+        ),
         assembled_count=assembled_count,
         reused_count=reused_count,
         incomplete_count=incomplete_count,
-        skipped_count=skipped_count,
+        skipped_count=incomplete_count,
         dry_run=dry_run,
         limited=limited,
         first_chapters=limit,
@@ -362,60 +316,18 @@ def run_assembly(
         totals=totals,
         chapters=[record.to_dict() for record in records],
         errors=errors,
-        timing={"run_seconds": round(context.elapsed(), 4)},
+        timing={"run_seconds": round(run_seconds, 4)},
     )
-    if write_manifest and not dry_run:
-        result.manifest_path = str(write_assembly_manifest(out_dir, result))
-        result.trace_path = str(write_assembly_trace(out_dir, result))
-    return context.finish(result)
-
-
-# --------------------------------------------------------------------------- #
-# writing the artifacts
-# --------------------------------------------------------------------------- #
-def write_assembly_manifest(
-    out_dir: str | Path,
-    result: AssemblyResult,
-) -> Path:
-    """Write ``_translated_chapters_manifest.json``: the book-level index."""
-    payload = {
-        "stage": "assembly",
-        "generated_at": timestamp(),
-        "ok": result.ok,
-        "dry_run": result.dry_run,
-        "limited": result.limited,
-        "first_chapters": result.first_chapters,
-        "chunks_path": result.chunks_path,
-        "translations_path": result.translations_path,
-        "output_dir": result.output_dir,
-        "chapter_count": result.chapter_count,
-        "ok_count": result.ok_count,
-        "assembled_count": result.assembled_count,
-        "reused_count": result.reused_count,
-        "incomplete_count": result.incomplete_count,
-        "skipped_count": result.skipped_count,
-        "settings": result.settings,
-        "totals": result.totals,
-        "timing": result.timing,
-        "files": result.chapters,
-        "errors": result.errors,
-    }
-    return write_manifest(out_dir, ASSEMBLY_MANIFEST_FILENAME, payload)
-
-
-def write_assembly_trace(
-    out_dir: str | Path,
-    result: AssemblyResult,
-) -> Path:
-    """Write ``_translated_chapters_trace.json``: the same run, for debugging."""
-    return write_trace(out_dir, ASSEMBLY_TRACE_FILENAME, result.to_dict())
 
 
 __all__ = [
+    "AssemblyInputs",
     "AssemblyResult",
     "Clock",
     "ProgressHook",
     "TranslatedChapter",
+    "assembly_manifest_payload",
+    "build_assembly_result",
     "load_assembly_manifest",
     "resolve_chunks_dir",
     "resolve_output_dir",

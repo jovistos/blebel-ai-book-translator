@@ -100,28 +100,34 @@ class ItemOutcome(Generic[T, R]):
 
 def run_items(
     items: Iterable[T],
-    worker: Callable[[T], R],
+    worker: Callable[[T, int], R],
     *,
     on_error: Callable[[T, Exception], R] | None = None,
     on_item: Callable[[ItemOutcome[T, R], int, int], None] | None = None,
     progress: ProgressHook | None = None,
     completed_before: int = 0,
 ) -> list[ItemOutcome[T, R]]:
-    """Run ``worker`` over ``items`` in order, isolated item by item.
+    """Run ``worker(item, position)`` over ``items`` in order, isolated item by item.
 
-    An exception from ``worker`` does not stop the loop: ``on_error(item, exc)``
-    builds the failed record (a stage's "this chapter failed but the book
-    continues" branch), and the loop moves on. ``on_item`` sees every outcome
-    after it is produced — that is where a runner appends its record and takes
-    a manifest snapshot; ``progress`` is the external reporting hook, kept
-    separate so the two cannot shadow each other.
+    ``position`` is 1-based, so a stage can use it for prompt numbering and for
+    progress without keeping a parallel counter. An exception from ``worker``
+    does not stop the loop: ``on_error(item, exc)`` builds the failed record (a
+    stage's "this chapter failed but the book continues" branch), and the loop
+    moves on.
+
+    ``on_item`` sees every outcome after it is produced — that is where a runner
+    appends its record, updates book-wide totals and takes a manifest snapshot.
+    It is *not* suppressed: those are correctness steps, and a bug there should
+    fail the run instead of silently dropping an item. ``progress`` is the
+    external reporting hook and *is* suppressed, because a broken UI must not
+    end a paid run.
     """
     ordered = list(items)
     total = len(ordered)
     outcomes: list[ItemOutcome[T, R]] = []
     for position, item in enumerate(ordered, start=1):
         try:
-            value = worker(item)
+            value = worker(item, position)
         except Exception as exc:  # one bad item must not stop the run
             failed = on_error(item, exc) if on_error is not None else None
             outcome: ItemOutcome[T, R] = ItemOutcome(
@@ -132,8 +138,7 @@ def run_items(
         outcomes.append(outcome)
         completed = completed_before + position
         if on_item is not None:
-            with contextlib.suppress(Exception):
-                on_item(outcome, completed, total)
+            on_item(outcome, completed, total)
         if progress is not None:
             with contextlib.suppress(Exception):
                 progress(outcome.value, completed, total)
