@@ -1,37 +1,30 @@
-"""Shared graph state.
+"""Stage 1 state, and the token-usage reducer the other stages import.
 
 Everything stored here is metadata about the book (line numbers, short header
 strings, hashes). The book body itself is never stored in the state, so it can
 never end up in an LLM prompt.
+
+The bookkeeping half of this class lives in
+:class:`~book_splitter.stage_graph.AgentStateBase`; only the splitter's own keys
+are declared here.
 """
 
 from __future__ import annotations
 
-import operator
-from typing import Annotated, Any, TypedDict
+from typing import Any
 
-from langgraph.graph.message import add_messages
-
-
-def merge_usage(left: dict[str, int] | None, right: dict[str, int] | None) -> dict[str, int]:
-    """Reducer that sums token usage across graph nodes."""
-    out = dict(left or {})
-    for key, value in (right or {}).items():
-        out[key] = out.get(key, 0) + value
-    return out
+from ..stage_graph import AgentStateBase, merge_usage
 
 
-class SplitterState(TypedDict, total=False):
-    """State carried through the LangGraph."""
+class SplitterState(AgentStateBase, total=False):
+    """State carried through the splitting graph."""
 
     # --- configuration ---
     source_path: str
     output_dir: str
     front_matter_lines: int
-    max_attempts: int
     min_chapters: int
     include_front_matter: bool
-    dry_run: bool
 
     # --- deterministic recon (no LLM) ---
     line_count: int
@@ -49,15 +42,9 @@ class SplitterState(TypedDict, total=False):
     proposal_strategy: str
     proposal_notes: str
 
-    # --- validation / execution ---
-    validation: dict[str, Any]
-    feedback: list[str]
+    # --- execution ---
     manifest: dict[str, Any]
     verification: dict[str, Any]
 
-    # --- bookkeeping ---
-    attempts: int
-    usage: Annotated[dict[str, int], merge_usage]
-    log: Annotated[list[str], operator.add]
-    messages: Annotated[list, add_messages]
-    result: dict[str, Any]
+
+__all__ = ["SplitterState", "merge_usage"]

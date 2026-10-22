@@ -3,25 +3,24 @@
 As in stages 1 and 2, the state holds metadata only: filenames, titles, line
 numbers, heading records, plans and hashes. The chapter body never enters it, so
 it can never reach a prompt.
+
+The bookkeeping half of both classes lives in
+:class:`~book_splitter.stage_graph.AgentStateBase`.
 """
 
 from __future__ import annotations
 
 import operator
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any
 
-from langgraph.graph.message import add_messages
-
-from ..agent.state import merge_usage
+from ..stage_graph import AgentStateBase
 
 
-class BookPlanState(TypedDict, total=False):
+class BookPlanState(AgentStateBase, total=False):
     """State carried through the book-level naming/TOC graph."""
 
     # --- configuration ---
     chapters_path: str
-    max_attempts: int
-    dry_run: bool
     require_web_search: bool
 
     # --- deterministic inventory (no LLM) ---
@@ -34,19 +33,8 @@ class BookPlanState(TypedDict, total=False):
     # --- the plan the agent submits through `report_book_plan` ---
     book_plan: dict[str, Any]
 
-    # --- validation ---
-    validation: dict[str, Any]
-    feedback: list[str]
 
-    # --- bookkeeping ---
-    attempts: int
-    usage: Annotated[dict[str, int], merge_usage]
-    log: Annotated[list[str], operator.add]
-    messages: Annotated[list, add_messages]
-    result: dict[str, Any]
-
-
-class ChapterPostprocessState(TypedDict, total=False):
+class ChapterPostprocessState(AgentStateBase, total=False):
     """State carried through the per-chapter title/heading graph."""
 
     # --- configuration ---
@@ -54,8 +42,6 @@ class ChapterPostprocessState(TypedDict, total=False):
     chapters_path: str
     output_dir: str
     canonical_title: str
-    max_attempts: int
-    dry_run: bool
 
     # --- deterministic recon (no LLM) ---
     line_count: int
@@ -64,18 +50,9 @@ class ChapterPostprocessState(TypedDict, total=False):
     # --- the plan the agent submits through `report_chapter_postprocess` ---
     chapter_plan: dict[str, Any]
 
-    # --- validation / execution ---
-    validation: dict[str, Any]
+    # --- execution ---
     applied: dict[str, Any]
     verification: dict[str, Any]
-    feedback: list[str]
-
-    # --- bookkeeping ---
-    attempts: int
-    usage: Annotated[dict[str, int], merge_usage]
-    log: Annotated[list[str], operator.add]
-    messages: Annotated[list, add_messages]
-    result: dict[str, Any]
 
 
 __all__ = ["BookPlanState", "ChapterPostprocessState"]

@@ -2801,7 +2801,7 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_splitter/postprocess/inspect.py](book_splitter/postprocess/inspect.py) | stage 9: the chapter-title inventory, bounded openings, heading records and matter inspection |
 | [book_splitter/postprocess/plan.py](book_splitter/postprocess/plan.py) | stage 9: naming/TOC validation, title canonicalisation, chapter apply and provenance verification |
 | [book_splitter/postprocess/toc.py](book_splitter/postprocess/toc.py) | stage 9: TOC detection, generation, in-place update and consistency verification |
-| [book_splitter/postprocess_agent/graph.py](book_splitter/postprocess_agent/graph.py) | stage 9: the book-level and per-chapter LangGraphs |
+| [book_splitter/postprocess_agent/graph.py](book_splitter/postprocess_agent/graph.py) | stage 9: the book-level and per-chapter `StageSpec`s, compiled by the scaffold |
 | [book_splitter/postprocess_agent/runner.py](book_splitter/postprocess_agent/runner.py) | stage 9: `run_postprocess`, the book pass, the ordered chapter walk and the TOC write |
 | [book_splitter/binding/runner.py](book_splitter/binding/runner.py) | stage 10: `run_bind`, the ordered single-file concatenation and its verification |
 | [book_splitter/epub/runner.py](book_splitter/epub/runner.py) | stage 11: `run_epub`, the chapter render, picture embedding, metadata resolution, the package write and the post-write verification |
@@ -2817,18 +2817,17 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_splitter/agent/tools/preprocess.py](book_splitter/agent/tools/preprocess.py) | stage 2 tools: header collection, damage, plan submission, apply |
 | [book_splitter/agent/tools/openings.py](book_splitter/agent/tools/openings.py) | the chapter-opening audit tools shared by stages 2 and 9 (`audit_chapter_opening`, `audit_book_openings`) |
 | [book_splitter/agent/nodes/](book_splitter/agent/nodes/__init__.py) | `scout` / `agent` / `tools` / `validate` / `slice` / `verify` |
-| [book_splitter/agent/routing.py](book_splitter/agent/routing.py) | the conditional edges of the splitting graph |
-| [book_splitter/agent/graph.py](book_splitter/agent/graph.py) | splitting graph assembly |
+| [book_splitter/stage_graph.py](book_splitter/stage_graph.py) | the shared scaffold every stage is compiled from: `AgentStateBase`, `StageSpec`, `build_stage_graph` and the three routers |
+| [book_splitter/agent/graph.py](book_splitter/agent/graph.py) | stage 1 `StageSpec` (`scout` → `agent` ↔ `tools` → `validate` → `slice` → `verify`) and the dry-run router, compiled by the scaffold |
 | [book_splitter/agent/runner.py](book_splitter/agent/runner.py) | `run_split` and the trace writer |
-| [book_splitter/agent/state.py](book_splitter/agent/state.py) | stage 1 graph state (metadata only, never prose) |
+| [book_splitter/agent/state.py](book_splitter/agent/state.py) | stage 1 graph state (metadata only, never prose); the shared keys come from `AgentStateBase` |
 | [book_splitter/agent/result.py](book_splitter/agent/result.py) | the `SplitterResult` dataclass |
 | [book_splitter/preprocess_agent/prompts.py](book_splitter/preprocess_agent/prompts.py) | stage 2 system prompt and the decision vocabulary |
 | [book_splitter/preprocess_agent/llm.py](book_splitter/preprocess_agent/llm.py) | the model with *only* the preprocessing tools bound |
 | [book_splitter/preprocess_agent/nodes.py](book_splitter/preprocess_agent/nodes.py) | `collect` / `agent` / `tools` / `validate` / `apply` / `verify` |
-| [book_splitter/preprocess_agent/routing.py](book_splitter/preprocess_agent/routing.py) | the conditional edges of the preprocessing graph |
-| [book_splitter/preprocess_agent/graph.py](book_splitter/preprocess_agent/graph.py) | preprocessing graph for **one chapter** |
+| [book_splitter/preprocess_agent/graph.py](book_splitter/preprocess_agent/graph.py) | stage 2 `StageSpec` for **one chapter**, compiled by the scaffold |
 | [book_splitter/preprocess_agent/runner.py](book_splitter/preprocess_agent/runner.py) | `run_preprocess`: the sequential (or pooled) chapter loop |
-| [book_splitter/preprocess_agent/state.py](book_splitter/preprocess_agent/state.py) | stage 2 graph state (metadata only, never prose) |
+| [book_splitter/preprocess_agent/state.py](book_splitter/preprocess_agent/state.py) | stage 2 graph state (metadata only, never prose); the shared keys come from `AgentStateBase` |
 | [tests/](tests/conftest.py) | the test suite, split the same way as the code |
 
 The old flat module paths (`book_splitter.tools`, `book_splitter.graph`,

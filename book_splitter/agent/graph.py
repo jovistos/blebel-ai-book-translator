@@ -1,4 +1,4 @@
-"""Assembly of the LangGraph state machine.
+"""Stage 1 graph, declared as a spec and compiled by the shared scaffold.
 
 Graph shape::
 
@@ -23,15 +23,18 @@ Graph shape::
 The LLM only ever routes: it receives line numbers and short title strings, and
 it submits a plan through the ``propose_split_map`` tool. Text is moved by
 ``slice``, a deterministic node, so no chapter prose can be altered.
+
+The wiring comes from :mod:`book_splitter.stage_graph`; only the spec and the
+dry-run router below are this stage's own.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from langgraph.graph import END, START, StateGraph
-
+from ..core.constants import MAX_FEEDBACK_LOOPS
 from ..core.settings import LLMSettings, resolve_settings
+from ..stage_graph import END_KEY, StageSpec, TailStep, build_stage_graph
 from .llm import make_llm
 from .nodes import (
     make_agent_node,
@@ -42,20 +45,37 @@ from .nodes import (
     make_validate_node,
     make_verify_node,
 )
-from .routing import (
-    AGENT,
-    GIVE_UP,
-    SCOUT,
-    SLICE,
-    TOOLS,
-    VALIDATE,
-    VERIFY,
-    route_after_agent,
-    route_after_slice,
-    route_after_tools,
-    route_after_validate,
-)
 from .state import SplitterState
+
+#: The node ``verify`` follows ``slice``.
+VERIFY = "verify"
+
+
+def after_slice(state: dict[str, Any]) -> str:
+    """A dry run stops after the preview; a real run verifies what it wrote.
+
+    This is the only stage-specific router left: ``verify`` re-reads the files
+    from disk, and a dry run never wrote any, so the edge has to be conditional.
+    The other stages' ``verify`` nodes read the ``applied`` payload instead.
+    """
+    return END_KEY if state.get("dry_run") else VERIFY
+
+
+#: One run per book.
+SPLIT = StageSpec(
+    state=SplitterState,
+    recon=("scout", make_scout_node),
+    agent=make_agent_node,
+    tools=make_tool_node,
+    validate=make_validate_node,
+    give_up=make_give_up_node,
+    plan_key="proposed_splits",
+    attempts_default=MAX_FEEDBACK_LOOPS,
+    tail=(
+        TailStep("slice", make_slice_node, after_slice),
+        TailStep(VERIFY, make_verify_node),
+    ),
+)
 
 
 def build_graph(settings: LLMSettings | None = None, model: Any | None = None):
@@ -67,37 +87,7 @@ def build_graph(settings: LLMSettings | None = None, model: Any | None = None):
     if model is None:
         settings = settings or resolve_settings(stage="split")
         model = make_llm(settings)
-
-    graph = StateGraph(SplitterState)
-    graph.add_node(SCOUT, make_scout_node())
-    graph.add_node(AGENT, make_agent_node(model))
-    graph.add_node(TOOLS, make_tool_node())
-    graph.add_node(VALIDATE, make_validate_node())
-    graph.add_node(SLICE, make_slice_node())
-    graph.add_node(VERIFY, make_verify_node())
-    graph.add_node(GIVE_UP, make_give_up_node())
-
-    graph.add_edge(START, SCOUT)
-    graph.add_edge(SCOUT, AGENT)
-    graph.add_conditional_edges(
-        AGENT,
-        route_after_agent,
-        {TOOLS: TOOLS, VALIDATE: VALIDATE, AGENT: AGENT, GIVE_UP: GIVE_UP},
-    )
-    graph.add_conditional_edges(
-        TOOLS,
-        route_after_tools,
-        {VALIDATE: VALIDATE, AGENT: AGENT, GIVE_UP: GIVE_UP},
-    )
-    graph.add_conditional_edges(
-        VALIDATE,
-        route_after_validate,
-        {SLICE: SLICE, AGENT: AGENT, GIVE_UP: GIVE_UP},
-    )
-    graph.add_conditional_edges(SLICE, route_after_slice, {VERIFY: VERIFY, "end": END})
-    graph.add_edge(VERIFY, END)
-    graph.add_edge(GIVE_UP, END)
-    return graph.compile()
+    return build_stage_graph(SPLIT, model)
 
 
 __all__ = ["build_graph"]
