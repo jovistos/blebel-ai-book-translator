@@ -185,6 +185,7 @@ from ..documents.window import (
     chapter_window_limit_for_path,
 )
 from ..paths import default_input_dir, default_output_dir, resolve_book_path, resolve_output_dir
+from . import parents
 
 
 def _print_json(payload) -> None:
@@ -2659,58 +2660,16 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     def add_book(parser_: argparse.ArgumentParser, required: bool) -> None:
-        parser_.add_argument(
-            "book",
-            nargs="?" if not required else None,
-            help="source document — a bare filename or a path "
-            "(default: the only book found in data/input/)",
-        )
-        parser_.add_argument(
-            "--in-dir",
-            default=None,
-            help=f"folder holding the source documents (default: {default_input_dir()})",
-        )
-        parser_.add_argument(
-            "--output-root",
-            default=None,
-            help=f"root of the generated artifacts (default: {default_output_dir()})",
-        )
+        # One shared parent owns the book positional, --in-dir and --output-root.
+        # argparse has no public "add a parent after construction", so use the
+        # same container hook ``parents=[...]`` uses internally.
+        parser_._add_container_actions(parents.book_parent(required=required))
 
     def add_llm_flags(parser_: argparse.ArgumentParser) -> None:
-        parser_.add_argument(
-            "--llm-config",
-            default=None,
-            metavar="FILE",
-            help="per-stage model config (default: ./book_splitter.toml, or "
-            "$BOOK_SPLITTER_CONFIG); one [llm] table plus an optional [llm.<stage>] "
-            "table per stage",
-        )
-        parser_.add_argument(
-            "--llm",
-            action="append",
-            default=[],
-            metavar="[STAGE.]FIELD=VALUE",
-            help="override one model field for this stage, repeatable; fields: "
-            "provider, model, base_url, temperature, timeout, max_retries, "
-            "api_key_env (e.g. --llm model=deepseek-flash or "
-            "--llm translate.provider=lmstudio)",
-        )
+        parser_._add_container_actions(parents.llm_parent())
 
     def add_model_flags(parser_: argparse.ArgumentParser) -> None:
-        parser_.add_argument("--provider", choices=sorted(PROVIDERS), default=None)
-        parser_.add_argument("--model", default=None)
-        parser_.add_argument("--base-url", default=None)
-        parser_.add_argument("--api-key", default=None)
-        parser_.add_argument(
-            "--temperature",
-            type=float,
-            default=None,
-            help="sampling temperature for this stage (default: the config file, else 0.0)",
-        )
-        add_llm_flags(parser_)
-        parser_.add_argument("--recursion-limit", type=int, default=DEFAULT_RECURSION_LIMIT)
-        parser_.add_argument("--json", action="store_true", help="machine-readable result")
-        parser_.add_argument("--quiet", "-q", action="store_true")
+        parser_._add_container_actions(parents.model_parent())
 
     p_convert = sub.add_parser(
         "convert",
