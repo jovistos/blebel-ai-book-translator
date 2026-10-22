@@ -39,6 +39,7 @@ from collections import Counter
 from collections.abc import Collection
 from typing import Any
 
+from ..core.coerce import as_int as _as_int
 from ..core.constants import (
     BACK_MATTER_FILENAME,
     DEFAULT_TAIL_CHUNK_LINES,
@@ -351,13 +352,6 @@ def _fit_report(payload: dict[str, Any], limit: int = MAX_TAIL_REPORT_CHARS) -> 
         payload["window"]["line_count"] = len(window)
         payload["window"]["truncated_at_chars"] = True
     return payload
-
-
-def _as_int(value: Any, fallback: int) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return fallback
 
 
 def _back_matter_name(next_index: int, back_matter_filename: str | None) -> str:

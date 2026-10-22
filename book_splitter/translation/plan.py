@@ -31,7 +31,7 @@ from ..documents.chunks import (
 )
 from ..documents.manifest import load_translation_manifest
 from .prompts import build_system_prompt
-from .records import ChunkStartHook, Clock, GlossaryRow, ProgressHook
+from .records import ChunkStartHook, Clock, GlossaryRow
 from .support import (
     _book_title,
     _glossary_fingerprint,
@@ -119,7 +119,6 @@ def prepare_translation(
     resume: bool = False,
     write_manifest: bool = True,
     write_prompts: bool = True,
-    progress: ProgressHook | None = None,
     chunk_start: ChunkStartHook | None = None,
     clock: Clock,
     context: RunContext,

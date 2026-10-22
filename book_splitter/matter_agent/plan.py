@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import contextlib
-import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,7 +27,7 @@ from .artifacts import (
     write_matter_plan_files,
 )
 from .graph import build_matter_graph
-from .models import Clock, MatterResult
+from .models import MatterResult
 from .state import MatterPlanState
 
 
@@ -93,7 +92,6 @@ def prepare_matter(
     chapter_files: Sequence[str] | None = None,
     write_manifest: bool = True,
     write_prompts: bool = True,
-    clock: Clock = time.perf_counter,
 ) -> MatterPlan | MatterResult:
     chapters = resolve_chapters_path(chapters_path)
     chunks = resolve_chunks_path(chunks_path, chapters)

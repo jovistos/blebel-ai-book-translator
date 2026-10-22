@@ -17,6 +17,7 @@ from ..core.artifacts import (
     write_text,
     write_trace,
 )
+from ..core.coerce import as_int as _int
 from ..core.constants import (
     CHAPTERS_DIRNAME,
     CHUNK_GLOSSARY_DIRNAME,
@@ -73,13 +74,6 @@ def has_chunk_glossary_files(path: str | Path) -> bool:
         item.is_file() and item.name.endswith(".json") and not item.name.startswith("_")
         for item in folder.glob("*.json")
     )
-
-
-def _int(value: Any, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def _source_file(chunks_path: Path) -> str:

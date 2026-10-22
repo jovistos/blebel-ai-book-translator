@@ -7,6 +7,17 @@ numbers across modules.
 
 from __future__ import annotations
 
+#: The stage-folder names have one definition in :mod:`book_splitter.paths`;
+#: importing them here keeps ``core.constants`` as the one stop for stage code
+#: without maintaining a second copy of the strings.
+from ..paths import (  # noqa: F401 - re-exported for stage modules
+    CHAPTERS_DIRNAME,
+    CHUNKS_DIRNAME,
+    MARKDOWN_DIRNAME,
+    REDUCED_DIRNAME,
+    UNIQUE_DIRNAME,
+)
+
 # --------------------------------------------------------------------------- #
 # Context guardrails
 # --------------------------------------------------------------------------- #
@@ -223,11 +234,6 @@ DETECTABLE_LANGUAGES: tuple[str, ...] = ("sr", "hr", "sl", "bg", "mk", "en")
 
 #: Stage 3 writes next to stages 1 and 2, never over them. Folder names carry
 #: the stage number so a book folder sorts in pipeline order.
-REDUCED_DIRNAME = "03-reduced"
-#: The second, smaller funnel output: one sentence per noun (first mentions only).
-#: It is a sibling of ``03-reduced/``, not a replacement for it — the two folders are
-#: meant to be compared while the extra filter is tuned.
-UNIQUE_DIRNAME = "03-reduced-unique"
 REDUCED_MANIFEST_FILENAME = "_reduced_manifest.json"
 REDUCED_TRACE_FILENAME = "_reduced_trace.json"
 
@@ -290,7 +296,6 @@ CHUNK_FALLBACK_TOKENIZER = "approx"
 CHUNK_ORDER_DIGITS = 5
 CHUNK_INDEX_DIGITS = 4
 #: Chunking writes next to the chapter folders, never over them.
-CHUNKS_DIRNAME = "05-chunks"
 CHUNK_MANIFEST_FILENAME = "_chunk_manifest.json"
 CHUNK_TRACE_FILENAME = "_chunk_trace.json"
 
@@ -560,7 +565,6 @@ MAX_OPENING_AUDIT_CHAPTERS = 60
 # --------------------------------------------------------------------------- #
 
 #: Stage 0 writes next to the stage folders, so it sorts before ``01-chapters/``.
-MARKDOWN_DIRNAME = "00-markdown"
 CONVERT_MANIFEST_FILENAME = "_convert_manifest.json"
 #: Images extracted from an EPUB/PDF live next to the converted Markdown. Every
 #: later stage is one folder below the book folder, so one relative prefix works
@@ -587,7 +591,6 @@ TRACE_FILENAME = "_agent_trace.json"
 
 #: Stage 1 (splitting) writes the source chapters; stage 2 (preprocessing) writes
 #: next to it, never over it. Both names carry the stage number.
-CHAPTERS_DIRNAME = "01-chapters"
 PREPROCESSED_DIRNAME = "02-preprocessed"
 PREPROCESS_MANIFEST_FILENAME = "_preprocess_manifest.json"
 PREPROCESS_TRACE_FILENAME = "_preprocess_trace.json"

@@ -140,3 +140,51 @@ def test_chunk_text_in_wins_over_out(tmp_path, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert code == 0
     assert payload["chapters_path"] == str(cleaned)
+
+
+def test_chunk_ignores_a_partial_cleaned_folder(tmp_path, capsys):
+    """A cleaned prefix must not shrink a text stage's chapter set."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "book.md").write_text("# Book\n", encoding="utf-8")
+
+    raw = tmp_path / "out" / "book" / "01-chapters"
+    raw.mkdir(parents=True)
+    for name in ("01-a.md", "02-b.md", "03-c.md"):
+        (raw / name).write_text(f"# {name}\n\nOne sentence.\n", encoding="utf-8")
+
+    cleaned = tmp_path / "out" / "book" / "02-preprocessed"
+    cleaned.mkdir(parents=True)
+    (cleaned / "01-a.md").write_text("# 01-a.md\n\nOne sentence.\n", encoding="utf-8")
+    (cleaned / "_preprocess_manifest.json").write_text(
+        json.dumps(
+            {
+                "stage": "preprocess",
+                "ok": True,
+                "dry_run": False,
+                "files": [{"filename": "01-a.md"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    code = cli.main(
+        [
+            "chunk",
+            "book.md",
+            "--in-dir",
+            str(input_dir),
+            "--output-root",
+            str(tmp_path / "out"),
+            "--dry-run",
+            "--json",
+            "--chunk-tokenizer",
+            "word",
+            "--chunk-size",
+            "50",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert payload["chapters_path"] == str(raw)
+    assert payload["chapter_count"] == 3

@@ -2819,9 +2819,9 @@ The package is split by responsibility; each folder can be read on its own.
 | --- | --- |
 | [book_splitter/paths.py](book_splitter/paths.py) | where documents live: `data/input/` in, `data/output/` out |
 | [book_splitter/conversion/runner.py](book_splitter/conversion/runner.py) | stage 0: EPUB/PDF/TXT → Markdown (`00-markdown/`), picture extraction to `00-markdown/images/`, the PDF text-layer gate (no OCR) and the conversion manifest |
-| [book_splitter/cli/](book_splitter/cli/__init__.py) | the command-line package: `main`/`build_parser` compatibility surface, the legacy command implementations (`cli/legacy.py`), shared argparse parents (`cli/parents.py`) and the `pipeline` dispatch |
+| [book_splitter/cli/](book_splitter/cli/__init__.py) | the command-line package: `main`/`build_parser` compatibility surface, one module per command under `cli/commands/`, shared helpers (`cli/common.py`), argparse parents (`cli/parents.py`), the root parser (`cli/parser.py`) and the `pipeline` dispatch; `cli/legacy.py` is a re-export shim |
 | [book_splitter/pipeline/](book_splitter/pipeline/__init__.py) | the one orchestrator: `options.py` (normalized options + exact runner kwargs), `paths.py` (`StagePaths`), `sources.py` (text/chunk fallbacks), `driver.py` (phase order, stop/start, records) and `parser.py` (the shared whole-pipeline CLI) |
-| [book_splitter/core/report.py](book_splitter/core/report.py) | `human_seconds`, `human_bytes`, the `Bar` progress bar and the per-stage `summarize(result)` used by both front ends |
+| [book_splitter/core/report.py](book_splitter/core/report.py) | `human_seconds`, `human_bytes`, `human_count` and the small `recon`/`scan` payload summary shared by both front ends (stage narration stays with the front end that owns it) |
 | [book_splitter/core/constants.py](book_splitter/core/constants.py) | every guardrail and default in one place |
 | [book_splitter/core/settings.py](book_splitter/core/settings.py) | provider and credential resolution |
 | [book_splitter/core/errors.py](book_splitter/core/errors.py) | `ToolError`, `ConfigError` |

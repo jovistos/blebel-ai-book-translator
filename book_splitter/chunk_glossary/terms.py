@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.artifacts import read_json, sha256_file
+from ..core.coerce import as_int as _int
 from ..core.constants import (
     DEFAULT_CHUNK_GLOSSARY_MIN_TERM_CHARS,
     DEFAULT_CHUNK_GLOSSARY_THRESHOLD,
@@ -33,13 +34,6 @@ def _glossary_sha256(path: str | Path) -> str:
         return sha256_file(path)
     except OSError:
         return ""
-
-
-def _int(value: Any, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def _candidate_from_payload(item: Any) -> MatchCandidate | None:

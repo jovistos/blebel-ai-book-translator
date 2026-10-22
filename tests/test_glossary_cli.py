@@ -277,11 +277,18 @@ def _stage_folders(tmp_path):
 def test_the_text_stages_default_to_the_cleaned_folder(tmp_path, monkeypatch):
     book, raw, cleaned = _stage_folders(tmp_path)
     (cleaned / "_preprocess_manifest.json").write_text(
-        json.dumps({"stage": "preprocess", "ok": True, "dry_run": False, "files": []}),
+        json.dumps(
+            {
+                "stage": "preprocess",
+                "ok": True,
+                "dry_run": False,
+                "files": [{"filename": "01-a.md", "source_lines": 3}],
+            }
+        ),
         encoding="utf-8",
     )
-    monkeypatch.setattr(cli.legacy, "resolve_book_path", lambda *a, **k: book / "book.md")
-    monkeypatch.setattr(cli.legacy, "resolve_output_dir", lambda *a, **k: raw)
+    monkeypatch.setattr(cli.common, "resolve_book_path", lambda *a, **k: book / "book.md")
+    monkeypatch.setattr(cli.common, "resolve_output_dir", lambda *a, **k: raw)
 
     assert cli._resolve_text_dir(None, None, None) == cleaned
 
@@ -294,8 +301,8 @@ def test_the_cleaned_folder_is_ignored_without_a_completed_manifest(tmp_path, mo
         json.dumps({"stage": "preprocess", "ok": True, "dry_run": True, "files": []}),
         encoding="utf-8",
     )
-    monkeypatch.setattr(cli.legacy, "resolve_book_path", lambda *a, **k: book / "book.md")
-    monkeypatch.setattr(cli.legacy, "resolve_output_dir", lambda *a, **k: raw)
+    monkeypatch.setattr(cli.common, "resolve_book_path", lambda *a, **k: book / "book.md")
+    monkeypatch.setattr(cli.common, "resolve_output_dir", lambda *a, **k: raw)
 
     assert cli._resolve_text_dir(None, None, None) == raw
 

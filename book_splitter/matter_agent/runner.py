@@ -123,7 +123,6 @@ def run_matter(
         chapter_files=chapter_files,
         write_manifest=write_manifest,
         write_prompts=write_prompts,
-        clock=clock,
     )
     if isinstance(prepared, MatterResult):
         return prepared

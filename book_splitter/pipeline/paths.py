@@ -27,6 +27,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from ..core.coerce import as_path as _path
 from ..core.constants import CHAPTERS_DIRNAME, MARKDOWN_DIRNAME
 from ..documents.chapters import (
     chapters_dir,
@@ -46,7 +47,13 @@ from ..documents.chapters import (
     unique_dir,
 )
 from ..documents.layout import book_root, resolve_stage_dir
-from ..paths import book_output_dir, default_input_dir, default_output_dir
+from ..paths import (
+    book_output_dir,
+    default_input_dir,
+    default_output_dir,
+    resolve_book_path,
+    resolve_output_dir,
+)
 
 #: StagePaths field -> the argparse destination of its long flag. ``--out`` is
 #: the chapters anchor, not a separate folder override. A field missing here has
@@ -71,14 +78,6 @@ OVERRIDE_FLAGS: dict[str, str] = {
 
 #: Every field an override may target.
 OVERRIDE_KEYS = ("markdown_dir", *OVERRIDE_FLAGS)
-
-
-def _path(value: Any) -> Path | None:
-    """``None``/empty stays ``None``; everything else is an expanded path."""
-    if value is None:
-        return None
-    text = str(value).strip()
-    return Path(text).expanduser() if text else None
 
 
 def _override(overrides: Mapping[str, Any], key: str) -> Path | None:
@@ -161,6 +160,67 @@ class StagePaths:
             overrides=overrides,
             book_dir=book_dir,
             markdown_dir=overrides.get("markdown_dir") or book_dir / MARKDOWN_DIRNAME,
+        )
+
+    @classmethod
+    def for_command(
+        cls,
+        ns: Any,
+        *,
+        book: Path | None = None,
+        input_dir: Path | None = None,
+        output_root: Path | None = None,
+        overrides: Mapping[str, Any] | None = None,
+    ) -> StagePaths:
+        """The layout for one standalone stage command.
+
+        A command anchors on ``--out`` when it is given, on a positional book
+        folder, or on the default output folder of the named book — the same
+        order :func:`book_splitter.paths.resolve_output_dir` has always used.
+        Every ``--*-out`` flag then overrides its own folder, and the resulting
+        value is the one both the command and the shared source resolvers read.
+        """
+        explicit_out = _path(getattr(ns, "out", None))
+        book_arg = (
+            Path(book).expanduser()
+            if book is not None
+            else _path(getattr(ns, "book", None))
+        )
+        in_dir = (
+            Path(input_dir).expanduser()
+            if input_dir is not None
+            else _path(getattr(ns, "in_dir", None))
+        )
+        root = (
+            Path(output_root).expanduser()
+            if output_root is not None
+            else _path(getattr(ns, "output_root", None))
+        )
+        source: Path | None
+        if explicit_out is not None:
+            base = chapters_dir(explicit_out)
+            source = None
+        elif book_arg is not None and book_arg.is_dir():
+            base = chapters_dir(book_arg)
+            source = None
+        else:
+            source = resolve_book_path(book_arg, input_dir=in_dir)
+            base = chapters_dir(resolve_output_dir(source, None, output_root=root))
+
+        merged = {
+            field: getattr(ns, flag, None) for field, flag in OVERRIDE_FLAGS.items()
+        }
+        if overrides:
+            merged.update(overrides)
+        # ``--out`` is the chapters anchor, not a separate override.
+        merged["chapters_dir"] = base
+        return cls.from_base(
+            base,
+            book=book_arg if book_arg is not None else source,
+            source=source,
+            input_dir=in_dir,
+            output_root=root,
+            overrides=merged,
         )
 
     @classmethod

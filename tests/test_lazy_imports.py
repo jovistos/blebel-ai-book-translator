@@ -75,6 +75,15 @@ def test_importing_the_package_alone_is_lazy() -> None:
     assert result["peak_mb"] < 20.0
 
 
+def test_importing_the_cli_does_not_import_the_agent_runtime() -> None:
+    result = _probe("import book_splitter.cli")
+
+    assert result["heavy"] == []
+    assert result["module_count"] < 500
+    assert result["peak_mb"] < 30.0
+    assert result["elapsed"] < 0.9
+
+
 def test_reading_an_agent_export_loads_its_module_on_demand() -> None:
     result = _probe("from book_splitter import run_split")
 

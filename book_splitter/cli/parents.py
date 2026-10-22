@@ -6,9 +6,9 @@ without ``--json`` and ``scan`` without ``--quiet``. These factories return a
 fresh ``ArgumentParser(add_help=False)`` so a command can be assembled with
 ``parents=[...]`` and the shared flags are declared exactly once.
 
-The legacy parser in :mod:`book_splitter.cli.legacy` is being migrated to these
-parents command by command; new commands (and the pipeline command) use them
-directly.
+:func:`add_book`, :func:`add_llm_flags` and :func:`add_model_flags` append those
+parents to an already-created subparser, which is what the per-command parser
+fragments use to keep the historical help order.
 """
 
 from __future__ import annotations
@@ -233,7 +233,25 @@ def path_input_parent() -> argparse.ArgumentParser:
     return parser
 
 
+def add_book(parser: argparse.ArgumentParser, *, required: bool = False) -> None:
+    """Append the shared ``book``/``--in-dir``/``--output-root`` flags."""
+    parser._add_container_actions(book_parent(required=required))
+
+
+def add_llm_flags(parser: argparse.ArgumentParser) -> None:
+    """Append ``--llm-config``/``--llm`` to an existing parser."""
+    parser._add_container_actions(llm_parent())
+
+
+def add_model_flags(parser: argparse.ArgumentParser) -> None:
+    """Append the shared provider/model flags to an existing parser."""
+    parser._add_container_actions(model_parent())
+
+
 __all__ = [
+    "add_book",
+    "add_llm_flags",
+    "add_model_flags",
     "book_parent",
     "dry_run_parent",
     "epub_metadata_parent",

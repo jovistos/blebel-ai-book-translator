@@ -26,6 +26,7 @@ from typing import Any
 
 from ..conversion.runner import classify_source, converted_markdown_path
 from ..core.artifacts import sha256_file
+from ..core.coerce import as_path as _path
 from ..core.constants import CHAPTERS_DIRNAME, CHUNK_GLOSSARY_DIRNAME
 from ..core.errors import ToolError
 from ..documents.chapters import (
@@ -94,13 +95,6 @@ class StageSources:
     translations: Path
     translated_chapters: Path
     postprocess: Path
-
-
-def _path(value: Any) -> Path | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return Path(text).expanduser() if text else None
 
 
 # --------------------------------------------------------------------------- #

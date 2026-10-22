@@ -200,7 +200,13 @@ def validate_split_map(
         points.append(point)
 
     ordered = sorted(points, key=lambda p: p["line_number"])
-    warnings.extend(gap_warnings(ordered, max_gap_lines=max_gap_lines))
+    warnings.extend(
+        gap_warnings(
+            ordered,
+            max_gap_lines=max_gap_lines,
+            min_gap_lines=min_gap_lines,
+        )
+    )
 
     back_matter_points = [i for i, p in enumerate(ordered) if p.get("role") == "back-matter"]
     if back_matter_points and back_matter_points[-1] != len(ordered) - 1:

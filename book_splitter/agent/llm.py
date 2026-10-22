@@ -8,9 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from langchain_openai import ChatOpenAI
-from pydantic import SecretStr
-
+from ..core.llm import build_chat_model
 from ..core.settings import LLMSettings
 from .tools import SPLIT_TOOLS
 
@@ -22,17 +20,7 @@ def make_llm(settings: LLMSettings, tools: list[Any] | None = None) -> Any:
     agents build their own models in their own packages; a splitter model that
     could reach their tools would be able to write files it never planned.
     """
-    llm = ChatOpenAI(
-        model=settings.model,
-        base_url=settings.base_url,
-        # A missing key stays None (and fails at construction, as before); a
-        # present one must be wrapped because ChatOpenAI types it as SecretStr.
-        api_key=SecretStr(settings.api_key) if settings.api_key else None,
-        temperature=settings.temperature,
-        timeout=settings.timeout,
-        max_retries=settings.max_retries,
-    )
-    return bind_tools(llm, SPLIT_TOOLS if tools is None else tools)
+    return bind_tools(build_chat_model(settings), SPLIT_TOOLS if tools is None else tools)
 
 
 def bind_tools(llm: Any, tools: list[Any] | None = None) -> Any:

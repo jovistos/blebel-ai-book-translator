@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.artifacts import sha256_text
+from ..core.coerce import as_int as _int
 from ..core.constants import CHUNKS_DIRNAME, GLOSSARY_DIRNAME, GLOSSARY_FILENAME
 from ..core.errors import ToolError
 from .layout import book_root
@@ -139,13 +140,6 @@ def chunk_chapter_names(chunks_path: str | Path) -> list[str]:
             seen.add(name)
             names.append(name)
     return names
-
-
-def _int(value: Any, default: int = 0) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def discover_chunk_inputs(chunks_path: str | Path) -> tuple[list[ChunkInput], Path]:

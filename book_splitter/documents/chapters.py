@@ -301,16 +301,6 @@ def has_chapter_files(path: str | Path) -> bool:
     return any(p.is_file() and not p.name.startswith("_") for p in folder.glob("*.md"))
 
 
-def chapter_filenames(path: str | Path) -> set[str]:
-    """The ``*.md`` filenames in a folder, bookkeeping files excluded."""
-    folder = Path(path).expanduser()
-    if not folder.is_dir():
-        return set()
-    return {
-        p.name for p in folder.glob("*.md") if p.is_file() and not p.name.startswith("_")
-    }
-
-
 def _resolve_manifest_entry(entry: dict, base: Path) -> Path:
     """Resolve a manifest filename against the manifest folder, then its parent."""
     name = str(entry.get("filename") or entry.get("file") or "")

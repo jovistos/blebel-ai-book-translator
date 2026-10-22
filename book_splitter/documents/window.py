@@ -105,15 +105,6 @@ def body_chapter_names(names: Iterable[str]) -> list[str]:
     return [str(name) for name in names if is_body_chapter_name(str(name))]
 
 
-def body_chapter_window(
-    chapters: Iterable[Chapter], first_chapters: Any
-) -> list[Chapter]:
-    """The first ``first_chapters`` *body* chapters, or all when unset."""
-    ordered = [chapter for chapter in chapters if is_body_chapter(chapter)]
-    limit = normalize_limit(first_chapters)
-    return ordered if limit is None else ordered[:limit]
-
-
 def chapter_window_limit(
     chapters: Iterable[Chapter],
     first_chapters: Any,

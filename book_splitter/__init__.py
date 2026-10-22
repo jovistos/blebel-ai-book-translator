@@ -122,10 +122,11 @@ Package layout::
 
     book_splitter/
         paths.py        where documents live (input/output folders)
-        cli.py          `convert` / `inspect` / `split` / `preprocess` /
+        cli/            one module per command, shared helpers and root parser
+                        (`convert` / `inspect` / `split` / `preprocess` /
                         `dictionary` / `glossary` / `chunk` / `chunk-glossary` /
                         `matter` / `translate` / `concatenate` / `postprocess` /
-                        `openings` / `bind` / `epub` / `tools`
+                        `openings` / `bind` / `epub` / `tools`)
         conversion/     stage 0: EPUB/PDF/TXT -> Markdown (docling; no OCR)
         core/           constants, errors, LLM settings
         documents/      reading, markdown/bodyline shapes, chapter discovery,

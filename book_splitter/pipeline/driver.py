@@ -20,7 +20,7 @@ import tempfile
 import threading
 import time
 import traceback
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -35,7 +35,6 @@ from book_splitter.conversion import (
 )
 from book_splitter.core.constants import (
     DEFAULT_GPU_INDEX,
-    DEFAULT_KEEP_ENTITY_TYPES,
     MATTER_TRANSLATOR_NAME,
 )
 from book_splitter.core.errors import ConfigError, MissingDependencyError, ToolError
@@ -77,9 +76,11 @@ from book_splitter.paths import (
 from book_splitter.preprocess.corpus import scan_corpus_damage
 
 from ..paths import repo_root
+from .console import RULE, Console
 from .options import StageRuntime
 from .paths import StagePaths
 from .phases import NEEDS_CHAPTERS, TITLES
+from .report import PhaseRecord, PhaseState
 from .sources import resolve_sources
 
 #: The phases, in the order they must run. ``convert`` is stage 0: it turns a
@@ -99,55 +100,6 @@ from .sources import resolve_sources
 
 ROOT = repo_root()
 
-# Stage 2 (preprocess) repairs the converter's artefacts before anything reads
-# the chapters, so it is on by default. ``--no-preprocess`` drops the phase;
-# ``--with-preprocess`` is still accepted so an older command line keeps working.
-PREPROCESS_ENABLED = True
-
-# Stage 3 (dictionary) needs an optional tagger. It stays selected, and reports
-# itself as skipped when the dependency is absent, so a split-only run still
-# finishes. ``--no-dictionary`` drops the phase entirely.
-DICTIONARY_ENABLED = True
-
-# The glossary is built by the ``dictionary`` phase, after the reduction: that is
-# the one step that calls a paid model once per chapter. ``--no-glossary`` keeps
-# the phase deterministic (reduction only), and ``--dry-run`` skips the glossary
-# half, because there is nothing to validate without asking the model.
-GLOSSARY_ENABLED = True
-
-# Stage 5 (chunking) is on by default and needs the optional ``chonkie`` package.
-# A missing dependency is reported as a skip, the way the dictionary stage reports
-# a missing tagger, so the earlier phases still finish. ``--no-chunk`` drops it.
-CHUNK_ENABLED = True
-
-# Stage 6 (chunk glossary) is on by default. It reuses stage 3's tagger and needs
-# stage 4's glossary.json, so a missing dependency or a missing glossary is
-# reported as a skip/actionable error rather than a traceback. ``--no-chunk-glossary``
-# drops it; ``--no-chunk`` drops it too, because there are no chunks to annotate.
-CHUNK_GLOSSARY_ENABLED = True
-
-# The matter stage is the localization of front/back matter by its own agent.
-# It is not dictionary-driven, so it runs after the chunk glossary (it needs the
-# chunk files) and before translation. It is selected with translation, by
-# ``--with-matter``, or by ``--start-at matter``; ``--no-matter`` drops it.
-MATTER_ENABLED = True
-
-# Stage 7 (translation) is the end product and the most expensive phase: one paid
-# model call per chunk (183 calls for the sample English novel). It is therefore
-# **opt-in**: a plain run stops after the chunk glossary, and ``--with-translate``
-# runs the book's translation. ``--no-translate`` is accepted so an explicit
-# command line keeps working, and ``--translate-limit N`` translates a prefix for
-# a cheap test of the whole path.
-TRANSLATE_ENABLED = False
-
-# Stage 9 (postprocess) is the new heading/TOC pass. It is **opt-in** in the
-# one-command pipeline, like translation: `--with-postprocess` runs it, and
-# `--start-at postprocess` runs it alone over an earlier translated book. The
-# standalone `postprocess` CLI command is always available.
-POSTPROCESS_ENABLED = False
-
-RULE = "─" * 72
-
 
 # --------------------------------------------------------------------------- #
 # formatting helpers
@@ -166,127 +118,6 @@ def has_chapters(path: Path) -> bool:
     return has_chapter_files(path)
 
 
-def _entity_types(value: str | None) -> tuple[str, ...]:
-    """``"PER, loc"`` -> ``("PER", "LOC")``; empty means the default four."""
-    if not value:
-        return DEFAULT_KEEP_ENTITY_TYPES
-    wanted = tuple(part.strip().upper() for part in str(value).split(",") if part.strip())
-    return wanted or DEFAULT_KEEP_ENTITY_TYPES
-
-
-# --------------------------------------------------------------------------- #
-# console: stdout + the run log
-# --------------------------------------------------------------------------- #
-class Console:
-    """Narrates the run to stdout **and** to the run's log file.
-
-    The log receives every line, debug included; the console only shows debug
-    lines with ``--debug``. Writes are locked, because stage 2 reports progress
-    from worker threads when ``--workers`` is greater than one.
-    """
-
-    def __init__(
-        self, log_path: Path | None, debug: bool = False, quiet: bool = False
-    ) -> None:
-        self.debug_enabled = debug
-        self.quiet = quiet
-        self.log_path = log_path
-        self._lock = threading.Lock()
-        self._log = None
-        self.bar_enabled = sys.stdout.isatty()
-        self._bar_drawn = False
-        self._bar_width = 0
-        if log_path is not None:
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            self._log = log_path.open("w", encoding="utf-8")
-
-    def emit(self, text: str = "", level: str = "info", force: bool = False) -> None:
-        with self._lock:
-            self._clear_bar_locked()
-            if self._log is not None:
-                self._log.write(text + "\n")
-                self._log.flush()
-            if self.quiet and level != "error" and not force:
-                return
-            if level == "debug" and not self.debug_enabled:
-                return
-            stream = sys.stderr if level == "error" else sys.stdout
-            print(text, file=stream, flush=True)
-
-    # -- the live bar ----------------------------------------------------- #
-    def bar(self, text: str) -> None:
-        """Redraw the one-line progress bar in place (terminal only).
-
-        The bar is deliberately *not* written to the log: it is redrawn several
-        times a second, and the log is a transcript of the run, not a recording
-        of a cursor. Anything that must survive the run goes through ``info``.
-        """
-        if not self.bar_enabled or self.quiet:
-            return
-        with self._lock:
-            padded = text + " " * max(0, self._bar_width - len(text))
-            print("\r" + padded, end="", file=sys.stdout, flush=True)
-            self._bar_width = max(self._bar_width, len(text))
-            self._bar_drawn = True
-
-    def stream_line(self, text: str) -> None:
-        """A transient progress line for a non-terminal stdout (piped / logged).
-
-        Same job as ``bar`` where a cursor cannot be moved: print the state, but
-        keep it out of the log — the log keeps the durable per-chapter lines.
-        """
-        if self.quiet:
-            return
-        with self._lock:
-            self._clear_bar_locked()
-            print(text, file=sys.stdout, flush=True)
-
-    def clear_bar(self) -> None:
-        with self._lock:
-            self._clear_bar_locked()
-
-    def _clear_bar_locked(self) -> None:
-        if self._bar_drawn:
-            print("\r" + " " * self._bar_width + "\r", end="", file=sys.stdout, flush=True)
-            self._bar_drawn = False
-
-    def info(self, text: str = "") -> None:
-        self.emit(text)
-
-    def debug(self, text: str = "") -> None:
-        self.emit(text, "debug")
-
-    def error(self, text: str = "") -> None:
-        self.emit(text, "error")
-
-    def json(self, payload: Any) -> None:
-        """Write the one machine-readable object, even in quiet mode."""
-        self.emit(json.dumps(payload, ensure_ascii=False, indent=2), force=True)
-
-    def log_only(self, text: str = "") -> None:
-        """Write to the log without touching the console (used for provenance)."""
-        with self._lock:
-            if self._log is not None:
-                self._log.write(text + "\n")
-                self._log.flush()
-
-    def kv(self, key: str, value: Any, indent: int = 2, level: str = "info") -> None:
-        self.emit(f"{' ' * indent}{key:<14}: {value}", level)
-
-    def phase(self, index: int, total: int, name: str, title: str) -> None:
-        self.emit("")
-        self.emit(RULE)
-        self.emit(f" [{index}/{total}] {name.upper()}")
-        self.emit(f"       {title}")
-        self.emit(RULE)
-
-    def close(self) -> None:
-        with self._lock:
-            if self._log is not None:
-                self._log.close()
-                self._log = None
-
-
 # --------------------------------------------------------------------------- #
 # pipeline
 # --------------------------------------------------------------------------- #
@@ -298,18 +129,6 @@ class PhaseFailed(RuntimeError):
         self.summary = summary
 
 
-@dataclass
-class PhaseRecord:
-    """What one phase did, for the closing summary and ``--json``."""
-
-    name: str
-    ok: bool = False
-    seconds: float = 0.0
-    summary: str = ""
-    error: str | None = None
-    payload: dict[str, Any] = field(default_factory=dict)
-
-
 class PipelineDriver:
     """Runs the selected phases in order and reports on each one."""
 
@@ -318,98 +137,8 @@ class PipelineDriver:
         self.args: Any = ns if ns is not None else getattr(options, "ns", None)
         assert self.args is not None
         args = self.args
-        # Stage 2 is on by default; ``--no-preprocess`` drops it for this run,
-        # and ``--with-preprocess`` is still accepted as the older spelling.
-        self.preprocess_enabled = bool(
-            (PREPROCESS_ENABLED or getattr(args, "with_preprocess", False))
-            and not getattr(args, "no_preprocess", False)
-        )
-        self.dictionary_enabled = bool(
-            DICTIONARY_ENABLED and not getattr(args, "no_dictionary", False)
-        )
-        # The glossary belongs to the dictionary phase; ``--with-glossary`` is
-        # still accepted so an older command line keeps working.
-        self.glossary_enabled = bool(
-            GLOSSARY_ENABLED
-            and not getattr(args, "no_glossary", False)
-            and self.dictionary_enabled
-        )
-        self.chunk_enabled = bool(CHUNK_ENABLED and not getattr(args, "no_chunk", False))
-        self.chunk_glossary_enabled = bool(
-            CHUNK_GLOSSARY_ENABLED
-            and not getattr(args, "no_chunk_glossary", False)
-            and self.chunk_enabled
-        )
-        # Stage 7 is opt-in and needs the chunks (and their glossary) to exist.
-        self.translate_enabled = bool(
-            (TRANSLATE_ENABLED or getattr(args, "with_translate", False))
-            and not getattr(args, "no_translate", False)
-            and self.chunk_enabled
-        )
-        self.translate_limit = (
-            getattr(args, "translate_limit", None)
-            if getattr(args, "translate_limit", None) is not None
-            else getattr(args, "limit", None)
-        )
-        # The matter stage is part of the translation product: --with-translate
-        # runs it first, and it can be run on its own with --with-matter or
-        # --start-at matter. --no-translate drops translation but an explicit
-        # matter run still stands.
-        wants_matter = bool(
-            MATTER_ENABLED
-            and (
-                self.translate_enabled
-                or getattr(args, "with_matter", False)
-                or self.args.start_at == "matter"
-            )
-        )
-        self.matter_enabled = bool(
-            wants_matter and not getattr(args, "no_matter", False) and self.chunk_enabled
-        )
-        # The chapter window. Splitting always runs over the whole book; every
-        # stage after it can be narrowed to the first N chapters. Stage 7 has its
-        # own override (``--translate-first-chapters``) because translation is the
-        # paid step and may be priced over a smaller prefix than the dictionary.
-        self.first_chapters = normalize_limit(getattr(args, "first_chapters", None))
-        self.translate_first_chapters = (
-            normalize_limit(getattr(args, "translate_first_chapters", None))
-            or self.first_chapters
-        )
-        self.chapter_limit: int | None = None
-        # Stage 8 is the tail of the translation output. It is selected when
-        # translation is selected, or when the user explicitly starts at it (so a
-        # previously translated book can be assembled without re-translating).
-        self.concat_enabled = bool(
-            not getattr(args, "no_concat", False)
-            and (self.translate_enabled or self.args.start_at == "concatenate")
-        )
-        # Stage 9 runs after the chapters are assembled. It is selected when
-        # translation/assembly is selected, or when the user starts at it (over an
-        # earlier translated book).
-        self.postprocess_enabled = bool(
-            not getattr(args, "no_postprocess", False)
-            and (
-                POSTPROCESS_ENABLED
-                or getattr(args, "with_postprocess", False)
-                or self.args.start_at == "postprocess"
-            )
-        )
-        # Stage 10 is the deterministic single-file concatenation of stage 9.
-        self.bind_enabled = bool(
-            not getattr(args, "no_bind", False)
-            and (
-                self.concat_enabled
-                or self.postprocess_enabled
-                or self.args.start_at == "bind"
-            )
-        )
-        # Stage 11 packages the same chapters as an EPUB: it follows the bind, and
-        # `--start-at epub` runs it alone over an existing chapter folder.
-        self.epub_enabled = bool(
-            not getattr(args, "no_epub", False)
-            and (self.bind_enabled or self.args.start_at == "epub")
-        )
-        # One source of truth for the switches: the shared PhaseSelection.
+        # One source of truth for the switches and the window: the shared
+        # PhaseSelection and StageOptions, not a second copy of the flag logic.
         self.preprocess_enabled = options.selection.preprocess
         self.dictionary_enabled = options.selection.dictionary
         self.glossary_enabled = options.selection.glossary
@@ -421,6 +150,17 @@ class PipelineDriver:
         self.postprocess_enabled = options.selection.postprocess
         self.bind_enabled = options.selection.bind
         self.epub_enabled = options.selection.epub
+        self.first_chapters = normalize_limit(options.stage.first_chapters)
+        self.translate_first_chapters = (
+            normalize_limit(options.stage.translate_first_chapters)
+            or self.first_chapters
+        )
+        self.translate_limit = (
+            options.stage.translate_limit
+            if options.stage.translate_limit is not None
+            else options.stage.limit
+        )
+        self.chapter_limit: int | None = None
         self.records: list[PhaseRecord] = []
         self.exit_code = 0
         self.started = time.monotonic()
@@ -440,7 +180,6 @@ class PipelineDriver:
 
         load_dotenv_files()  # so the banner's model label matches the real resolution
         args = self.args
-        load_dotenv_files()  # so the banner's model label matches the real resolution
         self.source = resolve_book_path(args.book, input_dir=args.in_dir)
         # Stage 0 converts a non-Markdown source before any phase reads its lines.
         # ``self.source`` is replaced by the converted Markdown once it has run;
@@ -2727,12 +2466,21 @@ class PipelineDriver:
 
     # -- closing report ---------------------------------------------------- #
     def _finish(self) -> int:
-        from book_splitter.core.constants import GLOSSARY_FILENAME
-
         console = self.console
         total = time.monotonic() - self.started
-        failed = [r for r in self.records if not r.ok]
-        aborted = bool(failed)
+        aborted = any(not record.ok for record in self.records)
+        self._print_finish_header(console, total, aborted)
+        self._print_phase_table(console)
+        self._print_artifacts(console)
+        state = self._phase_state()
+        self._print_next_steps(console, state, aborted)
+        if self.args.json:
+            console.json(self._summary_json(total))
+        if self.exit_code:
+            return self.exit_code
+        return 1 if aborted else 0
+
+    def _print_finish_header(self, console, total: float, aborted: bool) -> None:
         console.info("")
         console.info(RULE)
         console.info(
@@ -2740,6 +2488,8 @@ class PipelineDriver:
             f"{len(self.records)}/{len(self._selected_phases())} phase(s) run"
         )
         console.info(RULE)
+
+    def _print_phase_table(self, console) -> None:
         for record in self.records:
             console.info(
                 f"  {'✓' if record.ok else '✗'} {record.name:<11} "
@@ -2748,6 +2498,8 @@ class PipelineDriver:
             if record.error:
                 console.error(f"      {record.error}")
         console.info("")
+
+    def _print_artifacts(self, console) -> None:
         console.info("  artifacts")
         if self.convert_needed and not self.args.dry_run:
             console.info(f"    markdown      {rel(self.markdown_out)}/")
@@ -2772,216 +2524,212 @@ class PipelineDriver:
         for label, path in self._artifact_files():
             console.info(f"    {label:<16} {rel(path)}")
         console.info("")
-        cleaned = any(record.name == "preprocess" and record.ok for record in self.records)
-        chunked = any(
-            record.name == "chunk"
-            and record.ok
-            and not (record.payload or {}).get("missing_dependency")
-            and int((record.payload or {}).get("chunk_count") or 0) > 0
-            for record in self.records
-        )
-        chunk_missing = any(
-            record.name == "chunk" and bool((record.payload or {}).get("missing_dependency"))
-            for record in self.records
-        )
-        chunk_glossaried = any(
-            record.name == "chunk_glossary"
-            and record.ok
-            and not (record.payload or {}).get("missing_dependency")
-            and int((record.payload or {}).get("chunk_count") or 0) > 0
-            for record in self.records
-        )
-        translated = any(
-            record.name == "translate"
-            and record.ok
-            and int((record.payload or {}).get("chunk_count") or 0) > 0
-            for record in self.records
-        )
-        mattered = any(
-            record.name == "matter"
-            and record.ok
-            and int((record.payload or {}).get("chunk_count") or 0) > 0
-            for record in self.records
-        )
-        matter_plan = next(
-            (
-                (record.payload or {}).get("book_plan") or {}
+
+    def _phase_state(self) -> PhaseState:
+        """Derive the closing state from the phase records in one pass."""
+
+        def payloads(name: str, *, ok_only: bool = True) -> list[dict[str, Any]]:
+            return [
+                record.payload or {}
                 for record in self.records
-                if record.name == "matter" and record.ok
+                if record.name == name and (record.ok or not ok_only)
+            ]
+
+        chunk_payloads = payloads("chunk")
+        dictionary_payloads = payloads("dictionary")
+        matter_payloads = payloads("matter")
+        return PhaseState(
+            cleaned=any(
+                record.name == "preprocess" and record.ok for record in self.records
             ),
-            {},
+            chunked=any(
+                not payload.get("missing_dependency")
+                and int(payload.get("chunk_count") or 0) > 0
+                for payload in chunk_payloads
+            ),
+            chunk_missing=any(
+                bool(payload.get("missing_dependency"))
+                for payload in payloads("chunk", ok_only=False)
+            ),
+            chunk_glossaried=any(
+                not payload.get("missing_dependency")
+                and int(payload.get("chunk_count") or 0) > 0
+                for payload in payloads("chunk_glossary")
+            ),
+            translated=any(
+                int(payload.get("chunk_count") or 0) > 0
+                for payload in payloads("translate")
+            ),
+            mattered=any(
+                int(payload.get("chunk_count") or 0) > 0 for payload in matter_payloads
+            ),
+            matter_plan=next(
+                (
+                    payload.get("book_plan") or {}
+                    for payload in matter_payloads
+                    if isinstance(payload.get("book_plan"), dict)
+                ),
+                {},
+            ),
+            concatenated=any(
+                int(payload.get("ok_count") or 0) > 0
+                or int(payload.get("reused_count") or 0) > 0
+                for payload in payloads("concatenate")
+            ),
+            postprocessed=any(
+                int(payload.get("ok_count") or 0) > 0
+                for payload in payloads("postprocess")
+            ),
+            bound=any(
+                int(payload.get("chapter_count") or 0) > 0
+                for payload in payloads("bind")
+            ),
+            epubbed=any(
+                int(payload.get("document_count") or 0) > 0
+                for payload in payloads("epub")
+            ),
+            glossaried=any(
+                isinstance(payload.get("glossary"), dict)
+                and not (payload.get("glossary") or {}).get("dry_run")
+                for payload in dictionary_payloads
+            ),
+            reduced=any(
+                not payload.get("missing_dependency")
+                for payload in dictionary_payloads
+            ),
+            tagger_missing=any(
+                bool(payload.get("missing_dependency"))
+                for record in self.records
+                for payload in [record.payload or {}]
+            ),
         )
-        concatenated = any(
-            record.name == "concatenate"
-            and record.ok
-            and (
-                int((record.payload or {}).get("ok_count") or 0) > 0
-                or int((record.payload or {}).get("reused_count") or 0) > 0
-            )
-            for record in self.records
-        )
-        postprocessed = any(
-            record.name == "postprocess"
-            and record.ok
-            and int((record.payload or {}).get("ok_count") or 0) > 0
-            for record in self.records
-        )
-        bound = any(
-            record.name == "bind"
-            and record.ok
-            and int((record.payload or {}).get("chapter_count") or 0) > 0
-            for record in self.records
-        )
-        epubbed = any(
-            record.name == "epub"
-            and record.ok
-            and int((record.payload or {}).get("document_count") or 0) > 0
-            for record in self.records
-        )
-        glossaried = any(
-            record.name == "dictionary"
-            and record.ok
-            and isinstance((record.payload or {}).get("glossary"), dict)
-            and not (record.payload or {}).get("glossary", {}).get("dry_run")
-            for record in self.records
-        )
-        reduced = any(
-            record.name == "dictionary"
-            and record.ok
-            and not (record.payload or {}).get("missing_dependency")
-            for record in self.records
-        )
-        tagger_missing = any(
-            bool((record.payload or {}).get("missing_dependency")) for record in self.records
-        )
+
+    def _print_next_steps(self, console, state: PhaseState, aborted: bool) -> None:
+        from book_splitter.core.constants import GLOSSARY_FILENAME
+
         if aborted:
             console.info(
                 "  stopped — fix the error above and re-run; the phases before it are done"
             )
-        elif self.args.dry_run:
+            return
+        if self.args.dry_run:
             console.info("  dry run — every plan was validated, no chapter file was written")
-        else:
-            if epubbed:
+            return
+        if state.epubbed:
+            console.info(
+                f"  next: {rel(self.epub_out)} is the translated book — "
+                "open it in any EPUB reader"
+            )
+        elif state.bound:
+            console.info(
+                f"  next: {rel(self.translated_book_out)} is the whole translated book — "
+                "one Markdown file assembled from the postprocessed chapters"
+            )
+        elif state.postprocessed:
+            console.info(
+                f"  next: {rel(self.postprocess_out)}/ holds the postprocessed chapters — "
+                "run bind (or --start-at bind) to concatenate them into one book"
+            )
+        elif state.concatenated:
+            console.info(
+                f"  next: {rel(self.translated_chapters_out)}/ holds the translated "
+                "book, one file per chapter — the source chapters were not touched"
+            )
+            if self.translation_prompts_out.is_dir():
                 console.info(
-                    f"  next: {rel(self.epub_out)} is the translated book — "
-                    "open it in any EPUB reader"
+                    f"  debug: {rel(self.translation_prompts_out)}/ holds the whole "
+                    "prompt of every chunk (system, user, glossary and source text)"
                 )
-            elif bound:
+            if not self.postprocess_enabled:
                 console.info(
-                    f"  next: {rel(self.translated_book_out)} is the whole translated book — "
-                    "one Markdown file assembled from the postprocessed chapters"
+                    "  next: make the headings consistent with --with-postprocess "
+                    "(or --start-at postprocess)"
                 )
-            elif postprocessed:
-                console.info(
-                    f"  next: {rel(self.postprocess_out)}/ holds the postprocessed chapters — "
-                    "run bind (or --start-at bind) to concatenate them into one book"
-                )
-            elif concatenated:
-                console.info(
-                    f"  next: {rel(self.translated_chapters_out)}/ holds the translated "
-                    "book, one file per chapter — the source chapters were not touched"
-                )
-                if self.translation_prompts_out.is_dir():
-                    console.info(
-                        f"  debug: {rel(self.translation_prompts_out)}/ holds the whole "
-                        "prompt of every chunk (system, user, glossary and source text)"
-                    )
-                if not self.postprocess_enabled:
-                    console.info(
-                        "  next: make the headings consistent with --with-postprocess "
-                        "(or --start-at postprocess)"
-                    )
-            elif translated:
-                console.info(
-                    f"  next: {rel(self.translations_out)}/ holds the translated chunks — "
-                    f"run --start-at concatenate to rebuild the translated chapters"
-                )
-                console.info(
-                    f"  debug: {rel(self.translation_prompts_out)}/ holds the whole prompt "
-                    "of every chunk (system, user, glossary and source text)"
-                )
-            elif mattered:
-                console.info(
-                    f"  next: {rel(self.translations_out)}/ holds the localized front/back "
-                    "matter — run --with-translate (or --start-at translate) for the body"
-                )
-                console.info(
-                    f"  plan: {rel(self.matter_out)}/book-plan.json records the localized "
-                    f"title, the BleBel credit and the "
-                    f"{len(matter_plan.get('omit') or [])} omitted source phrase(s)"
-                )
-            elif chunk_glossaried:
-                console.info(
-                    f"  next: {rel(self.chunk_glossary_out)}/ holds one glossary file per chunk — "
-                    "send a chunk with its matched terms to keep the translation consistent"
-                )
-                if not self.translate_enabled:
-                    console.info(
-                        "  next: translate the book with --with-translate "
-                        "(one paid model call per chunk; --translate-limit N for a test)"
-                    )
-            elif chunked:
-                console.info(
-                    f"  next: {rel(self.chunks_out)}/ holds the translation-sized chunks — "
-                    "concatenate them in filename order (or per chapter) to rebuild the text"
-                )
-            elif cleaned:
-                console.info(f"  next: {rel(self.preprocessed_out)}/ holds the cleaned book")
-            elif glossaried:
-                console.info(
-                    f"  next: {rel(self.glossary_out / GLOSSARY_FILENAME)} is the dictionary "
-                    "the translation is bound to"
-                )
-            elif reduced:
-                console.info(
-                    f"  next: {rel(self.reduced_out)}/ holds the reduced chapters and "
-                    f"{rel(self.unique_out)}/ the first mentions — "
-                    "the LLM dictionary pass reads the first mentions"
-                )
-                if not self.glossary_enabled:
-                    console.info(
-                        "  next: build that dictionary with --start-at glossary --with-glossary "
-                        "(it calls the model once per chapter)"
-                    )
-            elif chunk_missing:
-                console.info(
-                    "  next: install stage 5's chunker (pip install chonkie), then re-run "
-                    "with --start-at chunk"
-                )
-            elif tagger_missing:
-                console.info(
-                    "  next: install stage 3's tagger (pip install -r "
-                    "requirements-dictionary.txt), then re-run with --start-at dictionary"
-                )
-            elif has_chapters(self.chapters_dir):
-                console.info(
-                    f"  next: reduce them with --start-at dictionary  →  "
-                    f"{rel(self.reduced_out)}/"
-                )
-            else:
-                console.info("  next: re-run without --stop-after to reach the later stages")
-            if tagger_missing and chunked:
-                # The chunks are usable, but the dictionary half never ran: keep the
-                # install command visible instead of hiding it behind the chunk hint.
-                console.info(
-                    "  note: install stage 3's tagger (pip install -r "
-                    "requirements-dictionary.txt) and re-run --start-at dictionary"
-                )
-            if not self.preprocess_enabled:
-                console.info(
-                    "  stage 2 (preprocess) is switched off — remove --no-preprocess to run it"
-                )
+        elif state.translated:
+            console.info(
+                f"  next: {rel(self.translations_out)}/ holds the translated chunks — "
+                f"run --start-at concatenate to rebuild the translated chapters"
+            )
+            console.info(
+                f"  debug: {rel(self.translation_prompts_out)}/ holds the whole prompt "
+                "of every chunk (system, user, glossary and source text)"
+            )
+        elif state.mattered:
+            console.info(
+                f"  next: {rel(self.translations_out)}/ holds the localized front/back "
+                "matter — run --with-translate (or --start-at translate) for the body"
+            )
+            console.info(
+                f"  plan: {rel(self.matter_out)}/book-plan.json records the localized "
+                f"title, the BleBel credit and the "
+                f"{len(state.matter_plan.get('omit') or [])} omitted source phrase(s)"
+            )
+        elif state.chunk_glossaried:
+            console.info(
+                f"  next: {rel(self.chunk_glossary_out)}/ holds one glossary file per chunk — "
+                "send a chunk with its matched terms to keep the translation consistent"
+            )
             if not self.translate_enabled:
                 console.info(
-                    "  stage 7 (translation) is switched off — --with-translate to translate "
-                    "the chunks (one paid model call per chunk)"
+                    "  next: translate the book with --with-translate "
+                    "(one paid model call per chunk; --translate-limit N for a test)"
                 )
-
-        if self.args.json:
-            console.json(self._summary_json(total))
-        if self.exit_code:
-            return self.exit_code
-        return 1 if aborted else 0
+        elif state.chunked:
+            console.info(
+                f"  next: {rel(self.chunks_out)}/ holds the translation-sized chunks — "
+                "concatenate them in filename order (or per chapter) to rebuild the text"
+            )
+        elif state.cleaned:
+            console.info(f"  next: {rel(self.preprocessed_out)}/ holds the cleaned book")
+        elif state.glossaried:
+            console.info(
+                f"  next: {rel(self.glossary_out / GLOSSARY_FILENAME)} is the dictionary "
+                "the translation is bound to"
+            )
+        elif state.reduced:
+            console.info(
+                f"  next: {rel(self.reduced_out)}/ holds the reduced chapters and "
+                f"{rel(self.unique_out)}/ the first mentions — "
+                "the LLM dictionary pass reads the first mentions"
+            )
+            if not self.glossary_enabled:
+                console.info(
+                    "  next: build that dictionary with --start-at glossary --with-glossary "
+                    "(it calls the model once per chapter)"
+                )
+        elif state.chunk_missing:
+            console.info(
+                "  next: install stage 5's chunker (pip install chonkie), then re-run "
+                "with --start-at chunk"
+            )
+        elif state.tagger_missing:
+            console.info(
+                "  next: install stage 3's tagger (pip install -r "
+                "requirements-dictionary.txt), then re-run with --start-at dictionary"
+            )
+        elif has_chapters(self.chapters_dir):
+            console.info(
+                f"  next: reduce them with --start-at dictionary  →  "
+                f"{rel(self.reduced_out)}/"
+            )
+        else:
+            console.info("  next: re-run without --stop-after to reach the later stages")
+        if state.tagger_missing and state.chunked:
+            # The chunks are usable, but the dictionary half never ran: keep the
+            # install command visible instead of hiding it behind the chunk hint.
+            console.info(
+                "  note: install stage 3's tagger (pip install -r "
+                "requirements-dictionary.txt) and re-run --start-at dictionary"
+            )
+        if not self.preprocess_enabled:
+            console.info(
+                "  stage 2 (preprocess) is switched off — remove --no-preprocess to run it"
+            )
+        if not self.translate_enabled:
+            console.info(
+                "  stage 7 (translation) is switched off — --with-translate to translate "
+                "the chunks (one paid model call per chunk)"
+            )
 
     def _artifact_files(self) -> list[tuple[str, str | Path]]:
         """Manifest/trace files written by whichever phases ran, for the report."""

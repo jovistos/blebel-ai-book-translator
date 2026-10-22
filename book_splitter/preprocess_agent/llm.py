@@ -10,9 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import SecretStr
-
 from ..agent.llm import bind_tools
+from ..core.llm import build_chat_model
 from ..core.settings import LLMSettings
 from ..toolkit.preprocess import PREPROCESS_TOOLS
 
@@ -22,18 +21,7 @@ TOOLS = PREPROCESS_TOOLS
 
 def make_preprocess_llm(settings: LLMSettings) -> Any:
     """A chat model with the preprocessing toolset bound to it."""
-    from langchain_openai import ChatOpenAI
-
-    llm = ChatOpenAI(
-        model=settings.model,
-        base_url=settings.base_url,
-        # ChatOpenAI requires SecretStr; keep a missing key as None (as before).
-        api_key=SecretStr(settings.api_key) if settings.api_key else None,
-        temperature=settings.temperature,
-        timeout=settings.timeout,
-        max_retries=settings.max_retries,
-    )
-    return bind_tools(llm, TOOLS)
+    return bind_tools(build_chat_model(settings), TOOLS)
 
 
 __all__ = ["TOOLS", "make_preprocess_llm"]

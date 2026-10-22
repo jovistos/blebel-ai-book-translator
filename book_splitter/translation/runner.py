@@ -176,7 +176,6 @@ def run_translation(
         resume=resume,
         write_manifest=write_manifest,
         write_prompts=write_prompts,
-        progress=progress,
         chunk_start=chunk_start,
         clock=clock,
         context=context,

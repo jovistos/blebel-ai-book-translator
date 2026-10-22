@@ -316,13 +316,6 @@ def _next_nonblank(lines: list[str], start: int) -> int | None:
     return None
 
 
-def _previous_nonblank(lines: list[str], start: int) -> int | None:
-    for index in range(start, -1, -1):
-        if lines[index].strip():
-            return index
-    return None
-
-
 def _number_heading_is_title(
     lines: list[str],
     index: int,

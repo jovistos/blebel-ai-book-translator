@@ -137,13 +137,17 @@ def describe_first_line(lines: list[str], start: int, end: int) -> str:
     return next((excerpt(line, 80) for line in lines[start - 1 : end + 3] if line.strip()), "")
 
 
-def gap_warnings(points: list[dict[str, Any]], max_gap_lines: int = MAX_GAP_LINES) -> list[str]:
+def gap_warnings(
+    points: list[dict[str, Any]],
+    max_gap_lines: int = MAX_GAP_LINES,
+    min_gap_lines: int = MIN_GAP_LINES,
+) -> list[str]:
     """Plausibility warnings about the distance between consecutive split points."""
     warnings: list[str] = []
     ordered = sorted(points, key=lambda p: p["line_number"])
     for prev, cur in pairwise(ordered):
         gap = cur["line_number"] - prev["line_number"]
-        if gap < MIN_GAP_LINES:
+        if gap < min_gap_lines:
             warnings.append(
                 f"{prev['filename']} -> {cur['filename']} are only {gap} line(s) apart; "
                 "one of them may be a duplicate/noise split"
