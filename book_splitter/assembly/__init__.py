@@ -41,9 +41,13 @@ from .runner import (
     write_assembly_trace,
 )
 
+run_concatenate = run_assembly
+ConcatenateResult = AssemblyResult
+
 __all__ = [
     "AssemblyResult",
     "Clock",
+    "ConcatenateResult",
     "ProgressHook",
     "TranslatedChapter",
     "load_assembly_manifest",
@@ -51,6 +55,7 @@ __all__ = [
     "resolve_output_dir",
     "resolve_translations_dir",
     "run_assembly",
+    "run_concatenate",
     "write_assembly_manifest",
     "write_assembly_trace",
 ]

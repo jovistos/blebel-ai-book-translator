@@ -16,6 +16,10 @@ The package is deliberately layered, and each layer is usable on its own:
     the content proof that only declared lines changed
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 from .apply import ApplyResult, LineEdit, apply_cleaning_plan, text_of
 from .corpus import (
     DAMAGE_PATTERNS,
@@ -67,6 +71,7 @@ from .verify import verify_cleaning_plan, verify_text_fixes
 
 __all__ = [
     "ApplyResult",
+    "ChapterResult",
     "DAMAGE_KINDS",
     "DAMAGE_PATTERNS",
     "DECISIONS",
@@ -81,6 +86,8 @@ __all__ = [
     "MERGE_DEMOTE",
     "MERGE_WITH_NEXT",
     "PAGE_NUMBER_IN_WORD",
+    "PreprocessResult",
+    "PreprocessState",
     "PROMOTE",
     "REMOVE",
     "SAMPLE_HEADERS",
@@ -89,6 +96,7 @@ __all__ = [
     "SPACE_BEFORE_PUNCTUATION",
     "SPLIT_WORD",
     "apply_cleaning_plan",
+    "build_preprocess_graph",
     "chapter_digest",
     "chapter_header_lines",
     "classify_header",
@@ -102,6 +110,7 @@ __all__ = [
     "repair_page_number_in_word",
     "repair_space_before_punctuation",
     "repair_split_word",
+    "run_preprocess",
     "sample_text",
     "scan_chapter_damage",
     "scan_corpus_damage",
@@ -111,3 +120,19 @@ __all__ = [
     "verify_cleaning_plan",
     "verify_text_fixes",
 ]
+
+_AGENT_EXPORTS = {
+    "ChapterResult",
+    "PreprocessResult",
+    "PreprocessState",
+    "build_preprocess_graph",
+    "run_preprocess",
+}
+
+
+def __getattr__(name: str) -> Any:
+    if name in _AGENT_EXPORTS:
+        from .. import preprocess_agent
+        return getattr(preprocess_agent, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+

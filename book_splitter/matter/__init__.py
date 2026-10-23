@@ -21,6 +21,10 @@ This package answers the questions the localization agent must not guess:
 The agent itself lives in :mod:`book_splitter.matter_agent`.
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 from .inspect import (
     MatterBook,
     MatterSection,
@@ -42,9 +46,13 @@ from .synthesize import MatterSynthesis, ensure_matter_sections
 __all__ = [
     "BookMetadata",
     "MatterBook",
+    "MatterChunkResult",
+    "MatterResult",
     "MatterSection",
     "MatterSynthesis",
     "body_chapter_titles",
+    "build_matter_chunk_graph",
+    "build_matter_graph",
     "clean_markdown",
     "discover_matter_sections",
     "ensure_matter_sections",
@@ -53,6 +61,23 @@ __all__ = [
     "parse_book_metadata",
     "preserve_trailing_newlines",
     "read_section_text",
+    "run_matter",
     "validate_matter_plan",
     "validate_matter_translation",
 ]
+
+_AGENT_EXPORTS = {
+    "MatterChunkResult",
+    "MatterResult",
+    "build_matter_chunk_graph",
+    "build_matter_graph",
+    "run_matter",
+}
+
+
+def __getattr__(name: str) -> Any:
+    if name in _AGENT_EXPORTS:
+        from .. import matter_agent
+        return getattr(matter_agent, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+

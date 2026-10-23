@@ -24,7 +24,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 from ..core.constants import (
     DEFAULT_CHUNK_GLOSSARY_CANDIDATES,
@@ -488,6 +488,269 @@ class StageOptions:
             return self.matter_limit if self.matter_limit is not None else None
         return self.limit
 
+    # -- the call builders ------------------------------------------------- #
+    def _call_convert(self, runtime: StageRuntime, write_manifest: bool, write_prompts: bool, chapter_limit: int | None):
+        paths = runtime.paths
+        positional = (
+            self._original_source(runtime),
+            runtime.conversion_target or paths.markdown_dir,
+        )
+        kwargs = {
+            "dry_run": False if runtime.conversion_live else self.dry_run,
+            "force": self.force_convert,
+            "images": self.images,
+        }
+        return positional, kwargs
+
+    def _call_split(self, runtime: StageRuntime, write_manifest: bool, write_prompts: bool, chapter_limit: int | None):
+        paths = runtime.paths
+        positional = (self._source(runtime), paths.chapters_dir)
+        kwargs = {
+            "settings": runtime.settings,
+            "front_matter_lines": self.front_matter_lines,
+            "max_attempts": self.max_attempts,
+            "min_chapters": self.min_chapters,
+            "include_front_matter": self.split_include_front_matter,
+            "dry_run": self.dry_run,
+            "recursion_limit": self.recursion_limit,
+            "skip_if_present": self.skip_if_present,
+        }
+        return positional, kwargs
+
+    def _call_dictionary(self, runtime: StageRuntime, write_manifest: bool, write_prompts: bool, chapter_limit: int | None):
+        paths, sources = runtime.paths, runtime.sources
+        positional = (sources.text, paths.reduced_dir)
+        kwargs = {
+            "unique_output_dir": str(paths.unique_dir),
+            "language": self.language,
+            "gpu": self.gpu,
+            "use_gpu": self.use_gpu,
+            "min_words": self.min_words,
+            "require_uppercase": self.require_uppercase,
+            "keep_types": self.keep_types,
+            "drop_temporal_only": self.drop_temporal_only,
+            "skip_if_present": self.skip_if_present,
+            "save_reduced": self.save_reduced,
+            "save_unique": self.save_unique,
+            "dry_run": self.dry_run,
+            "limit": chapter_limit,
+            "example_limit": self.example_limit,
+            "unique_example_limit": self.unique_example_limit,
+            "write_manifest": write_manifest,
+            "progress": runtime.progress,
+        }
+        return positional, kwargs
+
+    def _call_glossary(self, runtime: StageRuntime, write_manifest: bool, write_prompts: bool, chapter_limit: int | None):
+        paths, sources = runtime.paths, runtime.sources
+        positional = (sources.text, paths.glossary_dir)
+        kwargs = {
+            "sentences_dir": runtime.sentences_dir or self.sentences_dir,
+            "sentences": self.sentences,
+            "source_language": self.source_language,
+            "target_language": self.target_language,
+            "book_title": self.book_title,
+            "settings": runtime.settings,
+            "settings_factory": runtime.settings_factory,
+            "max_attempts": self.max_attempts,
+            "method": self.glossary_method,
+            "max_tokens": self.glossary_max_tokens,
+            "chunk_chars": self.glossary_chunk_chars,
+            "max_context_entries": self.max_context_entries,
+            "include_front_matter": self.glossary_include_front_matter,
+            "include_back_matter": self.glossary_include_back_matter,
+            "skip_if_present": self.skip_if_present,
+            "save": True,
+            "dry_run": self.dry_run,
+            "limit": chapter_limit,
+            "progress": runtime.progress,
+            "chapter_start": runtime.chapter_start,
+            "clock": runtime.clock,
+        }
+        return positional, kwargs
+
+    def _call_preprocess(self, runtime: StageRuntime, write_manifest: bool, write_prompts: bool, chapter_limit: int | None):
+        paths = runtime.paths
+        positional = (paths.chapters_dir, paths.preprocessed_dir)
+        kwargs = {
+            "settings": runtime.settings,
+            "max_attempts": self.max_attempts,
+            "dry_run": self.dry_run,
+            "recursion_limit": self.recursion_limit,
+            "workers": self.workers,
+            "limit": chapter_limit,
+            "skip_if_present": self.skip_if_present,
+            "write_manifest": write_manifest,
+            "progress": runtime.progress,
+        }
+        return positional, kwargs
+
+    def _call_chunk(self, runtime: StageRuntime, write_manifest: bool, write_prompts: bool, chapter_limit: int | None):
+        paths, sources = runtime.paths, runtime.sources
+        positional = (sources.chunk_input, paths.chunks_dir)
+        kwargs = {
+            "chunk_size": self.chunk_size,
+            "tokenizer": self.chunk_tokenizer,
+            "skip_if_present": self.skip_if_present,
+            "dry_run": self.dry_run,
+            "limit": chapter_limit,
+            "write_manifest": write_manifest,
+            "progress": runtime.progress,
+            "clock": runtime.clock,
+        }
+        return positional, kwargs
+
+    def _call_chunk_glossary(self, runtime: StageRuntime, write_manifest: bool, write_prompts: bool, chapter_limit: int | None):
+        paths, sources = runtime.paths, runtime.sources
+        positional = (sources.chunks, paths.chunk_glossary_dir)
+        kwargs = {
+            "glossary_path": str(sources.glossary),
+            "language": self.language,
+            "gpu": self.gpu,
+            "use_gpu": self.use_gpu,
+            "keep_types": self.keep_types,
+            "min_term_chars": self.min_term_chars,
+            "drop_temporal_only": self.drop_temporal_only,
+            "threshold": self.threshold,
+            "scorer": self.scorer,
+            "candidates": self.candidates,
+            "dry_run": self.dry_run,
+            "limit": self.limit,
+            "chapter_files": runtime.chapter_files,
+            "skip_if_present": self.skip_if_present,
+            "write_manifest": write_manifest,
+            "progress": runtime.progress,
+        }
+        return positional, kwargs
+
+    def _call_matter(self, runtime: StageRuntime, write_manifest: bool, write_prompts: bool, chapter_limit: int | None):
+        paths, sources = runtime.paths, runtime.sources
+        positional = (sources.chapters, sources.chunks, paths.translations_dir)
+        kwargs = {
+            "prompts_dir": None if self.no_prompts else str(paths.matter_prompts_dir),
+            "matter_path": str(paths.matter_dir),
+            "source_language": self.source_language,
+            "target_language": self.target_language,
+            "book_title": self.book_title,
+            "settings": runtime.settings,
+            "settings_factory": runtime.settings_factory,
+            "max_attempts": self.max_attempts,
+            "recursion_limit": self.recursion_limit,
+            "dry_run": self.dry_run,
+            "save": True,
+            "resume": self.resume,
+            "limit": self.matter_limit_for(),
+            "chapter_files": runtime.chapter_files,
+            "write_manifest": write_manifest,
+            "write_prompts": write_prompts,
+            "progress": runtime.progress,
+            "clock": runtime.clock,
+        }
+        return positional, kwargs
+
+    def _call_translate(self, runtime: StageRuntime, write_manifest: bool, write_prompts: bool, chapter_limit: int | None):
+        paths, sources = runtime.paths, runtime.sources
+        positional = (sources.chunks, paths.translations_dir)
+        kwargs = {
+            "prompts_dir": None if self.no_prompts else str(paths.translation_prompts_dir),
+            "chunk_glossary_path": str(sources.chunk_glossary),
+            "glossary_path": str(sources.glossary),
+            "glossary_scope": self.glossary_scope,
+            "source_language": self.source_language,
+            "target_language": self.target_language,
+            "book_title": self.book_title,
+            "settings": runtime.settings,
+            "settings_factory": runtime.settings_factory,
+            "model_identity": runtime.model_identity,
+            "max_attempts": self.translation_attempts,
+            "method": self.translation_method,
+            "max_tokens": self.translation_max_tokens,
+            "context_chars": self.translation_context_chars,
+            "save": True,
+            "dry_run": self.dry_run,
+            "limit": self.translation_limit(),
+            "chapter_files": runtime.chapter_files,
+            "include_matter": self.include_matter,
+            "resume": self.resume,
+            "write_manifest": write_manifest,
+            "write_prompts": write_prompts,
+            "progress": runtime.progress,
+            "chunk_start": runtime.chunk_start,
+            "clock": runtime.clock,
+        }
+        return positional, kwargs
+
+    def _call_concatenate(self, runtime: StageRuntime, write_manifest: bool, write_prompts: bool, chapter_limit: int | None):
+        paths, sources = runtime.paths, runtime.sources
+        positional = (
+            sources.chunks,
+            sources.translations,
+            paths.translated_chapters_dir,
+        )
+        kwargs = {
+            "first_chapters": self.assembly_first_chapters(),
+            "skip_if_present": self.skip_if_present,
+            "dry_run": self.dry_run,
+            "write_manifest": write_manifest,
+            "progress": runtime.progress,
+            "clock": runtime.clock,
+        }
+        return positional, kwargs
+
+    def _call_postprocess(self, runtime: StageRuntime, write_manifest: bool, write_prompts: bool, chapter_limit: int | None):
+        paths, sources = runtime.paths, runtime.sources
+        positional = (sources.translated_chapters, paths.postprocess_dir)
+        kwargs = {
+            "settings": runtime.settings,
+            "max_attempts": self.max_attempts,
+            "dry_run": self.dry_run,
+            "recursion_limit": self.recursion_limit,
+            "limit": self.postprocess_limit(),
+            "skip_if_present": self.skip_if_present,
+            "write_manifest": write_manifest,
+            "require_web_search": self.require_web_search,
+            "progress": runtime.progress,
+        }
+        return positional, kwargs
+
+    def _call_bind(self, runtime: StageRuntime, write_manifest: bool, write_prompts: bool, chapter_limit: int | None):
+        paths, sources = runtime.paths, runtime.sources
+        positional = (sources.postprocess, paths.translated_book_path)
+        kwargs = {"dry_run": self.dry_run, "write_manifest": write_manifest}
+        return positional, kwargs
+
+    def _call_epub(self, runtime: StageRuntime, write_manifest: bool, write_prompts: bool, chapter_limit: int | None):
+        paths, sources = runtime.paths, runtime.sources
+        positional = (sources.postprocess, paths.epub_path)
+        kwargs = {
+            "title": self.epub_title,
+            "author": self.epub_author,
+            "language": self.epub_language,
+            "identifier": self.epub_identifier,
+            "description": self.epub_description,
+            "publisher": self.epub_publisher,
+            "cover": self.epub_cover,
+            "dry_run": self.dry_run,
+            "write_manifest": write_manifest,
+        }
+        return positional, kwargs
+
+    _BUILDERS: ClassVar[dict[str, Any]] = {
+        "convert": _call_convert,
+        "split": _call_split,
+        "dictionary": _call_dictionary,
+        "glossary": _call_glossary,
+        "preprocess": _call_preprocess,
+        "chunk": _call_chunk,
+        "chunk_glossary": _call_chunk_glossary,
+        "matter": _call_matter,
+        "translate": _call_translate,
+        "concatenate": _call_concatenate,
+        "postprocess": _call_postprocess,
+        "bind": _call_bind,
+        "epub": _call_epub,
+    }
+
     # -- the call ---------------------------------------------------------- #
     def call(
         self,
@@ -496,15 +759,8 @@ class StageOptions:
         *,
         mapping: Sequence[Mapping[str, Any]] | None = None,
     ) -> StageCall:
-        """Build the exact positional arguments and kwargs for one runner.
-
-        ``mapping`` is the already-loaded ``--map`` payload for the splitter; the
-        phase handler owns that I/O and passes the parsed list in.
-        """
+        """Build the exact positional arguments and kwargs for one runner."""
         paths = runtime.paths
-        sources = runtime.sources
-        positional: tuple[Any, ...]
-        kwargs: dict[str, Any]
         if stage == "split_map":
             if mapping is None:
                 raise ToolError("split_map needs the parsed --map payload")
@@ -522,221 +778,18 @@ class StageOptions:
             }
             return StageCall("split_map", runner, positional, kwargs)
 
+        builder = self._BUILDERS.get(stage)
+        if builder is None:
+            raise ToolError(f"no runner call is defined for stage {stage!r}")
+
         runner = resolve_runner(stage)
         write_manifest = not self.no_manifest and not self.dry_run
         write_prompts = not self.no_prompts and not self.dry_run
         chapter_limit = self.chapter_limit(runtime)
 
-        if stage == "convert":
-            positional = (
-                self._original_source(runtime),
-                runtime.conversion_target or paths.markdown_dir,
-            )
-            kwargs = {
-                "dry_run": False if runtime.conversion_live else self.dry_run,
-                "force": self.force_convert,
-                "images": self.images,
-            }
-        elif stage == "split":
-            positional = (self._source(runtime), paths.chapters_dir)
-            kwargs = {
-                "settings": runtime.settings,
-                "front_matter_lines": self.front_matter_lines,
-                "max_attempts": self.max_attempts,
-                "min_chapters": self.min_chapters,
-                "include_front_matter": self.split_include_front_matter,
-                "dry_run": self.dry_run,
-                "recursion_limit": self.recursion_limit,
-                "skip_if_present": self.skip_if_present,
-            }
-        elif stage == "dictionary":
-            positional = (sources.text, paths.reduced_dir)
-            kwargs = {
-                "unique_output_dir": str(paths.unique_dir),
-                "language": self.language,
-                "gpu": self.gpu,
-                "use_gpu": self.use_gpu,
-                "min_words": self.min_words,
-                "require_uppercase": self.require_uppercase,
-                "keep_types": self.keep_types,
-                "drop_temporal_only": self.drop_temporal_only,
-                "skip_if_present": self.skip_if_present,
-                "save_reduced": self.save_reduced,
-                "save_unique": self.save_unique,
-                "dry_run": self.dry_run,
-                "limit": chapter_limit,
-                "example_limit": self.example_limit,
-                "unique_example_limit": self.unique_example_limit,
-                "write_manifest": write_manifest,
-                "progress": runtime.progress,
-            }
-        elif stage == "glossary":
-            positional = (sources.text, paths.glossary_dir)
-            kwargs = {
-                "sentences_dir": runtime.sentences_dir or self.sentences_dir,
-                "sentences": self.sentences,
-                "source_language": self.source_language,
-                "target_language": self.target_language,
-                "book_title": self.book_title,
-                "settings": runtime.settings,
-                "settings_factory": runtime.settings_factory,
-                "max_attempts": self.max_attempts,
-                "method": self.glossary_method,
-                "max_tokens": self.glossary_max_tokens,
-                "chunk_chars": self.glossary_chunk_chars,
-                "max_context_entries": self.max_context_entries,
-                "include_front_matter": self.glossary_include_front_matter,
-                "include_back_matter": self.glossary_include_back_matter,
-                "skip_if_present": self.skip_if_present,
-                "save": True,
-                "dry_run": self.dry_run,
-                "limit": chapter_limit,
-                "progress": runtime.progress,
-                "chapter_start": runtime.chapter_start,
-                "clock": runtime.clock,
-            }
-        elif stage == "preprocess":
-            positional = (paths.chapters_dir, paths.preprocessed_dir)
-            kwargs = {
-                "settings": runtime.settings,
-                "max_attempts": self.max_attempts,
-                "dry_run": self.dry_run,
-                "recursion_limit": self.recursion_limit,
-                "workers": self.workers,
-                "limit": chapter_limit,
-                "skip_if_present": self.skip_if_present,
-                "write_manifest": write_manifest,
-                "progress": runtime.progress,
-            }
-        elif stage == "chunk":
-            positional = (sources.chunk_input, paths.chunks_dir)
-            kwargs = {
-                "chunk_size": self.chunk_size,
-                "tokenizer": self.chunk_tokenizer,
-                "skip_if_present": self.skip_if_present,
-                "dry_run": self.dry_run,
-                "limit": chapter_limit,
-                "write_manifest": write_manifest,
-                "progress": runtime.progress,
-                "clock": runtime.clock,
-            }
-        elif stage == "chunk_glossary":
-            positional = (sources.chunks, paths.chunk_glossary_dir)
-            kwargs = {
-                "glossary_path": str(sources.glossary),
-                "language": self.language,
-                "gpu": self.gpu,
-                "use_gpu": self.use_gpu,
-                "keep_types": self.keep_types,
-                "min_term_chars": self.min_term_chars,
-                "drop_temporal_only": self.drop_temporal_only,
-                "threshold": self.threshold,
-                "scorer": self.scorer,
-                "candidates": self.candidates,
-                "dry_run": self.dry_run,
-                "limit": self.limit,
-                "chapter_files": runtime.chapter_files,
-                "skip_if_present": self.skip_if_present,
-                "write_manifest": write_manifest,
-                "progress": runtime.progress,
-            }
-        elif stage == "matter":
-            positional = (sources.chapters, sources.chunks, paths.translations_dir)
-            kwargs = {
-                "prompts_dir": None if self.no_prompts else str(paths.matter_prompts_dir),
-                "matter_path": str(paths.matter_dir),
-                "source_language": self.source_language,
-                "target_language": self.target_language,
-                "book_title": self.book_title,
-                "settings": runtime.settings,
-                "settings_factory": runtime.settings_factory,
-                "max_attempts": self.max_attempts,
-                "recursion_limit": self.recursion_limit,
-                "dry_run": self.dry_run,
-                "save": True,
-                "resume": self.resume,
-                "limit": self.matter_limit_for(),
-                "chapter_files": runtime.chapter_files,
-                "write_manifest": write_manifest,
-                "write_prompts": write_prompts,
-                "progress": runtime.progress,
-                "clock": runtime.clock,
-            }
-        elif stage == "translate":
-            positional = (sources.chunks, paths.translations_dir)
-            kwargs = {
-                "prompts_dir": None if self.no_prompts else str(paths.translation_prompts_dir),
-                "chunk_glossary_path": str(sources.chunk_glossary),
-                "glossary_path": str(sources.glossary),
-                "glossary_scope": self.glossary_scope,
-                "source_language": self.source_language,
-                "target_language": self.target_language,
-                "book_title": self.book_title,
-                "settings": runtime.settings,
-                "settings_factory": runtime.settings_factory,
-                "model_identity": runtime.model_identity,
-                "max_attempts": self.translation_attempts,
-                "method": self.translation_method,
-                "max_tokens": self.translation_max_tokens,
-                "context_chars": self.translation_context_chars,
-                "save": True,
-                "dry_run": self.dry_run,
-                "limit": self.translation_limit(),
-                "chapter_files": runtime.chapter_files,
-                "include_matter": self.include_matter,
-                "resume": self.resume,
-                "write_manifest": write_manifest,
-                "write_prompts": write_prompts,
-                "progress": runtime.progress,
-                "chunk_start": runtime.chunk_start,
-                "clock": runtime.clock,
-            }
-        elif stage == "concatenate":
-            positional = (
-                sources.chunks,
-                sources.translations,
-                paths.translated_chapters_dir,
-            )
-            kwargs = {
-                "first_chapters": self.assembly_first_chapters(),
-                "skip_if_present": self.skip_if_present,
-                "dry_run": self.dry_run,
-                "write_manifest": write_manifest,
-                "progress": runtime.progress,
-                "clock": runtime.clock,
-            }
-        elif stage == "postprocess":
-            positional = (sources.translated_chapters, paths.postprocess_dir)
-            kwargs = {
-                "settings": runtime.settings,
-                "max_attempts": self.max_attempts,
-                "dry_run": self.dry_run,
-                "recursion_limit": self.recursion_limit,
-                "limit": self.postprocess_limit(),
-                "skip_if_present": self.skip_if_present,
-                "write_manifest": write_manifest,
-                "require_web_search": self.require_web_search,
-                "progress": runtime.progress,
-            }
-        elif stage == "bind":
-            positional = (sources.postprocess, paths.translated_book_path)
-            kwargs = {"dry_run": self.dry_run, "write_manifest": write_manifest}
-        elif stage == "epub":
-            positional = (sources.postprocess, paths.epub_path)
-            kwargs = {
-                "title": self.epub_title,
-                "author": self.epub_author,
-                "language": self.epub_language,
-                "identifier": self.epub_identifier,
-                "description": self.epub_description,
-                "publisher": self.epub_publisher,
-                "cover": self.epub_cover,
-                "dry_run": self.dry_run,
-                "write_manifest": write_manifest,
-            }
-        else:  # pragma: no cover - programming error
-            raise ToolError(f"no runner call is defined for stage {stage!r}")
+        positional, kwargs = builder(self, runtime, write_manifest, write_prompts, chapter_limit)
         return StageCall(stage, runner, positional, kwargs)
+
 
     def _source(self, runtime: StageRuntime) -> Path:
         source = runtime.source or runtime.paths.source or runtime.paths.book

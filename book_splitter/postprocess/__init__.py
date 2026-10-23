@@ -32,6 +32,10 @@ The validator rules live in :mod:`book_splitter.postprocess.rules`, one module
 per rule group; ``plan.py`` only orchestrates them and keeps the public names.
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 from .inspect import (
     ChapterStructure,
     chapter_files,
@@ -58,9 +62,13 @@ from .toc import (
 )
 
 __all__ = [
+    "ChapterPostprocessResult",
     "ChapterStructure",
+    "PostprocessResult",
     "apply_chapter_plan",
     "apply_toc",
+    "build_chapter_postprocess_graph",
+    "build_postprocess_graph",
     "build_toc_entries",
     "canonical_titles",
     "chapter_files",
@@ -70,6 +78,7 @@ __all__ = [
     "inspect_matter_blocks",
     "is_toc_filename",
     "render_toc",
+    "run_postprocess",
     "scan_book_structure",
     "scan_chapter_structure",
     "validate_book_plan",
@@ -77,3 +86,19 @@ __all__ = [
     "verify_chapter_plan",
     "verify_toc",
 ]
+
+_AGENT_EXPORTS = {
+    "ChapterPostprocessResult",
+    "PostprocessResult",
+    "build_chapter_postprocess_graph",
+    "build_postprocess_graph",
+    "run_postprocess",
+}
+
+
+def __getattr__(name: str) -> Any:
+    if name in _AGENT_EXPORTS:
+        from .. import postprocess_agent
+        return getattr(postprocess_agent, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
