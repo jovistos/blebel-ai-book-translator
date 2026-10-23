@@ -22,23 +22,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from book_splitter.core.constants import (  # noqa: E402
+from book_translator.core.constants import (  # noqa: E402
     CHAPTERS_DIRNAME,
     PREPROCESS_TRACE_FILENAME,
 )
-from book_splitter.documents.chapters import (  # noqa: E402
+from book_translator.documents.chapters import (  # noqa: E402
     discover_chapters,
     preprocessed_dir,
 )
-from book_splitter.preprocess.apply import (  # noqa: E402
+from book_translator.preprocess.apply import (  # noqa: E402
     apply_cleaning_plan,
     text_of,
 )
-from book_splitter.preprocess.plan import (  # noqa: E402
+from book_translator.preprocess.plan import (  # noqa: E402
     validate_cleaning_plan,
     validate_text_fixes,
 )
-from book_splitter.preprocess.verify import verify_cleaning_plan  # noqa: E402
+from book_translator.preprocess.verify import verify_cleaning_plan  # noqa: E402
 
 
 def main() -> int:

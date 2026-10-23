@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from book_splitter.core.store import ArtifactStore
+from book_translator.core.store import ArtifactStore
 
 
 @dataclass
@@ -70,7 +70,7 @@ def test_a_snapshot_never_raises_on_a_write_error(tmp_path: Path, monkeypatch):
     def explode(*_args, **_kwargs):
         raise OSError("disk full")
 
-    monkeypatch.setattr("book_splitter.core.store.write_manifest", explode)
+    monkeypatch.setattr("book_translator.core.store.write_manifest", explode)
     assert store.snapshot({"partial": True}) is None
     assert store.manifest_path is None
 

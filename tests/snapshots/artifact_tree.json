@@ -58,9 +58,9 @@
     "06b-matter/_matter_trace.json": "79d93939d6c872d9e8650e07c80dea6d03d5e9f3364898af9dadc321d85dfa01",
     "06b-matter/book-plan.json": "19b5f4371f2f600e812984a2f2ddd9aecb1cea24b6a43b6dd876b7e39f47b941",
     "07-translation-prompts/00002-02-arrival-0000.md.json": "ab14b382fa2348685a7c3b51b07147f2ccf2c6b4aae7491192dbe684e1f96134",
-    "07-translation-prompts/00002-02-arrival-0000.md.prompt.md": "00c6058c65521d8b41aa340746462276847f3556b706f26aba1641d02d983911",
+    "07-translation-prompts/00002-02-arrival-0000.md.prompt.md": "eeba514ef50d0e2b95a2359165a6521fdb5551ec3b64b9d0128d30d6c0acc179",
     "07-translation-prompts/00003-03-the-storm-0000.md.json": "afd90d25da195f134254ce850df217351a334e3cd4601922ba282c5107c9300c",
-    "07-translation-prompts/00003-03-the-storm-0000.md.prompt.md": "71e5f1d0d4872f93fdaa28ac6c60e135c27bd22b73914a1afd7b6541a409f49f",
+    "07-translation-prompts/00003-03-the-storm-0000.md.prompt.md": "d42f468c8b6ba04846c2e8c8296844f9c9f51d7cbe950ffdefe6ebaf1c2bf9e3",
     "07-translations/00000-00-title-page-0000.md": "bfe864772902de5b5c4ee4f73c4f35c8489b200bf90d98ad49e9aba35d1844ca",
     "07-translations/00001-01-preface-0000.md": "06731693fa61f31250413bb966c518184b7627dab8126d183f75c2781a45343b",
     "07-translations/00002-02-arrival-0000.md": "4e0aaba5966c7c1f445913ffeeda698b0013b573582addfe77d3ac04fb619bf4",
@@ -84,11 +84,11 @@
     "09-postprocessed-chapters/_postprocess_manifest.json": "83ecc7f42bee0b8171971af01bc95c70d3c3c63038d65eb08b7f39ac659999d1",
     "09-postprocessed-chapters/_postprocess_trace.json": "a3ada8ab4ec644b8d838ea6f26f3f30513eaff19cbdef550cd863b069adde92b",
     "10-translated-book.md": "cd226c06cd0b151cfb22e75c5fdb9bdce27aec4caf054c77b1249a5a0b8e1d4d",
-    "11-translated-book.epub": "bf3f04dcee9c27287698bb26c0cc5b94f3221c3980fc23c8e921d308703b95e9",
+    "11-translated-book.epub": "4bf3989b11dbfc8c8db6d0fe6dc354a26a511731713abd6c9c9f92bd3a8b3653",
     "_bind_manifest.json": "a614b8a2e9ee4b2b83d965add25d6119797e5af2279e907abc20e26df71bed18",
     "_bind_trace.json": "931e1e0bd1ea831459e1a3b08fef798d8268923c0621b5873d76b238311d7132",
-    "_epub_manifest.json": "72c2090c9ac21378b965385da0671e3c609905e9f5127bd4c47bb76b166e41c0",
-    "_epub_trace.json": "bb0297ace7a6b7c3dad78e64f693fdecf9f0131ac021f8a2cd91789fdd528f71"
+    "_epub_manifest.json": "bbe47213e67f2d8b052cb875fd41cfce7088653eb6656549b626bf685d903573",
+    "_epub_trace.json": "0accec3d4e9b84d1374964a2241ce70384c2255ac59874fd1c1b2c1265b1aa90"
   },
-  "root": "e907c546a5fcd57e9f5ae1880798a2eec00fed5e3810f09a1e64b6b1180b7252"
+  "root": "796c10f1e68fa8ef53f413535e05b74bfaf707d3a603bc231f93d90d313f9cee"
 }

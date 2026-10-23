@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from book_splitter.chunking.runner import chunk_files
-from book_splitter.matter.inspect import build_matter_book, discover_matter_sections
-from book_splitter.matter.metadata import parse_book_metadata
-from book_splitter.matter.synthesize import ensure_matter_sections
+from book_translator.chunking.runner import chunk_files
+from book_translator.matter.inspect import build_matter_book, discover_matter_sections
+from book_translator.matter.metadata import parse_book_metadata
+from book_translator.matter.synthesize import ensure_matter_sections
 
 
 def _book(tmp_path: Path, *, with_front: bool = False) -> tuple[Path, Path]:
@@ -195,7 +195,7 @@ def _tool_call(name: str, args: dict):
 
 
 def test_run_matter_creates_and_localizes_missing_front_and_back(tmp_path: Path):
-    from book_splitter.matter_agent import run_matter
+    from book_translator.matter_agent import run_matter
 
     chapters, chunks = _book(tmp_path)
     plan = {
@@ -277,8 +277,8 @@ def test_existing_matter_without_a_chunk_gets_one(tmp_path: Path):
 
 
 def test_generated_section_text_has_stable_fallbacks():
-    from book_splitter.documents.book import BookMetadata
-    from book_splitter.matter.generate import back_matter_text, front_matter_text
+    from book_translator.documents.book import BookMetadata
+    from book_translator.matter.generate import back_matter_text, front_matter_text
 
     assert front_matter_text(BookMetadata()) == "# Untitled\n\n*Translated by BleBel*\n"
     assert front_matter_text(BookMetadata(title="T", author="A")) == (
@@ -293,7 +293,7 @@ def test_generated_section_text_has_stable_fallbacks():
 
 
 def test_existing_matter_entries_are_found_by_kind_then_by_name():
-    from book_splitter.matter.records import existing_matter_entries
+    from book_translator.matter.records import existing_matter_entries
 
     split = {
         "files": [

@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 
 import pytest
-from book_splitter.chunk_glossary import (
+from book_translator.chunk_glossary import (
     LexiconEntry,
     RapidFuzzMatcher,
     clean_term,
@@ -22,7 +22,7 @@ from book_splitter.chunk_glossary import (
     normalize_scorer,
     normalize_threshold,
 )
-from book_splitter.core.errors import ToolError
+from book_translator.core.errors import ToolError
 
 
 # --------------------------------------------------------------------------- #

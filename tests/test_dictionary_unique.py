@@ -8,8 +8,8 @@ trimmed, type ignored) and the book-wide ``seen`` set that makes it cumulative.
 
 from __future__ import annotations
 
-from book_splitter.dictionary.ner import Entity
-from book_splitter.dictionary.unique import (
+from book_translator.dictionary.ner import Entity
+from book_translator.dictionary.unique import (
     extend_seen,
     noun_key,
     select_unique_sentences,

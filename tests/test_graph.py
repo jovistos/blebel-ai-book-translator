@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from book_splitter.agent import build_graph
+from book_translator.agent import build_graph
 from langchain_core.messages import AIMessage, HumanMessage
 
 
@@ -225,11 +225,11 @@ def test_llm_context_is_bounded(sample, tmp_path, plan):
 
 
 def test_scout_report_lists_no_body_text(plain):
-    from book_splitter.agent.nodes.scout import build_scout_report
-    from book_splitter.agent.tools import scan_markdown_headers
-    from book_splitter.analysis.headers import assess_headers
-    from book_splitter.analysis.toc import detect_toc_block
-    from book_splitter.documents.io import load_lines
+    from book_translator.agent.nodes.scout import build_scout_report
+    from book_translator.agent.tools import scan_markdown_headers
+    from book_translator.analysis.headers import assess_headers
+    from book_translator.analysis.toc import detect_toc_block
+    from book_translator.documents.io import load_lines
 
     lines = load_lines(str(plain))
     headers = scan_markdown_headers(str(plain))
@@ -257,8 +257,8 @@ def test_a_failed_split_still_writes_its_trace(monkeypatch, tmp_path, plain):
     validation issues, tool log), so ``write_trace`` must create the folder
     instead of raising FileNotFoundError and losing the evidence.
     """
-    from book_splitter.agent import runner
-    from book_splitter.core.constants import TRACE_FILENAME
+    from book_translator.agent import runner
+    from book_translator.core.constants import TRACE_FILENAME
 
     silent = ScriptedModel([AIMessage(content="I cannot decide on a split map.")])
     real_build = runner.build_graph
@@ -294,9 +294,9 @@ class _ToolBinder:
 
 
 def test_the_splitter_binds_only_its_stage_toolset():
-    from book_splitter.agent.llm import bind_tools
-    from book_splitter.agent.tools import SPLIT_TOOLS
-    from book_splitter.toolkit.preprocess import PREPROCESS_TOOLS
+    from book_translator.agent.llm import bind_tools
+    from book_translator.agent.tools import SPLIT_TOOLS
+    from book_translator.toolkit.preprocess import PREPROCESS_TOOLS
 
     binder = _ToolBinder()
     bind_tools(binder)
@@ -310,8 +310,8 @@ def test_the_splitter_binds_only_its_stage_toolset():
 
 
 def test_the_splitter_has_no_model_reachable_write_tool():
-    from book_splitter.agent.graph import SPLIT
-    from book_splitter.agent.tools import SPLIT_TOOLS
+    from book_translator.agent.graph import SPLIT
+    from book_translator.agent.tools import SPLIT_TOOLS
 
     assert SPLIT.write_tools == frozenset()
     names = {tool.name for tool in SPLIT_TOOLS}
@@ -320,8 +320,8 @@ def test_the_splitter_has_no_model_reachable_write_tool():
 
 
 def test_the_splitter_tool_node_dispatches_only_its_stage_table():
-    from book_splitter.agent.graph import SPLIT
-    from book_splitter.stage_graph import make_tool_node
+    from book_translator.agent.graph import SPLIT
+    from book_translator.stage_graph import make_tool_node
 
     state = {
         "messages": [

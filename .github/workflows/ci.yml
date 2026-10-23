@@ -39,7 +39,7 @@ jobs:
           python -m pip install -e ".[dev]"
 
       - name: Ruff
-        run: ruff check book_splitter tests scripts
+        run: ruff check book_translator tests scripts
 
       - name: Mypy
         run: mypy
@@ -83,13 +83,13 @@ jobs:
           wheel = glob.glob("dist/*.whl")[0]
           names = zipfile.ZipFile(wheel).namelist()
           assert any(
-              name.endswith("book_splitter/epub/assets/style.css") for name in names
+              name.endswith("book_translator/epub/assets/style.css") for name in names
           ), "the EPUB stylesheet is missing from the wheel"
           metadata = next(name for name in names if name.endswith(".dist-info/METADATA"))
           text = zipfile.ZipFile(wheel).read(metadata).decode("utf-8")
           for extra in ("convert", "dictionary", "chunk", "epub", "dev"):
               assert f"Provides-Extra: {extra}" in text, extra
-          for script in ("book-splitter", "book-splitter-pipeline"):
+          for script in ("book-translator", "book-translator-pipeline"):
               entry_points = next(
                   name for name in names if name.endswith(".dist-info/entry_points.txt")
               )
@@ -99,7 +99,7 @@ jobs:
       - name: Install the wheel and run the entry points
         run: |
           python -m pip install --force-reinstall dist/*.whl
-          book-splitter --help
-          book-splitter-pipeline --help
-          python -m book_splitter --help
-          python -c "import book_splitter; print(book_splitter.__version__)"
+          book-translator --help
+          book-translator-pipeline --help
+          python -m book_translator --help
+          python -c "import book_translator; print(book_translator.__version__)"

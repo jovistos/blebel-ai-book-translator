@@ -1,4 +1,4 @@
-"""Shared fixtures and ground truth for the book-splitter tests.
+"""Shared fixtures and ground truth for the book-translator tests.
 
 Kept separate from ``conftest.py`` so test modules can import the constants
 explicitly. No network, no API key, no real LLM.
@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from book_splitter import paths
+from book_translator import paths
 
 ROOT = Path(__file__).resolve().parent.parent
 #: The real sample book (PDF-converted, mangled headings). Skipped when absent.

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from book_splitter.translation.prompts import (
+from book_translator.translation.prompts import (
     CONTEXT_HEADER,
     GLOSSARY_HEADER,
     SOURCE_HEADER,
@@ -23,7 +23,7 @@ from book_splitter.translation.prompts import (
     render_glossary,
     target_style_note,
 )
-from book_splitter.translation.runner import GlossaryRow
+from book_translator.translation.runner import GlossaryRow
 
 
 def _prompt(**overrides) -> str:

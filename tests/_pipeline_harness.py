@@ -26,9 +26,9 @@ import shutil
 from pathlib import Path
 from typing import Any, cast
 
-import book_splitter.agent.graph as agent_graph
+import book_translator.agent.graph as agent_graph
 import pytest
-from book_splitter import (
+from book_translator import (
     run_assembly,
     run_bind,
     run_chunk_glossary,
@@ -43,11 +43,11 @@ from book_splitter import (
     run_split,
     run_translation,
 )
-from book_splitter.dictionary.ner import Entity
-from book_splitter.glossary.extract import ExtractionOutcome, TokenUsage
-from book_splitter.glossary.models import ChapterExtraction
-from book_splitter.translation.models import ChunkTranslationAnswer
-from book_splitter.translation.translator import TranslationOutcome
+from book_translator.dictionary.ner import Entity
+from book_translator.glossary.extract import ExtractionOutcome, TokenUsage
+from book_translator.glossary.models import ChapterExtraction
+from book_translator.translation.models import ChunkTranslationAnswer
+from book_translator.translation.translator import TranslationOutcome
 from langchain_core.messages import AIMessage
 
 #: The checked-in source book. TXT exercises stage 0's copy path without docling.
@@ -111,16 +111,16 @@ FIXED_NOW = datetime_module.datetime(2024, 1, 1, 12, 0, 0)
 #: ``datetime`` symbol. They are patched one by one because that is exactly how
 #: the stage code imported it.
 _DATETIME_MODULES = (
-    "book_splitter.assembly.runner",
-    "book_splitter.binding.runner",
-    "book_splitter.chunk_glossary.runner",
-    "book_splitter.conversion.runner",
-    "book_splitter.epub.metadata",
-    "book_splitter.epub.runner",
-    "book_splitter.glossary.runner",
-    "book_splitter.matter_agent.runner",
-    "book_splitter.postprocess_agent.runner",
-    "book_splitter.translation.runner",
+    "book_translator.assembly.runner",
+    "book_translator.binding.runner",
+    "book_translator.chunk_glossary.runner",
+    "book_translator.conversion.runner",
+    "book_translator.epub.metadata",
+    "book_translator.epub.runner",
+    "book_translator.glossary.runner",
+    "book_translator.matter_agent.runner",
+    "book_translator.postprocess_agent.runner",
+    "book_translator.translation.runner",
 )
 
 
@@ -488,7 +488,7 @@ def run_fixture_pipeline(
     # 9 has. It stays mandatory (the default), but the search function itself is
     # a fixed in-process result, so the run is offline and deterministic.
     monkeypatch.setattr(
-        "book_splitter.agent.tools.websearch.search_web", _fixture_web_search
+        "book_translator.agent.tools.websearch.search_web", _fixture_web_search
     )
     results["9-postprocess"] = _require_ok(
         "9-postprocess",

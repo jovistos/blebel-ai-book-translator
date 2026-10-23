@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from book_splitter.core.report import (
+from book_translator.core.report import (
     StageSummary,
     human_bytes,
     human_count,

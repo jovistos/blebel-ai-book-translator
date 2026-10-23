@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from book_splitter.analysis.toc import detect_toc_block
-from book_splitter.documents.io import load_lines
-from book_splitter.slicing.validation import validate_split_map
+from book_translator.analysis.toc import detect_toc_block
+from book_translator.documents.io import load_lines
+from book_translator.slicing.validation import validate_split_map
 
 from _fixtures import SAMPLE, SAMPLE_SPLITS, requires_sample
 

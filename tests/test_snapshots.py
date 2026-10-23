@@ -1,6 +1,6 @@
 """Phase 0 snapshots: every CLI ``--help`` and the public package surface.
 
-The command-line interface and ``book_splitter.__all__`` are the two contracts a
+The command-line interface and ``book_translator.__all__`` are the two contracts a
 structural refactor is most likely to break silently. These tests freeze both:
 any new, removed, renamed or re-described argument, default or exported name
 fails until the snapshot is deliberately regenerated with::
@@ -19,9 +19,9 @@ import io
 from pathlib import Path
 from typing import Any
 
-import book_splitter
+import book_translator
 import pytest
-from book_splitter.cli import build_parser
+from book_translator.cli import build_parser
 
 from _fixtures import ROOT
 from _snapshots import assert_snapshot
@@ -77,12 +77,12 @@ def test_every_help_output_matches_snapshot(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_package_all_matches_snapshot() -> None:
-    names = list(book_splitter.__all__)
+    names = list(book_translator.__all__)
 
-    assert len(names) == len(set(names)), "book_splitter.__all__ contains duplicates"
+    assert len(names) == len(set(names)), "book_translator.__all__ contains duplicates"
     for name in names:
-        assert hasattr(book_splitter, name), (
-            f"book_splitter.__all__ names a missing attribute: {name}"
+        assert hasattr(book_translator, name), (
+            f"book_translator.__all__ names a missing attribute: {name}"
         )
 
     assert_snapshot("package_all.json", names)

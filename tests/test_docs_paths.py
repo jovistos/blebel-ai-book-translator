@@ -11,9 +11,9 @@ import re
 
 from _fixtures import ROOT
 
-README = ROOT / "README-book-splitter.md"
+README = ROOT / "README-book-translator.md"
 _LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
-_BACKTICKED_PATH = re.compile(r"`([^`\n]*book_splitter/[^`\n]+)`")
+_BACKTICKED_PATH = re.compile(r"`([^`\n]*book_translator/[^`\n]+)`")
 
 #: Generated examples and placeholders that cannot exist in a clean checkout.
 _SKIP_PREFIXES = (
@@ -56,7 +56,7 @@ def test_every_backticked_source_path_exists() -> None:
 
 
 def test_the_package_layout_lists_the_real_module_directories() -> None:
-    text = (ROOT / "book_splitter" / "__init__.py").read_text(encoding="utf-8")
+    text = (ROOT / "book_translator" / "__init__.py").read_text(encoding="utf-8")
     layout = text.split("Package layout::", 1)[1]
 
     # Output folders may be numbered; source packages are not. `04-glossary/` and

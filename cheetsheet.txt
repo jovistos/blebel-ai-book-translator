@@ -3,31 +3,31 @@ source .venv_splitter/bin/activate
 
 # Install the package itself (the extras are convert/dictionary/chunk/epub/dev):
 #   pip install -e ".[dev]"              # development: tests, lint, types
-#   pip install -e ".[convert]"          # EPUB/PDF input, or "book-splitter[convert]"
-# The installed entry points are `book-splitter` and `book-splitter-pipeline`;
-# `python -m book_splitter` remains the module fallback.
+#   pip install -e ".[convert]"          # EPUB/PDF input, or "book-translator[convert]"
+# The installed entry points are `book-translator` and `book-translator-pipeline`;
+# `python -m book_translator` remains the module fallback.
 
-# Whole pipeline: `python -m book_splitter pipeline ...` is the same parser and
+# Whole pipeline: `python -m book_translator pipeline ...` is the same parser and
 # driver as `python scripts/run_pipeline.py ...` (the script is a wrapper).
 # Shared flags: --json (one object, no narration), --quiet (no narration),
 # --output-root (default data/output), --text-in (chapter text override).
 # --dry-run validates and writes nothing; it never calls a paid model.
-#   .venv_splitter/bin/python -m book_splitter pipeline BOOK.md --json
-#   .venv_splitter/bin/python -m book_splitter pipeline BOOK.md --dry-run --quiet
+#   .venv_splitter/bin/python -m book_translator pipeline BOOK.md --json
+#   .venv_splitter/bin/python -m book_translator pipeline BOOK.md --dry-run --quiet
 
-# which model each stage uses: book_splitter.toml ([llm] + [llm.<stage>]).
+# which model each stage uses: book_translator.toml ([llm] + [llm.<stage>]).
 # Override one stage for one run without editing it:
 #   --llm split.model=deepseek-flash --llm translate.provider=lmstudio
 # Or point at another per-stage file:
-#   --llm-config /tmp/cheap.toml        (or BOOK_SPLITTER_CONFIG=...)
+#   --llm-config /tmp/cheap.toml        (or BOOK_TRANSLATOR_CONFIG=...)
 # Keys live in .env (DEEPSEEK_API_KEY, OPENAI_API_KEY, ...), never in the toml.
 
 # stage 0: EPUB/text-based PDF/TXT -> Markdown in data/output/<book>/00-markdown/
 # (TXT is copied; a PDF with no embedded text layer is rejected instead of OCR'd)
 # Pictures are extracted to 00-markdown/images/ by default; add --no-images to skip.
-.venv_splitter/bin/python -m book_splitter convert "My Book.epub"
-.venv_splitter/bin/python -m book_splitter convert "My Book.epub" --no-images
-.venv_splitter/bin/python -m book_splitter convert "My Book.pdf" --dry-run
+.venv_splitter/bin/python -m book_translator convert "My Book.epub"
+.venv_splitter/bin/python -m book_translator convert "My Book.epub" --no-images
+.venv_splitter/bin/python -m book_translator convert "My Book.pdf" --dry-run
 .venv_splitter/bin/python scripts/run_pipeline.py "My Book.epub" --stop-after convert
 
 # the whole pipeline over the first N chapters (split itself is always the full book);
@@ -60,27 +60,25 @@ source .venv_splitter/bin/activate
 
 # the same translation, but stage 7 uses the LOCAL LM Studio model instead of
 # DeepSeek. Only the body-chapter translation changes: front/back matter (stage
-# 6b) and every other stage keep their model from book_splitter.toml.
+# 6b) and every other stage keep their model from book_translator.toml.
+# For LM Studio, no model name is needed — it auto-detects whichever model is loaded!
 # The same override without editing the file:
-#   --llm translate.provider=lmstudio --llm translate.model=<id>
-# Omit --translate-model to auto-detect the loaded model (an "en2sr" id wins).
+#   --llm translate.provider=lmstudio
 .venv_splitter/bin/python scripts/run_pipeline.py \
   "Dont You Forget About Me - Alexandra Potter.md" \
   --skip-if-present \
   --first-chapters 5 \
   --with-translate \
   --translate-provider lmstudio \
-  --translate-model gemma-4-31b-en2sr-v3@q4_k_m \
   --cpu
 
 # stage 7 only, with the local model, over existing chunks
-.venv_splitter/bin/python -m book_splitter translate \
+.venv_splitter/bin/python -m book_translator translate \
   "Dont You Forget About Me - Alexandra Potter.md" \
-  --translator lmstudio \
-  --model gemma-4-31b-en2sr-v3@q4_k_m
+  --translator lmstudio
 
 # stage 7 only, explicitly back on DeepSeek (the default)
-.venv_splitter/bin/python -m book_splitter translate \
+.venv_splitter/bin/python -m book_translator translate \
   "Dont You Forget About Me - Alexandra Potter.md" \
   --translator deepseek
 
@@ -115,22 +113,22 @@ source .venv_splitter/bin/activate
   --cpu
 
 # standalone commands
-.venv_splitter/bin/python -m book_splitter matter \
+.venv_splitter/bin/python -m book_translator matter \
   "Dont You Forget About Me - Alexandra Potter.md" --resume
-.venv_splitter/bin/python -m book_splitter postprocess \
+.venv_splitter/bin/python -m book_translator postprocess \
   "Dont You Forget About Me - Alexandra Potter.md" --resume
 
 # the final opening audit of stages 2 and 9 (no LLM, no key). It walks the first
 # lines of every chapter, removes a stray copy of the chapter number under the
 # title, a duplicated title line or a leftover page number, and reports the rest.
 # Default folder: the book's most advanced stage (09 -> 08 -> 02 -> 01).
-.venv_splitter/bin/python -m book_splitter openings \
+.venv_splitter/bin/python -m book_translator openings \
   "Dont You Forget About Me - Alexandra Potter.md" --dry-run
-.venv_splitter/bin/python -m book_splitter openings \
+.venv_splitter/bin/python -m book_translator openings \
   "Dont You Forget About Me - Alexandra Potter.md"
 # a stage-2 folder: a removed line leaves an empty line, so line numbers stay valid
-.venv_splitter/bin/python -m book_splitter openings \
+.venv_splitter/bin/python -m book_translator openings \
   --chapters-in data/output/BOOK/02-preprocessed --keep-blank-slot
 
-.venv_splitter/bin/python -m book_splitter bind \
+.venv_splitter/bin/python -m book_translator bind \
   "Dont You Forget About Me - Alexandra Potter.md"

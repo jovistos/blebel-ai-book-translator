@@ -14,8 +14,8 @@ import json
 from pathlib import Path
 
 import pytest
-from book_splitter import cli
-from book_splitter.core.constants import (
+from book_translator import cli
+from book_translator.core.constants import (
     DEFAULT_CHUNK_GLOSSARY_MIN_TERM_CHARS,
     DEFAULT_CHUNK_GLOSSARY_SCORER,
     DEFAULT_CHUNK_GLOSSARY_THRESHOLD,
@@ -29,7 +29,7 @@ def offline_tagger(monkeypatch):
     """Replace the tagger factory; no test downloads or loads a model."""
     backend = FakeBackend()
     monkeypatch.setattr(
-        "book_splitter.chunk_glossary.runner.make_backend",
+        "book_translator.chunk_glossary.runner.make_backend",
         lambda *args, **kwargs: backend,
     )
     return backend

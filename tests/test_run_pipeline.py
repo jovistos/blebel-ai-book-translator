@@ -10,17 +10,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import book_splitter.agent
-import book_splitter.dictionary
-import book_splitter.preprocess_agent
+import book_translator.agent
+import book_translator.dictionary
+import book_translator.preprocess_agent
 import pytest
-from book_splitter.agent.result import SplitterResult
-from book_splitter.core.errors import MissingDependencyError
-from book_splitter.dictionary.runner import DictionaryResult
-from book_splitter.pipeline.driver import PipelineDriver
-from book_splitter.pipeline.options import PipelineOptions
-from book_splitter.preprocess_agent import runner as preprocess_runner
-from book_splitter.preprocess_agent.runner import ChapterResult, PreprocessResult
+from book_translator.agent.result import SplitterResult
+from book_translator.core.errors import MissingDependencyError
+from book_translator.dictionary.runner import DictionaryResult
+from book_translator.pipeline.driver import PipelineDriver
+from book_translator.pipeline.options import PipelineOptions
+from book_translator.preprocess_agent import runner as preprocess_runner
+from book_translator.preprocess_agent.runner import ChapterResult, PreprocessResult
 
 from _fixtures import PLAIN, SAMPLE, requires_sample
 
@@ -33,14 +33,14 @@ ROOT = Path(__file__).resolve().parent.parent
 @pytest.fixture(scope="module")
 def script():
     """The pipeline parser module shared by the CLI and the compatibility script."""
-    from book_splitter.pipeline import parser
+    from book_translator.pipeline import parser
 
     return parser
 
 
 def install_chunk_glossary(monkeypatch, *, ok: bool = True, files: bool = False):
     """Replace stage 6, so no test loads a tagger or reads a real glossary."""
-    from book_splitter.chunk_glossary import ChunkGlossaryResult
+    from book_translator.chunk_glossary import ChunkGlossaryResult
 
     calls: list[Path] = []
 
@@ -87,14 +87,14 @@ def install_chunk_glossary(monkeypatch, *, ok: bool = True, files: bool = False)
             errors=[] if ok else ["chunk: boom"],
         )
 
-    monkeypatch.setattr("book_splitter.chunk_glossary.run_chunk_glossary", fake_run_chunk_glossary)
+    monkeypatch.setattr("book_translator.chunk_glossary.run_chunk_glossary", fake_run_chunk_glossary)
     return calls
 
 
 def install_matter(monkeypatch, *, ok: bool = True):
     """Replace the front/back matter agent, so no test calls a paid model."""
-    from book_splitter.matter.inspect import discover_matter_sections
-    from book_splitter.matter_agent import MatterResult
+    from book_translator.matter.inspect import discover_matter_sections
+    from book_translator.matter_agent import MatterResult
 
     calls: list[dict] = []
 
@@ -158,13 +158,13 @@ def install_matter(monkeypatch, *, ok: bool = True):
             trace_path=str(trace),
         )
 
-    monkeypatch.setattr("book_splitter.matter_agent.run_matter", fake_run_matter)
+    monkeypatch.setattr("book_translator.matter_agent.run_matter", fake_run_matter)
     return calls
 
 
 def install_translate(monkeypatch, *, ok: bool = True):
     """Replace stage 7, so no test ever calls a paid model."""
-    from book_splitter.translation import TranslationResult
+    from book_translator.translation import TranslationResult
 
     calls: list[dict] = []
 
@@ -218,7 +218,7 @@ def install_translate(monkeypatch, *, ok: bool = True):
             trace_path=None if dry_run else str(trace),
         )
 
-    monkeypatch.setattr("book_splitter.translation.run_translation", fake_run_translation)
+    monkeypatch.setattr("book_translator.translation.run_translation", fake_run_translation)
     return calls
 
 
@@ -273,7 +273,7 @@ def install_split(monkeypatch, *, ok: bool = True, writes: dict[str, str] | None
             log=["scout: 78 headers, verdict noisy"],
         )
 
-    monkeypatch.setattr(book_splitter.agent, "run_split", fake_split)
+    monkeypatch.setattr(book_translator.agent, "run_split", fake_split)
     return calls
 
 
@@ -352,7 +352,7 @@ def install_preprocess(monkeypatch, *, ok: bool = True, writes: dict[str, str] |
             errors=[],
         )
 
-    monkeypatch.setattr(book_splitter.preprocess_agent, "run_preprocess", fake_preprocess)
+    monkeypatch.setattr(book_translator.preprocess_agent, "run_preprocess", fake_preprocess)
     return calls
 
 
@@ -415,7 +415,7 @@ def install_dictionary(
             errors=[] if ok else ["01-a.md: the tagger crashed"],
         )
 
-    monkeypatch.setattr(book_splitter.dictionary, "run_dictionary", fake_run_dictionary)
+    monkeypatch.setattr(book_translator.dictionary, "run_dictionary", fake_run_dictionary)
     if glossary:
         # The dictionary phase now builds the glossary too. Stub it by default so
         # every test stays offline; a test that wants to observe or fail it calls
@@ -515,7 +515,7 @@ def test_skip_if_present_reuses_chapters_without_a_provider(
     script, tmp_path, monkeypatch, capsys, run
 ):
     """A reused split must not need an API key, or even resolve provider settings."""
-    from book_splitter.paths import resolve_output_dir
+    from book_translator.paths import resolve_output_dir
 
     # The chapters are already on disk before the run — that is the whole premise
     # of the flag, and it is what makes the phase decide without a provider.
@@ -543,7 +543,7 @@ def test_skip_if_present_reuses_chapters_without_a_provider(
     def explode(*_, **__):  # pragma: no cover - must never be reached
         raise AssertionError("a reused split must not resolve provider settings")
 
-    monkeypatch.setattr("book_splitter.pipeline.driver.resolve_settings", explode)
+    monkeypatch.setattr("book_translator.pipeline.driver.resolve_settings", explode)
 
     code = run(
         str(SAMPLE),
@@ -580,7 +580,7 @@ def test_a_rejected_split_stops_before_stage_two(script, tmp_path, monkeypatch, 
 
 def test_map_replays_a_supplied_map_without_a_model(script, tmp_path, monkeypatch, capsys, run):
     """``--map`` runs stage 1 from a file: no provider, no key, byte-for-byte output."""
-    import book_splitter.core.settings as settings_module
+    import book_translator.core.settings as settings_module
 
     def explode(*_, **__):  # pragma: no cover - the agent path would call this
         raise AssertionError("--map must not resolve provider settings")
@@ -919,7 +919,7 @@ def test_a_missing_tagger_skips_stage_three_without_failing_the_run(
 # --------------------------------------------------------------------------- #
 def install_glossary(monkeypatch, *, ok: bool = True):
     """Replace stage 4, so no test ever calls a paid model."""
-    from book_splitter.glossary import GlossaryResult
+    from book_translator.glossary import GlossaryResult
 
     calls: list[Path] = []
 
@@ -963,7 +963,7 @@ def install_glossary(monkeypatch, *, ok: bool = True):
             errors=[] if ok else ["01-a.md: boom"],
         )
 
-    monkeypatch.setattr("book_splitter.glossary.run_glossary", fake_run_glossary)
+    monkeypatch.setattr("book_translator.glossary.run_glossary", fake_run_glossary)
     return calls
 
 
@@ -1402,8 +1402,8 @@ def _wrap_calls(monkeypatch, module, name: str, seen: list[dict]) -> None:
 
 def install_translate_for_chunks(monkeypatch):
     """A stage-7 double that writes a real translation file for every chunk."""
-    from book_splitter.chunking import chunk_files
-    from book_splitter.translation import TranslationResult
+    from book_translator.chunking import chunk_files
+    from book_translator.translation import TranslationResult
 
     calls: list[dict] = []
 
@@ -1447,7 +1447,7 @@ def install_translate_for_chunks(monkeypatch):
             trace_path=str(trace),
         )
 
-    monkeypatch.setattr("book_splitter.translation.run_translation", fake_run_translation)
+    monkeypatch.setattr("book_translator.translation.run_translation", fake_run_translation)
     return calls
 
 
@@ -1455,11 +1455,11 @@ def install_translate_for_chunks(monkeypatch):
 def test_first_chapters_limits_every_stage_after_split(
     script, tmp_path, monkeypatch, capsys, run
 ):
-    import book_splitter.assembly
-    import book_splitter.chunk_glossary
-    import book_splitter.chunking
-    import book_splitter.dictionary
-    import book_splitter.glossary
+    import book_translator.assembly
+    import book_translator.chunk_glossary
+    import book_translator.chunking
+    import book_translator.dictionary
+    import book_translator.glossary
 
     install_split(monkeypatch, writes=DAMAGED)
     install_dictionary(monkeypatch)
@@ -1476,18 +1476,18 @@ def test_first_chapters_limits_every_stage_after_split(
         "translate": [],
         "assembly": [],
     }
-    _wrap_calls(monkeypatch, book_splitter.agent, "run_split", seen["split"])
-    _wrap_calls(monkeypatch, book_splitter.dictionary, "run_dictionary", seen["dictionary"])
-    _wrap_calls(monkeypatch, book_splitter.glossary, "run_glossary", seen["glossary"])
-    _wrap_calls(monkeypatch, book_splitter.chunking, "run_chunking", seen["chunk"])
+    _wrap_calls(monkeypatch, book_translator.agent, "run_split", seen["split"])
+    _wrap_calls(monkeypatch, book_translator.dictionary, "run_dictionary", seen["dictionary"])
+    _wrap_calls(monkeypatch, book_translator.glossary, "run_glossary", seen["glossary"])
+    _wrap_calls(monkeypatch, book_translator.chunking, "run_chunking", seen["chunk"])
     _wrap_calls(
         monkeypatch,
-        book_splitter.chunk_glossary,
+        book_translator.chunk_glossary,
         "run_chunk_glossary",
         seen["chunk_glossary"],
     )
-    _wrap_calls(monkeypatch, book_splitter.translation, "run_translation", seen["translate"])
-    _wrap_calls(monkeypatch, book_splitter.assembly, "run_assembly", seen["assembly"])
+    _wrap_calls(monkeypatch, book_translator.translation, "run_translation", seen["translate"])
+    _wrap_calls(monkeypatch, book_translator.assembly, "run_assembly", seen["assembly"])
 
     out = tmp_path / "out"
     code = run(
@@ -1522,11 +1522,11 @@ def test_first_chapters_limits_every_stage_after_split(
 def test_increasing_the_chapter_window_resumes_with_skip_if_present(
     script, tmp_path, monkeypatch, capsys, run
 ):
-    import book_splitter.assembly
-    import book_splitter.chunk_glossary
-    import book_splitter.chunking
-    import book_splitter.dictionary
-    import book_splitter.glossary
+    import book_translator.assembly
+    import book_translator.chunk_glossary
+    import book_translator.chunking
+    import book_translator.dictionary
+    import book_translator.glossary
 
     install_split(monkeypatch, writes=DAMAGED)
     install_dictionary(monkeypatch)
@@ -1541,17 +1541,17 @@ def test_increasing_the_chapter_window_resumes_with_skip_if_present(
         "translate": [],
         "assembly": [],
     }
-    _wrap_calls(monkeypatch, book_splitter.dictionary, "run_dictionary", seen["dictionary"])
-    _wrap_calls(monkeypatch, book_splitter.glossary, "run_glossary", [])
-    _wrap_calls(monkeypatch, book_splitter.chunking, "run_chunking", seen["chunk"])
+    _wrap_calls(monkeypatch, book_translator.dictionary, "run_dictionary", seen["dictionary"])
+    _wrap_calls(monkeypatch, book_translator.glossary, "run_glossary", [])
+    _wrap_calls(monkeypatch, book_translator.chunking, "run_chunking", seen["chunk"])
     _wrap_calls(
         monkeypatch,
-        book_splitter.chunk_glossary,
+        book_translator.chunk_glossary,
         "run_chunk_glossary",
         seen["chunk_glossary"],
     )
-    _wrap_calls(monkeypatch, book_splitter.translation, "run_translation", seen["translate"])
-    _wrap_calls(monkeypatch, book_splitter.assembly, "run_assembly", seen["assembly"])
+    _wrap_calls(monkeypatch, book_translator.translation, "run_translation", seen["translate"])
+    _wrap_calls(monkeypatch, book_translator.assembly, "run_assembly", seen["assembly"])
 
     out = tmp_path / "out"
     first = run(

@@ -8,15 +8,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from book_splitter.pipeline.options import (
+from book_translator.pipeline.options import (
     PHASES,
     PhaseSelection,
     PipelineOptions,
     StageOptions,
     StageRuntime,
 )
-from book_splitter.pipeline.paths import StagePaths
-from book_splitter.pipeline.sources import StageSources
+from book_translator.pipeline.paths import StagePaths
+from book_translator.pipeline.sources import StageSources
 
 
 def base_ns(**overrides) -> argparse.Namespace:

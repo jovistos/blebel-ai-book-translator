@@ -3,10 +3,10 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "book-splitter"
+name = "book-translator"
 dynamic = ["version"]
 description = "Turn one long book into a translated EPUB through staged, verifiable agents."
-readme = "README-book-splitter.md"
+readme = "README-book-translator.md"
 requires-python = ">=3.11"
 keywords = ["book", "translation", "epub", "langgraph", "ocr"]
 classifiers = [
@@ -67,20 +67,20 @@ dev = [
 ]
 
 [project.scripts]
-book-splitter = "book_splitter.cli:main"
-book-splitter-pipeline = "book_splitter.pipeline.parser:main"
+book-translator = "book_translator.cli:main"
+book-translator-pipeline = "book_translator.pipeline.parser:main"
 
 [tool.setuptools]
 include-package-data = true
 
 [tool.setuptools.dynamic]
-version = {attr = "book_splitter.__version__"}
+version = {attr = "book_translator.__version__"}
 
 [tool.setuptools.packages.find]
-include = ["book_splitter*"]
+include = ["book_translator*"]
 
 [tool.setuptools.package-data]
-"book_splitter.epub" = ["assets/*.css"]
+"book_translator.epub" = ["assets/*.css"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
@@ -90,7 +90,7 @@ addopts = "-q"
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["book_splitter", "tests", "scripts"]
+src = ["book_translator", "tests", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF", "PIE", "PERF", "PT011"]
@@ -101,7 +101,7 @@ ignore = ["E501", "RUF001", "RUF002", "RUF003", "RUF022"]
 
 [tool.mypy]
 python_version = "3.11"
-files = ["book_splitter", "scripts", "tests"]
+files = ["book_translator", "scripts", "tests"]
 warn_unused_ignores = true
 warn_redundant_casts = true
 warn_return_any = true

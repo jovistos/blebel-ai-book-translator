@@ -6,7 +6,7 @@ import json
 from datetime import UTC
 from pathlib import Path
 
-from book_splitter.core.artifacts import (
+from book_translator.core.artifacts import (
     Sha256,
     now,
     read_json,

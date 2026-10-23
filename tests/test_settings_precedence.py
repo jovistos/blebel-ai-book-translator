@@ -1,7 +1,7 @@
 """The model/credential resolution is a precedence table, and it is tested as one.
 
 The old tests checked a handful of pairs by hand. These tests walk the declared
-tables in [book_splitter.core.settings](book_splitter/core/settings.py) so a new
+tables in [book_translator.core.settings](book_translator/core/settings.py) so a new
 source inserted without a test — or a source moved without updating the docs —
 fails here.
 """
@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from book_splitter.core import settings as S
-from book_splitter.core.errors import ConfigError
+from book_translator.core import settings as S
+from book_translator.core.errors import ConfigError
 
 #: Every variable these tests may set, cleared before each one.
 _ENV_NAMES = (
@@ -84,7 +84,7 @@ def _config(
         lines.append("[llm.translate]")
         for key, value in stage.items():
             lines.append(f"{key} = {_toml(value)}")
-    path = tmp_path / "book_splitter.toml"
+    path = tmp_path / "book_translator.toml"
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return S.load_llm_config(path)
 
@@ -276,7 +276,7 @@ def _provider_config(
         lines.append('provider = "deepseek"')
     if stage:
         lines += ["[llm.translate]", f'provider = "{stage}"']
-    path = tmp_path / "book_splitter.toml"
+    path = tmp_path / "book_translator.toml"
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return S.load_llm_config(path)
 
@@ -400,7 +400,7 @@ def _credential_config(
         lines.append(f'api_key_env = "{default_key_env}"')
     if stage_key_env:
         lines += ["[llm.translate]", f'api_key_env = "{stage_key_env}"']
-    path = tmp_path / "book_splitter.toml"
+    path = tmp_path / "book_translator.toml"
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return S.load_llm_config(path)
 

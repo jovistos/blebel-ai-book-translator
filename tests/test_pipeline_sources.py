@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from book_splitter.core.artifacts import sha256_text
-from book_splitter.documents.manifest import MANIFEST_FILENAME
-from book_splitter.pipeline.paths import StagePaths
-from book_splitter.pipeline.sources import (
+from book_translator.core.artifacts import sha256_text
+from book_translator.documents.manifest import MANIFEST_FILENAME
+from book_translator.pipeline.paths import StagePaths
+from book_translator.pipeline.sources import (
     cleaned_covers_window,
     most_advanced_chapters,
     resolve_chapters_input,

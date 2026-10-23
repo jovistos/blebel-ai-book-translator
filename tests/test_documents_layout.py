@@ -6,22 +6,22 @@ import json
 from pathlib import Path
 
 import pytest
-from book_splitter.core.constants import (
+from book_translator.core.constants import (
     CHUNK_GLOSSARY_DIRNAME,
     CHUNKS_DIRNAME,
     GLOSSARY_DIRNAME,
     PREPROCESSED_DIRNAME,
     TRANSLATIONS_DIRNAME,
 )
-from book_splitter.core.errors import ToolError
-from book_splitter.documents.chunks import (
+from book_translator.core.errors import ToolError
+from book_translator.documents.chunks import (
     chunk_files,
     chunk_glossary_filename,
     discover_chunk_inputs,
     resolve_chunks_dir,
     resolve_glossary_path,
 )
-from book_splitter.documents.layout import (
+from book_translator.documents.layout import (
     STAGE_DIRNAMES,
     STAGE_DIRS,
     book_root,
@@ -29,7 +29,7 @@ from book_splitter.documents.layout import (
     resolve_stage_dir,
     stage_of,
 )
-from book_splitter.documents.manifest import (
+from book_translator.documents.manifest import (
     load_chunk_glossary_manifest,
     load_chunk_manifest,
     load_split_manifest,

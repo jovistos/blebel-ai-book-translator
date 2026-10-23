@@ -13,8 +13,8 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from book_splitter.core.errors import ExtractionError
-from book_splitter.glossary.extract import (
+from book_translator.core.errors import ExtractionError
+from book_translator.glossary.extract import (
     ExtractionOutcome,
     LangChainExtractor,
     TokenUsage,
@@ -24,8 +24,8 @@ from book_splitter.glossary.extract import (
     structured_unsupported,
     usage_from_message,
 )
-from book_splitter.glossary.models import ChapterExtraction, GlossaryEntry
-from book_splitter.glossary.prompts import JSON_ONLY_NOTE
+from book_translator.glossary.models import ChapterExtraction, GlossaryEntry
+from book_translator.glossary.prompts import JSON_ONLY_NOTE
 
 
 # --------------------------------------------------------------------------- #

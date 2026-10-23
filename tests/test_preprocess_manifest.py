@@ -11,8 +11,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from book_splitter.documents.chapters import discover_chapters, load_split_manifest
-from book_splitter.preprocess_agent.runner import (
+from book_translator.documents.chapters import discover_chapters, load_split_manifest
+from book_translator.preprocess_agent.runner import (
     ChapterResult,
     PreprocessResult,
     write_preprocess_manifest,

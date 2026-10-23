@@ -11,7 +11,7 @@ pipeline must recognise and the marker round-trip stage 7 relies on:
 
 from __future__ import annotations
 
-from book_splitter.documents.images import (
+from book_translator.documents.images import (
     has_images,
     image_count,
     image_refs,
@@ -45,7 +45,7 @@ def test_an_image_only_line_is_recognised_but_prose_with_an_image_is_not():
 
 
 def test_all_caps_alt_text_does_not_turn_a_picture_into_a_heading():
-    from book_splitter.documents.markdown import is_plain_heading_candidate
+    from book_translator.documents.markdown import is_plain_heading_candidate
 
     assert is_plain_heading_candidate("ALICE")
     assert not is_plain_heading_candidate("![ALICE](../00-markdown/images/rabbit.png)")

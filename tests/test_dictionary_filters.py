@@ -6,14 +6,14 @@ how much text the tagger ever sees, so they are pinned character by character.
 
 from __future__ import annotations
 
-from book_splitter.dictionary.ner import (
+from book_translator.dictionary.ner import (
     Entity,
     GateDecision,
     gate_entities,
     is_temporal,
     normalize_type,
 )
-from book_splitter.dictionary.sentences import (
+from book_translator.dictionary.sentences import (
     has_later_uppercase,
     prefilter_sentences,
     split_sentences,

@@ -51,7 +51,7 @@ junit*.xml
 .cache/
 
 # --------------------------------------------------------------------------- #
-# Generated documents — regenerate with `python -m book_splitter split`
+# Generated documents — regenerate with `python -m book_translator split`
 # --------------------------------------------------------------------------- #
 # Everything the splitter writes lives under data/output/ (chapters, manifests,
 # agent traces). The folder itself is kept with a committed .gitkeep.

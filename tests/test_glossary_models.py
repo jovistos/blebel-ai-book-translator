@@ -10,7 +10,7 @@ array accepted as the same thing.
 from __future__ import annotations
 
 import pytest
-from book_splitter.glossary.models import (
+from book_translator.glossary.models import (
     ChapterExtraction,
     GlossaryEntry,
     TermCategory,

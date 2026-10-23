@@ -13,7 +13,7 @@ Three kinds of snapshot live in ``tests/snapshots/``:
     The exact ``--help`` output of the root parser and every subcommand.
 
 ``package_all.json``
-    ``book_splitter.__all__``, in order.
+    ``book_translator.__all__``, in order.
 
 Set ``UPDATE_SNAPSHOTS=1`` to rewrite the files instead of comparing. A snapshot
 is data, not an assertion: the tests in ``test_snapshots.py`` and

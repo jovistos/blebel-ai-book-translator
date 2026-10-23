@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 import pytest
-from book_splitter.core.run import RunContext, run_items
+from book_translator.core.run import RunContext, run_items
 
 
 class FakeClock:

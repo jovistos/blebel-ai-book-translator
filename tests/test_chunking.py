@@ -13,15 +13,15 @@ import json
 from pathlib import Path
 
 import pytest
-from book_splitter import cli
-from book_splitter.chunking import (
+from book_translator import cli
+from book_translator.chunking import (
     load_chunk_manifest,
     reconstruct_book,
     reconstruct_chapter,
     run_chunking,
 )
-from book_splitter.chunking.boundaries import boundary_kind
-from book_splitter.core.constants import CHUNK_MANIFEST_FILENAME, CHUNK_TRACE_FILENAME
+from book_translator.chunking.boundaries import boundary_kind
+from book_translator.core.constants import CHUNK_MANIFEST_FILENAME, CHUNK_TRACE_FILENAME
 
 TEXTS = {
     "01-prva.md": (
@@ -322,7 +322,7 @@ IMAGE = "![Image](../00-markdown/images/rabbit.png)"
 
 
 def test_a_cut_inside_an_image_reference_is_moved_to_its_edge():
-    from book_splitter.chunking.runner import _image_safe_spans
+    from book_translator.chunking.runner import _image_safe_spans
 
     text = "alpha beta " + IMAGE + " gamma delta"
     image_start = text.index(IMAGE)

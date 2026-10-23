@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 import pytest
-from book_splitter.paths import (
+from book_translator.paths import (
     book_chapters_dir,
     book_markdown_dir,
     book_output_dir,
@@ -33,31 +33,31 @@ def test_default_folders_are_input_and_output_under_the_repo_root():
 
 def test_repo_root_uses_pyproject_next_to_the_package(tmp_path):
     checkout = tmp_path / "checkout"
-    (checkout / "book_splitter").mkdir(parents=True)
+    (checkout / "book_translator").mkdir(parents=True)
     (checkout / "pyproject.toml").write_text("[project]\nname = 'x'\n", encoding="utf-8")
 
-    assert repo_root(checkout / "book_splitter") == checkout
+    assert repo_root(checkout / "book_translator") == checkout
 
 
 def test_repo_root_recognises_a_book_project_by_its_runtime_config(tmp_path):
     project = tmp_path / "book-project"
     nested = project / "data" / "input"
     nested.mkdir(parents=True)
-    (project / "book_splitter.toml").write_text("[llm]\n", encoding="utf-8")
+    (project / "book_translator.toml").write_text("[llm]\n", encoding="utf-8")
 
     assert repo_root(nested) == project
 
 
 def test_repo_root_does_not_mistake_site_packages_for_a_project(tmp_path, monkeypatch):
     site_packages = tmp_path / "site-packages"
-    (site_packages / "book_splitter").mkdir(parents=True)
+    (site_packages / "book_translator").mkdir(parents=True)
     project = tmp_path / "working-dir"
     project.mkdir()
     monkeypatch.chdir(project)
 
     # A bare installed package directory has neither pyproject.toml nor
-    # book_splitter.toml, so the working directory wins.
-    assert repo_root(site_packages / "book_splitter") == project.resolve()
+    # book_translator.toml, so the working directory wins.
+    assert repo_root(site_packages / "book_translator") == project.resolve()
 
 
 def test_per_book_output_layout():
@@ -163,7 +163,7 @@ def test_resolve_output_dir_defaults_under_the_book_stem():
 
 def test_every_stage_artifact_folder_is_numbered_in_pipeline_order():
     """A book folder must sort in pipeline order in a plain file browser."""
-    from book_splitter.core.constants import (
+    from book_translator.core.constants import (
         CHAPTERS_DIRNAME,
         CHUNK_GLOSSARY_DIRNAME,
         CHUNKS_DIRNAME,

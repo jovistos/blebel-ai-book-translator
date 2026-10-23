@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from book_splitter.chunk_glossary import (
+from book_translator.chunk_glossary import (
     LexiconEntry,
     RapidFuzzMatcher,
     aggregate_entities,
@@ -28,15 +28,15 @@ from book_splitter.chunk_glossary import (
     load_chunk_glossary_manifest,
     run_chunk_glossary,
 )
-from book_splitter.chunk_glossary.runner import (
+from book_translator.chunk_glossary.runner import (
     TermMatch,
     chunk_glossary_filename,
     discover_chunk_inputs,
     resolve_chunks_dir,
 )
-from book_splitter.chunking import run_chunking
-from book_splitter.core.errors import ToolError
-from book_splitter.dictionary.ner import Entity
+from book_translator.chunking import run_chunking
+from book_translator.core.errors import ToolError
+from book_translator.dictionary.ner import Entity
 
 # --------------------------------------------------------------------------- #
 # doubles and fixtures

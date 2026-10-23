@@ -1,5 +1,5 @@
-# Optional dependencies of stage 3 (`book_splitter dictionary`) and the NER half
-# of stage 6 (`book_splitter chunk-glossary`).
+# Optional dependencies of stage 3 (`book_translator dictionary`) and the NER half
+# of stage 6 (`book_translator chunk-glossary`).
 #
 # Canonical dependency definitions live in pyproject.toml. This file is kept as
 # a compatibility shim for:

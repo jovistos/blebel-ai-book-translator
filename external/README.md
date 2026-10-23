@@ -5,7 +5,7 @@ It is excluded from version control (see `.gitignore`): nothing inside `external
 committed from here, and the only tracked file is this README.
 
 This folder exists purely as a local, clearly-marked landing area, so a checkout of an
-upstream project can sit next to the book splitter without ever being mistaken for part of it.
+upstream project can sit next to the book translator without ever being mistaken for part of it.
 
 ## Contents
 
@@ -19,8 +19,8 @@ upstream project can sit next to the book splitter without ever being mistaken f
    tracked; the rest of the folder is gitignored.
 2. **Never edit vendored code here.** If a change matters, make it in the upstream project
    (inside its own repository) and pull it back down.
-3. **This project must never import from `external/`.** `book_splitter` is self-contained; its
-   dependencies are declared in `requirements-book-splitter.txt`, not borrowed from a vendored
+3. **This project must never import from `external/`.** `book_translator` is self-contained; its
+   dependencies are declared in `requirements-book-translator.txt`, not borrowed from a vendored
    copy.
 
 ## Restoring the folder on a fresh clone
@@ -32,4 +32,4 @@ mkdir -p external
 git clone https://github.com/hydropix/TranslateBooksWithLLMs external/TranslateBooksWithLLMs
 ```
 
-The book splitter works without it — the folder is a convenience for local work only.
+The book translator works without it — the folder is a convenience for local work only.

@@ -1,0 +1,131 @@
+# =============================================================================
+# BleBelTranslateBook — Model & Provider Configuration
+# =============================================================================
+#
+# This file controls which AI model and provider each agent uses.
+#
+# Sections:
+#   [llm]            Default settings for all stages
+#   [llm.<stage>]    Granular settings for specific pipeline stages:
+#                    - split        (Stage 1: Chapter boundary agent)
+#                    - preprocess   (Stage 2: Header/damage cleaning agent)
+#                    - dictionary   (Stage 4: Glossary creation agent)
+#                    - matter       (Stage 6b: Front/back matter agent)
+#                    - translate    (Stage 7: Body translation agent)
+#                    - postprocess  (Stage 9: Heading consistency agent)
+#
+# -----------------------------------------------------------------------------
+# Supported Providers:
+# -----------------------------------------------------------------------------
+#   1. "deepseek"   (Default) Fast and affordable cloud API
+#                   - Models: "deepseek-flash" (default), "deepseek-v4-pro"
+#                   - Key: Set DEEPSEEK_API_KEY in .env
+#
+#   2. "lmstudio"   Local, offline, completely free and private
+#                   - Endpoint: "http://127.0.0.1:1234/v1"
+#                   - IMPORTANT: You do NOT need to specify `model`!
+#                     The pipeline automatically auto-detects and uses whichever
+#                     model is currently loaded in your LM Studio application.
+#                   - Key: None needed for local execution.
+#
+#   3. "openai"     Official OpenAI Cloud API
+#                   - Models: "gpt-4.1-mini", "gpt-4o", "o3-mini"
+#                   - Key: Set OPENAI_API_KEY in .env
+#
+#   4. "gemini"     Google Gemini via official OpenAI-compatible endpoint
+#                   - Endpoint: "https://generativelanguage.googleapis.com/v1beta/openai"
+#                   - Models: "gemini-2.5-flash", "gemini-2.5-pro"
+#                   - Key: Set GEMINI_API_KEY (or GOOGLE_API_KEY) in .env
+#
+#   5. "claude"     Anthropic Claude (via OpenRouter or OpenAI-compatible proxy)
+#                   - Endpoint: "https://openrouter.ai/api/v1"
+#                   - Models: "anthropic/claude-3.5-haiku", "anthropic/claude-3.7-sonnet"
+#                   - Key: Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY in .env
+#
+# -----------------------------------------------------------------------------
+# Precedence Order (highest to lowest):
+#   1. CLI overrides: `--llm <stage>.<field>=VALUE` or `--translate-provider ...`
+#   2. Environment variables: `SPLITTER_<STAGE>_*`, `TRANSLATION_*`
+#   3. Stage-specific section below: `[llm.<stage>]`
+#   4. Global section below: `[llm]`
+#   5. Built-in defaults
+# =============================================================================
+
+[llm]
+provider = "deepseek"
+model = "deepseek-flash"
+base_url = "https://api.deepseek.com/v1"
+temperature = 0.0
+timeout = 180.0
+max_retries = 3
+
+# --- To switch ALL agents to OpenAI: ---
+# provider = "openai"
+# model = "gpt-4.1-mini"
+# base_url = "https://api.openai.com/v1"
+
+# --- To switch ALL agents to Google Gemini: ---
+# provider = "gemini"
+# model = "gemini-2.5-flash"
+# base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+
+# --- To switch ALL agents to Anthropic Claude (via OpenRouter): ---
+# provider = "claude"
+# model = "anthropic/claude-3.5-haiku"
+# base_url = "https://openrouter.ai/api/v1"
+
+# --- To switch ALL agents to local LM Studio: ---
+# provider = "lmstudio"
+# base_url = "http://127.0.0.1:1234/v1"
+# (model is omitted; auto-detects whatever model is currently loaded in LM Studio)
+
+
+# =============================================================================
+# Granular Per-Agent Settings
+# =============================================================================
+
+# Stage 1 — Split Agent:
+# Determines where each chapter begins without reading the body prose.
+[llm.split]
+model = "deepseek-flash"
+# Example override:
+# provider = "gemini"
+# model = "gemini-2.5-flash"
+
+# Stage 2 — Preprocess Agent:
+# Inspects chapter headers, strips page numbers, and fixes conversion artifacts.
+[llm.preprocess]
+model = "deepseek-flash"
+
+# Stage 4 — Glossary Agent:
+# Builds a consistent character/place/terminology dictionary before translation.
+[llm.dictionary]
+model = "deepseek-flash"
+# For higher nuance on complex books, consider a stronger model:
+# model = "deepseek-v4-pro"
+
+# Stage 6b — Matter Agent:
+# Translates and formats front/back matter (book title, copyright, acknowledgments).
+[llm.matter]
+model = "deepseek-flash"
+
+# Stage 7 — Translate Agent:
+# Translates each chunk of chapter text using the locked glossary terms.
+[llm.translate]
+model = "deepseek-flash"
+
+# --- Common Setup: Local LM Studio for Stage 7 Translation ---
+# Run fast cloud models for stages 1-6b and translate locally for free:
+# provider = "lmstudio"
+# base_url = "http://127.0.0.1:1234/v1"
+# (No `model` line needed: LM Studio will use whichever model you have loaded!)
+
+# --- Alternative: High-Quality Claude for Stage 7 Translation ---
+# provider = "claude"
+# model = "anthropic/claude-3.7-sonnet"
+# base_url = "https://openrouter.ai/api/v1"
+
+# Stage 9 — Postprocess Agent:
+# Reconciles translated chapter titles and formats the table of contents.
+[llm.postprocess]
+model = "deepseek-flash"

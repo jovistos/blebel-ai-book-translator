@@ -15,12 +15,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from book_splitter import cli
-from book_splitter.core.constants import (
+from book_translator import cli
+from book_translator.core.constants import (
     DEFAULT_TRANSLATION_ATTEMPTS,
     DEFAULT_TRANSLATION_MAX_TOKENS,
 )
-from book_splitter.translation import runner as translation_runner
+from book_translator.translation import runner as translation_runner
 
 from test_translation_runner import FakeTranslator, _files, _project
 
@@ -43,7 +43,7 @@ def offline(monkeypatch):
     """Replace both the settings resolution and the model behind the translator."""
     translator = FakeTranslator()
     monkeypatch.setattr(
-        "book_splitter.core.settings.resolve_translation_settings", _settings
+        "book_translator.core.settings.resolve_translation_settings", _settings
     )
     monkeypatch.setattr(translation_runner, "make_translator", lambda *a, **k: translator)
     return translator
@@ -100,7 +100,7 @@ def test_the_lmstudio_choice_reaches_the_translation_resolver(
         return _settings()
 
     monkeypatch.setattr(
-        "book_splitter.core.settings.resolve_translation_settings", resolve
+        "book_translator.core.settings.resolve_translation_settings", resolve
     )
     monkeypatch.setattr(
         translation_runner, "make_translator", lambda *a, **k: FakeTranslator()
@@ -277,7 +277,7 @@ def test_a_failing_chunk_exits_one_and_lists_it(tmp_path: Path, monkeypatch, cap
 
     offline = FakeTranslator(explode)
     monkeypatch.setattr(
-        "book_splitter.core.settings.resolve_translation_settings", _settings
+        "book_translator.core.settings.resolve_translation_settings", _settings
     )
     monkeypatch.setattr(translation_runner, "make_translator", lambda *a, **k: offline)
 
@@ -359,7 +359,7 @@ def test_first_chapters_translates_only_the_chunks_of_that_window(
 
 
 def test_first_chapters_ignores_front_matter(tmp_path: Path, offline):
-    from book_splitter.chunking import chunk_files, run_chunking
+    from book_translator.chunking import chunk_files, run_chunking
 
     book = tmp_path / "book"
     chapters = book / "01-chapters"

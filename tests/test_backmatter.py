@@ -9,28 +9,28 @@ from __future__ import annotations
 
 import json
 
-from book_splitter.agent.tools import (
+from book_translator.agent.tools import (
     SPLIT_TOOLS,
     inspect_book_tail,
     propose_split_map,
     stage_of,
     tool_names,
 )
-from book_splitter.agent.tools.registry import SPLIT
-from book_splitter.analysis.backmatter import (
+from book_translator.agent.tools.registry import SPLIT
+from book_translator.analysis.backmatter import (
     back_matter_line_limit,
     clamp_chunk,
     detect_back_matter,
     is_back_matter_role,
 )
-from book_splitter.core.constants import (
+from book_translator.core.constants import (
     DEFAULT_TAIL_CHUNK_LINES,
     MAX_TAIL_CHUNK_LINES,
     MIN_TAIL_CHUNK_LINES,
 )
-from book_splitter.slicing.slice import slice_book
-from book_splitter.slicing.validation import validate_split_map
-from book_splitter.slicing.verify import verify_output
+from book_translator.slicing.slice import slice_book
+from book_translator.slicing.validation import validate_split_map
+from book_translator.slicing.verify import verify_output
 
 # --------------------------------------------------------------------------- #
 # A synthetic book: front TOC, four chapters, and (optionally) a tail of
@@ -181,7 +181,7 @@ def test_an_about_the_author_heading_is_structural_evidence_whatever_the_languag
 
 
 def test_only_a_whole_line_counts_as_an_about_the_author_heading():
-    from book_splitter.analysis.backmatter import line_signals
+    from book_translator.analysis.backmatter import line_signals
 
     assert line_signals("## O AUTORU", set()) == ["about-author-heading"]
     assert line_signals("Über den Autor", set()) == ["about-author-heading"]

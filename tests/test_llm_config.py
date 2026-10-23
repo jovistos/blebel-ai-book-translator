@@ -1,4 +1,4 @@
-"""Offline tests for the per-stage model config (``book_splitter.toml``).
+"""Offline tests for the per-stage model config (``book_translator.toml``).
 
 The config file is the one place that says which model each pipeline stage uses;
 the environment still holds the keys, and ``--llm`` / ``--llm-config`` override
@@ -9,9 +9,9 @@ credentials are environment strings.
 from __future__ import annotations
 
 import pytest
-from book_splitter.core import settings as settings_module
-from book_splitter.core.errors import ConfigError
-from book_splitter.paths import repo_root
+from book_translator.core import settings as settings_module
+from book_translator.core.errors import ConfigError
+from book_translator.paths import repo_root
 
 #: Every variable these tests may set, cleared before each one so the developer's
 #: real environment cannot change the result.
@@ -39,7 +39,7 @@ _ENV_NAMES = (
     "OPENROUTER_API_KEY",
     "OLLAMA_API_KEY",
     "MY_TRANSLATION_KEY",
-    "BOOK_SPLITTER_CONFIG",
+    "BOOK_TRANSLATOR_CONFIG",
 )
 
 
@@ -53,7 +53,7 @@ def clean_environment(monkeypatch):
 
 
 def write_config(tmp_path, text: str):
-    path = tmp_path / "book_splitter.toml"
+    path = tmp_path / "book_translator.toml"
     path.write_text(text, encoding="utf-8")
     return settings_module.load_llm_config(path)
 
@@ -79,7 +79,7 @@ base_url = "http://127.0.0.1:1234/v1"
 # the file itself
 # --------------------------------------------------------------------------- #
 def test_the_project_file_parses_and_names_every_model_stage():
-    loaded = settings_module.load_llm_config(repo_root() / "book_splitter.toml")
+    loaded = settings_module.load_llm_config(repo_root() / "book_translator.toml")
 
     assert loaded.path is not None
     assert loaded.defaults["provider"] == "deepseek"
@@ -210,7 +210,7 @@ def test_llm_config_path_follows_the_env_and_explicit_path(tmp_path, monkeypatch
     path = tmp_path / "other.toml"
     path.write_text("[llm]\nprovider = \"deepseek\"\n", encoding="utf-8")
 
-    monkeypatch.setenv("BOOK_SPLITTER_CONFIG", str(path))
+    monkeypatch.setenv("BOOK_TRANSLATOR_CONFIG", str(path))
     assert settings_module.llm_config_path() == path
     assert settings_module.llm_config_path(tmp_path / "explicit.toml").name == "explicit.toml"
 
@@ -283,7 +283,7 @@ def test_the_labels_read_the_stage_sections(tmp_path):
 # the command line
 # --------------------------------------------------------------------------- #
 def test_the_cli_accepts_a_bare_field_for_this_commands_stage():
-    from book_splitter import cli
+    from book_translator import cli
 
     args = cli.build_parser().parse_args(["translate", "--llm", "model=x"])
 
@@ -292,7 +292,7 @@ def test_the_cli_accepts_a_bare_field_for_this_commands_stage():
 
 
 def test_the_cli_rejects_a_bad_llm_switch_before_it_needs_a_model(capsys):
-    from book_splitter import cli
+    from book_translator import cli
 
     code = cli.main(["split", "whatever.md", "--llm", "nope.model=x"])
 
@@ -348,7 +348,7 @@ def test_deepseek_flash_is_the_default_in_both_provider_tables():
 
 
 def test_the_project_config_pins_deepseek_flash_in_every_stage():
-    loaded = settings_module.load_llm_config(repo_root() / "book_splitter.toml")
+    loaded = settings_module.load_llm_config(repo_root() / "book_translator.toml")
 
     assert loaded.defaults["model"] == "deepseek-flash"
     for stage in settings_module.STAGES:

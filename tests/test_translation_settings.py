@@ -9,7 +9,7 @@ to LM Studio; discovery is a stub.
 from __future__ import annotations
 
 import pytest
-from book_splitter.core import settings as settings_module
+from book_translator.core import settings as settings_module
 
 #: Every variable these tests may set, cleared before each one so the developer's
 #: real environment cannot change the result.
@@ -54,13 +54,13 @@ def test_lmstudio_is_the_second_option_and_needs_no_key(monkeypatch):
     monkeypatch.setattr(
         settings_module,
         "list_lmstudio_models",
-        lambda _base_url, timeout=0: ["gemma-4-31b-en2sr-v3@q4_k_m", "qwen/qwen3.8-27b"],
+        lambda _base_url, timeout=0: ["local-en2sr-translation-model", "qwen/qwen3.8-27b"],
     )
 
     resolved = settings_module.resolve_translation_settings(provider="lmstudio")
 
     assert resolved.provider == "lmstudio"
-    assert resolved.model == "gemma-4-31b-en2sr-v3@q4_k_m"
+    assert resolved.model == "local-en2sr-translation-model"
     assert resolved.base_url == "http://127.0.0.1:1234/v1"
     assert resolved.api_key == "not-needed"
     assert resolved.is_local
@@ -68,9 +68,9 @@ def test_lmstudio_is_the_second_option_and_needs_no_key(monkeypatch):
 
 def test_a_translation_tuned_model_is_preferred_when_several_are_loaded():
     picked = settings_module.pick_lmstudio_model(
-        ["qwen/qwen3.8-27b", "gemma-4-31b-en2sr-v3@q4_k_m", "google/gemma-4-12b"]
+        ["qwen/qwen3.8-27b", "local-en2sr-translation-model", "google/local-chat-12b"]
     )
-    assert picked == "gemma-4-31b-en2sr-v3@q4_k_m"
+    assert picked == "local-en2sr-translation-model"
     assert settings_module.pick_lmstudio_model([]) == ""
     # An embedding model listed next to the chat model is never picked.
     assert (

@@ -23,13 +23,13 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pytest
-from book_splitter.agent.graph import SPLIT, after_slice
-from book_splitter.matter_agent.graph import BOOK as MATTER_BOOK
-from book_splitter.matter_agent.graph import CHUNK as MATTER_CHUNK
-from book_splitter.postprocess_agent.graph import BOOK as POSTPROCESS_BOOK
-from book_splitter.postprocess_agent.graph import CHAPTER as POSTPROCESS_CHAPTER
-from book_splitter.preprocess_agent.graph import PREPROCESS
-from book_splitter.stage_graph import (
+from book_translator.agent.graph import SPLIT, after_slice
+from book_translator.matter_agent.graph import BOOK as MATTER_BOOK
+from book_translator.matter_agent.graph import CHUNK as MATTER_CHUNK
+from book_translator.postprocess_agent.graph import BOOK as POSTPROCESS_BOOK
+from book_translator.postprocess_agent.graph import CHAPTER as POSTPROCESS_CHAPTER
+from book_translator.preprocess_agent.graph import PREPROCESS
+from book_translator.stage_graph import (
     AGENT,
     END_KEY,
     GIVE_UP,

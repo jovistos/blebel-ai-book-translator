@@ -15,20 +15,20 @@ from __future__ import annotations
 import json
 
 import pytest
-from book_splitter.agent import run_split_from_map
-from book_splitter.analysis.prose import (
+from book_translator.agent import run_split_from_map
+from book_translator.analysis.prose import (
     PROSE_CHAPTER_ROLE,
     is_paragraph_start,
     is_prose_chapter_role,
     prose_start_problem,
 )
-from book_splitter.analysis.toc import detect_toc_block
-from book_splitter.cli import main as cli_main
-from book_splitter.core.errors import ToolError
-from book_splitter.documents.io import load_lines
-from book_splitter.slicing.mapfile import load_split_map
-from book_splitter.slicing.plan import plan_files
-from book_splitter.slicing.validation import validate_split_map
+from book_translator.analysis.toc import detect_toc_block
+from book_translator.cli import main as cli_main
+from book_translator.core.errors import ToolError
+from book_translator.documents.io import load_lines
+from book_translator.slicing.mapfile import load_split_map
+from book_translator.slicing.plan import plan_files
+from book_translator.slicing.validation import validate_split_map
 
 #: A five-chapter map of the plain fixture; the third start is prose (line 20 is
 #: the first line of chapter 1's body, sitting two lines under its own title).
@@ -292,7 +292,7 @@ def test_load_split_map_reports_a_missing_file(tmp_path):
 # the CLI
 # --------------------------------------------------------------------------- #
 def test_cli_split_with_a_map_needs_no_provider(plain, tmp_path, monkeypatch, capsys):
-    import book_splitter.core.settings as settings_module
+    import book_translator.core.settings as settings_module
 
     def explode(*_, **__):  # pragma: no cover - only called on the agent path
         raise AssertionError("--map must not resolve provider settings")

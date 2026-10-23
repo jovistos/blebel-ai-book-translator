@@ -1,4 +1,4 @@
-# Development-only dependencies for the book splitter.
+# Development-only dependencies for the book translator.
 #
 # Canonical dependency definitions live in pyproject.toml. This file is kept as
 # a compatibility shim for:

@@ -11,9 +11,9 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from book_splitter.core.errors import TranslationError
-from book_splitter.translation.models import ChunkTranslationAnswer
-from book_splitter.translation.translator import (
+from book_translator.core.errors import TranslationError
+from book_translator.translation.models import ChunkTranslationAnswer
+from book_translator.translation.translator import (
     LangChainTranslator,
     TranslationOutcome,
     clean_translation,

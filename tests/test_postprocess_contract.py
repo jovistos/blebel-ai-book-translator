@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from book_splitter.postprocess.inspect import scan_chapter_structure
-from book_splitter.postprocess.plan import validate_book_plan, validate_chapter_plan
+from book_translator.postprocess.inspect import scan_chapter_structure
+from book_translator.postprocess.plan import validate_book_plan, validate_chapter_plan
 
 BOOK = {
     "chapters": [

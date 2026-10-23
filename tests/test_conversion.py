@@ -14,16 +14,16 @@ import zipfile
 from pathlib import Path
 
 import pytest
-from book_splitter.conversion import (
+from book_translator.conversion import (
     classify_source,
     converted_markdown_path,
     inspect_pdf_text_layer,
     is_markdown_source,
     run_conversion,
 )
-from book_splitter.conversion import runner as conversion_runner
-from book_splitter.core.constants import CONVERT_MANIFEST_FILENAME
-from book_splitter.core.errors import MissingDependencyError, ToolError
+from book_translator.conversion import runner as conversion_runner
+from book_translator.core.constants import CONVERT_MANIFEST_FILENAME
+from book_translator.core.errors import MissingDependencyError, ToolError
 
 
 def fake_docling(monkeypatch, markdown: str = "# Chapter One\n\nSome converted text.\n"):
@@ -420,7 +420,7 @@ def test_a_dry_run_validates_without_writing(tmp_path, monkeypatch):
 # CLI
 # --------------------------------------------------------------------------- #
 def test_convert_cli_writes_the_markdown_and_reports_json(tmp_path, capsys):
-    from book_splitter.cli import main
+    from book_translator.cli import main
 
     source = tmp_path / "notes.txt"
     source.write_text("# Title\n\nBody\n", encoding="utf-8")
@@ -437,7 +437,7 @@ def test_convert_cli_writes_the_markdown_and_reports_json(tmp_path, capsys):
 
 
 def test_convert_cli_reports_an_image_based_pdf_as_an_error(tmp_path, monkeypatch, capsys):
-    from book_splitter.cli import main
+    from book_translator.cli import main
 
     source = tmp_path / "scan.pdf"
     source.write_bytes(b"%PDF-1.7 fake")
@@ -454,8 +454,8 @@ def test_convert_cli_reports_an_image_based_pdf_as_an_error(tmp_path, monkeypatc
 
 def test_split_converts_a_non_markdown_source_before_slicing(tmp_path, monkeypatch, capsys):
     """`split BOOK.txt` needs Markdown: stage 0 runs first, transparently."""
-    from book_splitter import cli
-    from book_splitter.agent.result import SplitterResult
+    from book_translator import cli
+    from book_translator.agent.result import SplitterResult
 
     source = tmp_path / "book.txt"
     source.write_text("# Chapter One\n\nSome text.\n", encoding="utf-8")
@@ -480,7 +480,7 @@ def test_split_converts_a_non_markdown_source_before_slicing(tmp_path, monkeypat
             verification={"reassembles_byte_for_byte": True},
         )
 
-    monkeypatch.setattr("book_splitter.agent.run_split", fake_split)
+    monkeypatch.setattr("book_translator.agent.run_split", fake_split)
 
     code = cli.main(["split", str(source), "--out", str(tmp_path / "chapters")])
 

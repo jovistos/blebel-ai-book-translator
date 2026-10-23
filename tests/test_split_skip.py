@@ -11,10 +11,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from book_splitter import cli
-from book_splitter.agent import runner
-from book_splitter.core.constants import MANIFEST_FILENAME, TRACE_FILENAME
-from book_splitter.documents.chapters import has_chapter_files
+from book_translator import cli
+from book_translator.agent import runner
+from book_translator.core.constants import MANIFEST_FILENAME, TRACE_FILENAME
+from book_translator.documents.chapters import has_chapter_files
 
 BOOK_TEXT = "# Book\n\n## Prva\n\ntext\n\n## Druga\n\nmore text\n"
 
@@ -98,7 +98,7 @@ def test_run_split_from_map_also_reuses(tmp_path):
 # the CLI
 # --------------------------------------------------------------------------- #
 def test_cli_split_skip_if_present_needs_no_provider_settings(tmp_path, monkeypatch, capsys):
-    from book_splitter.core import settings as settings_module
+    from book_translator.core import settings as settings_module
 
     source, chapters = make_book(tmp_path)
 

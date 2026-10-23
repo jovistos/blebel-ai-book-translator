@@ -6,7 +6,7 @@ import argparse
 from pathlib import Path
 
 import pytest
-from book_splitter.pipeline.paths import StagePaths
+from book_translator.pipeline.paths import StagePaths
 
 
 @pytest.fixture

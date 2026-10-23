@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from book_splitter.core.llm import (
+from book_translator.core.llm import (
     StructuredCaller,
     TokenUsage,
     build_chat_model,

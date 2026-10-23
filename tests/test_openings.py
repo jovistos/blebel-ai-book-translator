@@ -21,8 +21,8 @@ import json
 from pathlib import Path
 
 import pytest
-from book_splitter.agent.tools.openings import audit_book_openings, audit_chapter_opening
-from book_splitter.openings import (
+from book_translator.agent.tools.openings import audit_book_openings, audit_chapter_opening
+from book_translator.openings import (
     BARE_NUMBER_TITLE,
     DUPLICATE_TITLE,
     EMPTY_CHAPTER,
@@ -33,10 +33,10 @@ from book_splitter.openings import (
     inspect_opening,
     inspect_opening_lines,
 )
-from book_splitter.postprocess.inspect import find_title_candidate, scan_chapter_structure
-from book_splitter.postprocess.plan import apply_chapter_plan, text_of
-from book_splitter.postprocess_agent import run_postprocess
-from book_splitter.preprocess_agent import runner as preprocess_runner
+from book_translator.postprocess.inspect import find_title_candidate, scan_chapter_structure
+from book_translator.postprocess.plan import apply_chapter_plan, text_of
+from book_translator.postprocess_agent import run_postprocess
+from book_translator.preprocess_agent import runner as preprocess_runner
 from langchain_core.messages import AIMessage
 
 

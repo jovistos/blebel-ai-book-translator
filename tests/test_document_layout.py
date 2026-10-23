@@ -11,12 +11,12 @@ from __future__ import annotations
 import json
 
 import pytest
-from book_splitter import paths
-from book_splitter.agent import build_graph
-from book_splitter.agent.runner import summarise_run
-from book_splitter.analysis.locate import locate_toc_titles
-from book_splitter.documents.io import load_lines
-from book_splitter.slicing.verify import verify_output_dir
+from book_translator import paths
+from book_translator.agent import build_graph
+from book_translator.agent.runner import summarise_run
+from book_translator.analysis.locate import locate_toc_titles
+from book_translator.documents.io import load_lines
+from book_translator.slicing.verify import verify_output_dir
 from langchain_core.messages import AIMessage
 
 from _fixtures import SAMPLE, SAMPLE_TOC_TITLES, requires_sample

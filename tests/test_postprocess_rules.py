@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from book_splitter.postprocess.inspect import scan_chapter_structure
-from book_splitter.postprocess.plan import normalise_chapter_plan
-from book_splitter.postprocess.rules import (
+from book_translator.postprocess.inspect import scan_chapter_structure
+from book_translator.postprocess.plan import normalise_chapter_plan
+from book_translator.postprocess.rules import (
     BookPlanDraft,
     ChapterPlanDraft,
     check_evidence,
@@ -22,8 +22,8 @@ from book_splitter.postprocess.rules import (
     check_toc_plan,
     check_toc_state,
 )
-from book_splitter.postprocess.rules.chapter_headings import check_chapter_headings
-from book_splitter.postprocess.rules.chapter_title import check_chapter_title
+from book_translator.postprocess.rules.chapter_headings import check_chapter_headings
+from book_translator.postprocess.rules.chapter_title import check_chapter_title
 
 BOOK = {
     "chapters": [

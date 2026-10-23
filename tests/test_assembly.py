@@ -16,9 +16,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from book_splitter.assembly import run_assembly
-from book_splitter.chunking import chunk_files, run_chunking
-from book_splitter.documents.window import (
+from book_translator.assembly import run_assembly
+from book_translator.chunking import chunk_files, run_chunking
+from book_translator.documents.window import (
     chunk_limit_for_chapters,
     combine_limits,
 )
@@ -159,7 +159,7 @@ def test_a_chapter_window_maps_to_the_chunk_prefix(tmp_path: Path):
 
 
 def test_the_concatenate_command_finds_the_book_folders(tmp_path: Path):
-    from book_splitter import cli
+    from book_translator import cli
 
     book, chapters, _chunks, _translations = _project(tmp_path)
 
@@ -174,7 +174,7 @@ def test_the_concatenate_command_finds_the_book_folders(tmp_path: Path):
 
 
 def test_a_chapter_window_counts_body_chapters_not_front_matter(tmp_path: Path):
-    from book_splitter.documents.window import (
+    from book_translator.documents.window import (
         body_chapter_names,
         chapter_window_limit_for_path,
         is_body_chapter_name,

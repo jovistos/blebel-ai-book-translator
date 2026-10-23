@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from book_splitter import paths
+from book_translator import paths
 
 
 def _check(module: str) -> bool:

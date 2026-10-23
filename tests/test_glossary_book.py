@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import json
 
-from book_splitter.glossary.book import GlossaryBook, MergeOutcome
-from book_splitter.glossary.models import ChapterExtraction
-from book_splitter.glossary.records import ChapterGlossary, GlossaryTerm
+from book_translator.glossary.book import GlossaryBook, MergeOutcome
+from book_translator.glossary.models import ChapterExtraction
+from book_translator.glossary.records import ChapterGlossary, GlossaryTerm
 
 
 def _entries(*rows: dict) -> list:
@@ -159,7 +159,7 @@ def test_the_chapter_record_projects_one_declared_shape() -> None:
 
 
 def test_records_still_expose_the_old_book_import_path() -> None:
-    from book_splitter.glossary import records
+    from book_translator.glossary import records
 
     assert records.GlossaryBook is GlossaryBook
     assert records.MergeOutcome is MergeOutcome

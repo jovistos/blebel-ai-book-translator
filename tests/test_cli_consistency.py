@@ -5,9 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 
-from book_splitter import cli
-from book_splitter.cli import parents
-from book_splitter.pipeline import parser as pipeline_parser
+from book_translator import cli
+from book_translator.cli import parents
+from book_translator.pipeline import parser as pipeline_parser
 
 
 def subparsers() -> dict[str, argparse.ArgumentParser]:
@@ -33,7 +33,7 @@ def test_every_real_command_accepts_json_quiet_and_output_root():
     for name, parser in choices.items():
         if name == "pipeline":
             # The real pipeline parser is tested separately; this is only the
-            # discoverability stub used by `book_splitter --help`.
+            # discoverability stub used by `book_translator --help`.
             continue
         flags = option_strings(parser)
         assert "--json" in flags, f"{name} has no --json"

@@ -11,14 +11,14 @@ import importlib
 from pathlib import Path
 from typing import Any
 
-import book_splitter
+import book_translator
 import pytest
 
 from _fixtures import ROOT
 
 PYPROJECT = ROOT / "pyproject.toml"
 REQUIREMENTS = {
-    "chunk": ROOT / "requirements-book-splitter.txt",
+    "chunk": ROOT / "requirements-book-translator.txt",
     "dev": ROOT / "requirements-dev.txt",
     "dictionary": ROOT / "requirements-dictionary.txt",
 }
@@ -52,8 +52,8 @@ def test_console_scripts_resolve_to_callables() -> None:
     scripts = _metadata()["project"]["scripts"]
 
     assert scripts == {
-        "book-splitter": "book_splitter.cli:main",
-        "book-splitter-pipeline": "book_splitter.pipeline.parser:main",
+        "book-translator": "book_translator.cli:main",
+        "book-translator-pipeline": "book_translator.pipeline.parser:main",
     }
     for target in scripts.values():
         module_name, attribute = target.split(":", 1)
@@ -66,16 +66,16 @@ def test_the_version_has_one_source() -> None:
     dynamic = _metadata()["tool"]["setuptools"]["dynamic"]
 
     assert project["dynamic"] == ["version"]
-    assert dynamic["version"] == {"attr": "book_splitter.__version__"}
-    assert isinstance(book_splitter.__version__, str)
-    assert book_splitter.__version__.count(".") >= 1
+    assert dynamic["version"] == {"attr": "book_translator.__version__"}
+    assert isinstance(book_translator.__version__, str)
+    assert book_translator.__version__.count(".") >= 1
 
 
 def test_the_epub_stylesheet_is_declared_as_package_data() -> None:
     data = _metadata()["tool"]["setuptools"]["package-data"]
 
-    assert data["book_splitter.epub"] == ["assets/*.css"]
-    assert (ROOT / "book_splitter" / "epub" / "assets" / "style.css").is_file()
+    assert data["book_translator.epub"] == ["assets/*.css"]
+    assert (ROOT / "book_translator" / "epub" / "assets" / "style.css").is_file()
 
 
 @pytest.mark.parametrize(("extra", "path"), REQUIREMENTS.items())
@@ -91,5 +91,5 @@ def test_requirements_files_are_thin_shims_for_extras(extra: str, path: Path) ->
 def test_the_sdist_manifest_keeps_the_documented_files() -> None:
     manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8")
 
-    for name in ("README-book-splitter.md", "book_splitter.toml", "tests", "scripts"):
+    for name in ("README-book-translator.md", "book_translator.toml", "tests", "scripts"):
         assert name in manifest

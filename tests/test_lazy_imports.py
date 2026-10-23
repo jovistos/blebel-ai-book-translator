@@ -14,7 +14,7 @@ import subprocess
 import sys
 from typing import Any, cast
 
-import book_splitter
+import book_translator
 
 from _fixtures import ROOT
 
@@ -59,7 +59,7 @@ def _probe(imports: str) -> dict[str, Any]:
 
 
 def test_importing_a_document_helper_does_not_import_the_agent_runtime() -> None:
-    result = _probe("import book_splitter.documents.text")
+    result = _probe("import book_translator.documents.text")
 
     assert result["heavy"] == []
     assert result["module_count"] < 500
@@ -68,7 +68,7 @@ def test_importing_a_document_helper_does_not_import_the_agent_runtime() -> None
 
 
 def test_importing_the_package_alone_is_lazy() -> None:
-    result = _probe("import book_splitter")
+    result = _probe("import book_translator")
 
     assert result["heavy"] == []
     assert result["module_count"] < 200
@@ -76,7 +76,7 @@ def test_importing_the_package_alone_is_lazy() -> None:
 
 
 def test_importing_the_cli_does_not_import_the_agent_runtime() -> None:
-    result = _probe("import book_splitter.cli")
+    result = _probe("import book_translator.cli")
 
     assert result["heavy"] == []
     assert result["module_count"] < 500
@@ -85,15 +85,15 @@ def test_importing_the_cli_does_not_import_the_agent_runtime() -> None:
 
 
 def test_reading_an_agent_export_loads_its_module_on_demand() -> None:
-    result = _probe("from book_splitter import run_split")
+    result = _probe("from book_translator import run_split")
 
     assert "langgraph" in result["heavy"]
 
 
 def test_the_lazy_map_covers_every_export_exactly() -> None:
-    assert set(book_splitter._LAZY_EXPORTS) == set(book_splitter.__all__)
-    assert len(book_splitter.__all__) == len(set(book_splitter.__all__))
+    assert set(book_translator._LAZY_EXPORTS) == set(book_translator.__all__)
+    assert len(book_translator.__all__) == len(set(book_translator.__all__))
 
 
 def test_dir_still_lists_the_public_names_without_importing_them() -> None:
-    assert set(book_splitter.__all__) <= set(dir(book_splitter))
+    assert set(book_translator.__all__) <= set(dir(book_translator))

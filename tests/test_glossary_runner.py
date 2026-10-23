@@ -16,10 +16,10 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from book_splitter.core.errors import ExtractionError, ToolError
-from book_splitter.documents.chapters import discover_chapters
-from book_splitter.glossary import ChapterExtraction, ExtractionOutcome, TokenUsage
-from book_splitter.glossary.runner import (
+from book_translator.core.errors import ExtractionError, ToolError
+from book_translator.documents.chapters import discover_chapters
+from book_translator.glossary import ChapterExtraction, ExtractionOutcome, TokenUsage
+from book_translator.glossary.runner import (
     GlossaryBook,
     GlossaryTerm,
     chapter_kind,
@@ -694,7 +694,7 @@ def test_a_pending_chapter_resolves_settings_once(tmp_path, monkeypatch):
         )
 
     monkeypatch.setattr(
-        "book_splitter.glossary.runner.make_extractor",
+        "book_translator.glossary.runner.make_extractor",
         lambda settings, **kwargs: FakeExtractor(lambda s, u: [entry("Potter", "Poter")]),
     )
     result = run_glossary(

@@ -12,12 +12,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from book_splitter.agent import run_split
-from book_splitter.glossary import run_glossary
-from book_splitter.matter_agent import run_matter
-from book_splitter.postprocess_agent import run_postprocess
-from book_splitter.preprocess_agent import run_preprocess
-from book_splitter.translation import run_translation
+from book_translator.agent import run_split
+from book_translator.glossary import run_glossary
+from book_translator.matter_agent import run_matter
+from book_translator.postprocess_agent import run_postprocess
+from book_translator.preprocess_agent import run_preprocess
+from book_translator.translation import run_translation
 
 from _pipeline_harness import run_fixture_pipeline
 
@@ -38,11 +38,11 @@ def no_spend(monkeypatch):
     def explode(*_args, **_kwargs):
         raise AssertionError("a dry run tried to construct a model or resolve a provider")
 
-    monkeypatch.setattr("book_splitter.core.llm.build_chat_model", explode)
-    monkeypatch.setattr("book_splitter.agent.graph.make_llm", explode)
-    monkeypatch.setattr("book_splitter.core.settings.resolve_settings", explode)
+    monkeypatch.setattr("book_translator.core.llm.build_chat_model", explode)
+    monkeypatch.setattr("book_translator.agent.graph.make_llm", explode)
+    monkeypatch.setattr("book_translator.core.settings.resolve_settings", explode)
     monkeypatch.setattr(
-        "book_splitter.core.settings.resolve_translation_settings", explode
+        "book_translator.core.settings.resolve_translation_settings", explode
     )
     return explode
 
