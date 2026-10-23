@@ -19,8 +19,8 @@ from xml.etree import ElementTree as ET
 import pytest
 from book_translator import cli
 from book_translator.core.errors import MissingDependencyError, ToolError
-from book_translator.epub import render_markdown, run_epub
-from book_translator.epub.runner import _check_nav, _check_opf, _verify
+from book_translator.stages.epub import render_markdown, run_epub
+from book_translator.stages.epub.runner import _check_nav, _check_opf, _verify
 
 #: A 1x1 transparent PNG: a real picture, small enough to keep the test readable.
 PNG = base64.b64decode(
@@ -686,7 +686,7 @@ def _zip_info(name: str, *, compressed: bool = False) -> zipfile.ZipInfo:
 
 def test_check_mimetype_accepts_the_one_legal_first_entry() -> None:
     from book_translator.core.constants import EPUB_MIMETYPE
-    from book_translator.epub.verify import check_mimetype
+    from book_translator.stages.epub.verify import check_mimetype
 
     problems: list[str] = []
     report: dict = {}
@@ -703,7 +703,7 @@ def test_check_mimetype_accepts_the_one_legal_first_entry() -> None:
 
 def test_check_mimetype_reports_compression_and_position() -> None:
     from book_translator.core.constants import EPUB_MIMETYPE
-    from book_translator.epub.verify import check_mimetype
+    from book_translator.stages.epub.verify import check_mimetype
 
     problems: list[str] = []
     report: dict = {}
@@ -723,7 +723,7 @@ def test_check_mimetype_reports_compression_and_position() -> None:
 
 
 def test_check_container_returns_the_package_document() -> None:
-    from book_translator.epub.verify import check_container
+    from book_translator.stages.epub.verify import check_container
 
     container = (
         b'<?xml version="1.0" encoding="UTF-8"?>'
@@ -747,7 +747,7 @@ def test_check_container_returns_the_package_document() -> None:
 
 
 def test_check_container_reports_an_unreadable_or_missing_document() -> None:
-    from book_translator.epub.verify import check_container
+    from book_translator.stages.epub.verify import check_container
 
     problems: list[str] = []
     report: dict = {}
@@ -760,8 +760,8 @@ def test_check_container_reports_an_unreadable_or_missing_document() -> None:
 
 
 def test_check_documents_accepts_a_titled_document() -> None:
-    from book_translator.epub.package import SpineDocument
-    from book_translator.epub.verify import check_documents
+    from book_translator.stages.epub.package import SpineDocument
+    from book_translator.stages.epub.verify import check_documents
 
     document = SpineDocument(href="text/01.xhtml", title="Chapter", body="")
     xhtml = (
@@ -780,8 +780,8 @@ def test_check_documents_accepts_a_titled_document() -> None:
 
 
 def test_check_documents_reports_malformed_and_missing_documents() -> None:
-    from book_translator.epub.package import SpineDocument
-    from book_translator.epub.verify import check_documents
+    from book_translator.stages.epub.package import SpineDocument
+    from book_translator.stages.epub.verify import check_documents
 
     problems: list[str] = []
     report = {"xhtml_valid": 0, "image_links_ok": 0}
@@ -808,8 +808,8 @@ def test_check_documents_reports_malformed_and_missing_documents() -> None:
 
 
 def test_check_cover_requires_both_page_and_picture() -> None:
-    from book_translator.epub.package import ImageAsset
-    from book_translator.epub.verify import check_cover
+    from book_translator.stages.epub.package import ImageAsset
+    from book_translator.stages.epub.verify import check_cover
 
     cover = ImageAsset(href="images/cover.png", media_type="image/png", data=b"x")
 

@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from book_translator.pipeline.paths import StagePaths
 
-from book_translator.conversion import is_markdown_source, run_conversion
 from book_translator.core.constants import (
     CHAPTERS_DIRNAME,
     DEFAULT_KEEP_ENTITY_TYPES,
@@ -30,6 +29,7 @@ from book_translator.paths import (
     resolve_book_path,
     resolve_output_dir,
 )
+from book_translator.stages.conversion import is_markdown_source, run_conversion
 
 
 def _print_json(payload) -> None:

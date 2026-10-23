@@ -10,8 +10,8 @@ dictionary so far, and the chapter evidence must be the last thing in the prompt
 
 from __future__ import annotations
 
-from book_translator.glossary.models import GlossaryEntry
-from book_translator.glossary.prompts import (
+from book_translator.stages.glossary.models import GlossaryEntry
+from book_translator.stages.glossary.prompts import (
     CHAPTER_HEADER,
     DICTIONARY_HEADER,
     build_chapter_prompt,

@@ -65,7 +65,7 @@ def test_a_tool_that_needs_the_run_fails_clearly_without_it():
 
 def test_the_executor_passes_the_state_context_to_the_tool(tmp_path):
     """A bare filename works because the executor injects the graph's context."""
-    from book_translator.postprocess_agent.graph import CHAPTER
+    from book_translator.stages.postprocess_agent.graph import CHAPTER
     from langchain_core.messages import AIMessage, ToolMessage
 
     chapter = tmp_path / "01-chapter-1.md"

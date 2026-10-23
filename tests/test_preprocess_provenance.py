@@ -10,12 +10,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from book_translator.preprocess.apply import (
+from book_translator.stages.preprocess.apply import (
     ApplyResult,
     LineProvenance,
     apply_cleaning_plan,
 )
-from book_translator.preprocess.verify import verify_cleaning_plan
+from book_translator.stages.preprocess.verify import verify_cleaning_plan
 
 LINES = [
     "## GLAVA 1",  # 1

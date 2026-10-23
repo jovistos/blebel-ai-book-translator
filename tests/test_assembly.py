@@ -16,12 +16,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from book_translator.assembly import run_assembly
-from book_translator.chunking import chunk_files, run_chunking
 from book_translator.documents.window import (
     chunk_limit_for_chapters,
     combine_limits,
 )
+from book_translator.stages.assembly import run_assembly
+from book_translator.stages.chunking import chunk_files, run_chunking
 
 CHAPTERS = {
     "01-one.md": "Chapter One\n\nGeorge lives in London and meets Jane.\n",

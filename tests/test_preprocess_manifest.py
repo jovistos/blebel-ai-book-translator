@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 
 from book_translator.documents.chapters import discover_chapters, load_split_manifest
-from book_translator.preprocess_agent.runner import (
+from book_translator.stages.preprocess_agent.runner import (
     ChapterResult,
     PreprocessResult,
     write_preprocess_manifest,

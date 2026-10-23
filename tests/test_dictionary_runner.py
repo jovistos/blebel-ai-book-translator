@@ -17,11 +17,16 @@ from typing import Any, ClassVar
 
 import pytest
 from book_translator.core.errors import MissingDependencyError, ToolError
-from book_translator.dictionary import language as language_module
-from book_translator.dictionary import ner as ner_module
-from book_translator.dictionary import runner as runner_module
-from book_translator.dictionary.ner import Entity, backend_for_language, configure_gpu, make_backend
-from book_translator.dictionary.runner import reduce_text, run_dictionary
+from book_translator.stages.dictionary import language as language_module
+from book_translator.stages.dictionary import ner as ner_module
+from book_translator.stages.dictionary import runner as runner_module
+from book_translator.stages.dictionary.ner import (
+    Entity,
+    backend_for_language,
+    configure_gpu,
+    make_backend,
+)
+from book_translator.stages.dictionary.runner import reduce_text, run_dictionary
 
 
 # --------------------------------------------------------------------------- #
@@ -497,7 +502,7 @@ IJEKAVIAN = (
 
 
 def test_the_reflex_counter_sees_the_spelling():
-    from book_translator.dictionary.language import count_reflexes
+    from book_translator.stages.dictionary.language import count_reflexes
 
     assert count_reflexes(EKAVIAN)["ekavian"] > 5
     assert count_reflexes(EKAVIAN)["ijekavian"] == 0
@@ -506,7 +511,7 @@ def test_the_reflex_counter_sees_the_spelling():
 
 
 def test_an_ekavian_book_is_read_as_serbian_whatever_lingua_voted():
-    from book_translator.dictionary.language import resolve_south_slavic
+    from book_translator.stages.dictionary.language import resolve_south_slavic
 
     language, note = resolve_south_slavic("hr", EKAVIAN)
     assert language == "sr"
@@ -516,7 +521,7 @@ def test_an_ekavian_book_is_read_as_serbian_whatever_lingua_voted():
 
 
 def test_an_ijekavian_book_voted_serbian_is_read_as_croatian():
-    from book_translator.dictionary.language import resolve_south_slavic
+    from book_translator.stages.dictionary.language import resolve_south_slavic
 
     language, note = resolve_south_slavic("sr", IJEKAVIAN)
     assert language == "hr"
@@ -524,7 +529,7 @@ def test_an_ijekavian_book_voted_serbian_is_read_as_croatian():
 
 
 def test_the_tie_breaker_stays_out_of_ambiguous_or_thin_evidence():
-    from book_translator.dictionary.language import resolve_south_slavic
+    from book_translator.stages.dictionary.language import resolve_south_slavic
 
     # Too few forms to be sure.
     thin = "Bilo je lepo."
@@ -588,7 +593,7 @@ def test_lingua_members_handles_both_enum_styles():
     """lingua 2.x (PyO3, `Language.all()`) and 1.x (a plain Python enum)."""
     import enum
 
-    from book_translator.dictionary.language import _lingua_members
+    from book_translator.stages.dictionary.language import _lingua_members
 
     class Legacy(enum.Enum):
         ENGLISH = "EN"
@@ -614,7 +619,7 @@ def test_missing_model_files_are_recognised_so_they_can_be_downloaded():
     The message is the one classla actually raises when its resources directory
     holds no ``resources.json`` (verified against classla 2.2.3).
     """
-    from book_translator.dictionary.ner import _looks_like_missing_models
+    from book_translator.stages.dictionary.ner import _looks_like_missing_models
 
     real = Exception(
         "Resources file not found at: /tmp/x/resources.json. Try to download the model again."
@@ -635,7 +640,7 @@ def test_stanza_ontonotes_labels_are_folded_onto_the_four_types():
     type. That is exactly what happened to the first English book that ran:
     13 384 sentences in, 244 kept, and not one PER in the whole novel.
     """
-    from book_translator.dictionary.ner import (
+    from book_translator.stages.dictionary.ner import (
         _STANZA_TO_CLASSLA,
         _document_entities,
         gate_entities,
@@ -685,7 +690,7 @@ def test_the_stanza_backend_folds_its_labels_end_to_end(monkeypatch):
     import sys
     import types
 
-    from book_translator.dictionary.ner import StanzaBackend
+    from book_translator.stages.dictionary.ner import StanzaBackend
 
     class Ent:
         def __init__(self, text, type):
@@ -724,7 +729,7 @@ def test_the_stanza_backend_folds_its_labels_end_to_end(monkeypatch):
 
 def test_the_device_can_come_from_a_device_string(monkeypatch):
     """stanza >= 1.5 reports ``device`` instead of a ``use_gpu`` flag."""
-    from book_translator.dictionary.ner import backend_device
+    from book_translator.stages.dictionary.ner import backend_device
 
     class Backend:
         def __init__(self, device):
@@ -741,7 +746,7 @@ def test_the_first_run_downloads_only_the_processors_it_will_load(monkeypatch):
     import sys
     import types
 
-    from book_translator.dictionary.ner import ClasslaBackend
+    from book_translator.stages.dictionary.ner import ClasslaBackend
 
     calls: dict[str, object] = {}
 
@@ -813,7 +818,7 @@ def test_run_dictionary_leaves_cuda_untouched_when_a_tagger_is_injected(tmp_path
 
 def test_the_reported_device_is_the_one_that_actually_ran():
     """``--gpu 1`` on a box without a reachable driver is a CPU run, and says so."""
-    from book_translator.dictionary.ner import backend_device
+    from book_translator.stages.dictionary.ner import backend_device
 
     class Pipeline:
         def __init__(self, use_gpu):
@@ -854,9 +859,9 @@ def _stub_cli_dictionary(
     skipped: bool = False,
     error: Exception | None = None,
 ):
-    """Replace ``book_translator.dictionary.run_dictionary`` for a CLI test."""
-    import book_translator.dictionary as dictionary_package
-    from book_translator.dictionary.runner import DictionaryResult
+    """Replace ``book_translator.stages.dictionary.run_dictionary`` for a CLI test."""
+    import book_translator.stages.dictionary as dictionary_package
+    from book_translator.stages.dictionary.runner import DictionaryResult
 
     calls: list[dict] = []
 

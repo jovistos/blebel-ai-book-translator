@@ -159,7 +159,7 @@ def add_parser(sub: Any) -> None:
 
 def cmd_dictionary(args: argparse.Namespace) -> int:
     """Stage 3: reduce each chapter to its entity-bearing sentences, then to first mentions."""
-    from ...dictionary import run_dictionary
+    from book_translator.stages.dictionary import run_dictionary
 
     # Accept either the chapters folder or the book folder that holds it: an
     # explicit ``--out`` is taken as given, while the default prefers the cleaned

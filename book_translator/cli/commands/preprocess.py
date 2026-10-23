@@ -91,7 +91,7 @@ def add_parser(sub: Any) -> None:
 
 
 def cmd_preprocess(args: argparse.Namespace) -> int:
-    from ...preprocess_agent import run_preprocess
+    from book_translator.stages.preprocess_agent import run_preprocess
 
     chapters_dir = _resolve_chapters_dir(args.book, args.in_dir, args.out, getattr(args, "output_root", None))
     out_dir = args.preprocessed_out or None

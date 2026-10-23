@@ -174,8 +174,8 @@ def add_parser(sub: Any) -> None:
 
 def cmd_chunk_glossary(args: argparse.Namespace) -> int:
     """Stage 6: NER over every chunk, then fuzzy-match each term to the glossary."""
-    from ...chunk_glossary import run_chunk_glossary
-    from ...chunk_glossary.runner import resolve_chunks_dir
+    from book_translator.stages.chunk_glossary import run_chunk_glossary
+    from book_translator.stages.chunk_glossary.runner import resolve_chunks_dir
 
     chapters_path = chapters_dir(_resolve_text_dir(
             args.book,

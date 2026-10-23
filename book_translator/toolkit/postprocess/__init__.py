@@ -6,7 +6,8 @@ dispatch table, computed after the module has registered its tools.
 
 from __future__ import annotations
 
-from ...agent.tools.registry import POSTPROCESS, bind_all, tools_for_stage
+from book_translator.stages.agent.tools.registry import POSTPROCESS, bind_all, tools_for_stage
+
 from .tools import (
     BOOK_TOOL_NAMES,
     CHAPTER_TOOL_NAMES,

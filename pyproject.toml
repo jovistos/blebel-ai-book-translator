@@ -80,7 +80,7 @@ version = {attr = "book_translator.__version__"}
 include = ["book_translator*"]
 
 [tool.setuptools.package-data]
-"book_translator.epub" = ["assets/*.css"]
+"book_translator.stages.epub" = ["assets/*.css"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

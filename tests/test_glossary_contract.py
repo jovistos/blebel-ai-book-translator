@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from book_translator.glossary.records import (
+from book_translator.stages.glossary.records import (
     ChapterGlossary,
     GlossaryResult,
     GlossaryTerm,

@@ -181,8 +181,8 @@ def add_parser(sub: Any) -> None:
 
 def cmd_glossary(args: argparse.Namespace) -> int:
     """Stage 4: build the book-wide glossary, one chapter at a time, first to last."""
-    from ...glossary import run_glossary
-    from ...glossary.runner import resolve_sentences_dir
+    from book_translator.stages.glossary import run_glossary
+    from book_translator.stages.glossary.runner import resolve_sentences_dir
 
     paths = _command_paths(args)
     limit = chapter_window_limit_for_path(

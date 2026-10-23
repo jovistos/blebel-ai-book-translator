@@ -98,7 +98,7 @@ def add_parser(sub: Any) -> None:
 
 def cmd_epub(args: argparse.Namespace) -> int:
     """Stage 11: package the postprocessed chapters as an EPUB 3 book."""
-    from ...epub import run_epub
+    from book_translator.stages.epub import run_epub
 
     if args.postprocessed_in:
         source_path = Path(args.postprocessed_in).expanduser()

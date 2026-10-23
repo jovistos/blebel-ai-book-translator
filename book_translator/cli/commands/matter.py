@@ -138,8 +138,8 @@ def add_parser(sub: Any) -> None:
 
 def cmd_matter(args: argparse.Namespace) -> int:
     """Stage 6b: localize front/back matter with its own agent, before translation."""
-    from ...chunk_glossary.runner import resolve_chunks_dir
-    from ...matter_agent import run_matter
+    from book_translator.stages.chunk_glossary.runner import resolve_chunks_dir
+    from book_translator.stages.matter_agent import run_matter
 
     if args.chapters_in:
         chapters_path = chapters_dir(Path(args.chapters_in).expanduser())

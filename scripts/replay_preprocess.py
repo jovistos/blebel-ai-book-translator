@@ -30,15 +30,15 @@ from book_translator.documents.chapters import (  # noqa: E402
     discover_chapters,
     preprocessed_dir,
 )
-from book_translator.preprocess.apply import (  # noqa: E402
+from book_translator.stages.preprocess.apply import (  # noqa: E402
     apply_cleaning_plan,
     text_of,
 )
-from book_translator.preprocess.plan import (  # noqa: E402
+from book_translator.stages.preprocess.plan import (  # noqa: E402
     validate_cleaning_plan,
     validate_text_fixes,
 )
-from book_translator.preprocess.verify import verify_cleaning_plan  # noqa: E402
+from book_translator.stages.preprocess.verify import verify_cleaning_plan  # noqa: E402
 
 
 def main() -> int:

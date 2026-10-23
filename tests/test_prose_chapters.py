@@ -15,20 +15,20 @@ from __future__ import annotations
 import json
 
 import pytest
-from book_translator.agent import run_split_from_map
-from book_translator.analysis.prose import (
+from book_translator.cli import main as cli_main
+from book_translator.core.errors import ToolError
+from book_translator.documents.io import load_lines
+from book_translator.stages.agent import run_split_from_map
+from book_translator.stages.analysis.prose import (
     PROSE_CHAPTER_ROLE,
     is_paragraph_start,
     is_prose_chapter_role,
     prose_start_problem,
 )
-from book_translator.analysis.toc import detect_toc_block
-from book_translator.cli import main as cli_main
-from book_translator.core.errors import ToolError
-from book_translator.documents.io import load_lines
-from book_translator.slicing.mapfile import load_split_map
-from book_translator.slicing.plan import plan_files
-from book_translator.slicing.validation import validate_split_map
+from book_translator.stages.analysis.toc import detect_toc_block
+from book_translator.stages.slicing.mapfile import load_split_map
+from book_translator.stages.slicing.plan import plan_files
+from book_translator.stages.slicing.validation import validate_split_map
 
 #: A five-chapter map of the plain fixture; the third start is prose (line 20 is
 #: the first line of chapter 1's body, sitting two lines under its own title).

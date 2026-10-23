@@ -1,6 +1,6 @@
 """Alias for Stage 8: concatenate translated chunks back into chapters.
 
-Delegates to :mod:`book_translator.assembly`.
+Delegates to :mod:`book_translator.stages.assembly`.
 """
 
 from __future__ import annotations

@@ -6,7 +6,7 @@ book's meaning. Every predicate takes one or two lines and returns a boolean or
 a small tuple, so the same shapes can be reported to an agent, asserted in a
 test, or fed to a transformer.
 
-The two repairs that are provably safe live in :mod:`book_translator.preprocess.damage`;
+The two repairs that are provably safe live in :mod:`book_translator.stages.preprocess.damage`;
 what is here is only the *evidence* that they apply.
 """
 

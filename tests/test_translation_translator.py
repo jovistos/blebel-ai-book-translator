@@ -12,8 +12,8 @@ from typing import Any
 
 import pytest
 from book_translator.core.errors import TranslationError
-from book_translator.translation.models import ChunkTranslationAnswer
-from book_translator.translation.translator import (
+from book_translator.stages.translation.models import ChunkTranslationAnswer
+from book_translator.stages.translation.translator import (
     LangChainTranslator,
     TranslationOutcome,
     clean_translation,

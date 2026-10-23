@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from book_translator.core.constants import DEFAULT_TARGET_LANGUAGE
 from book_translator.documents.book import BookMetadata as Canonical
-from book_translator.epub import metadata as epub_metadata
-from book_translator.matter import metadata as matter_metadata
+from book_translator.stages.epub import metadata as epub_metadata
+from book_translator.stages.matter import metadata as matter_metadata
 
 
 def test_both_stages_use_the_one_book_record() -> None:

@@ -20,7 +20,7 @@ from book_translator.core.constants import (
     DEFAULT_TRANSLATION_ATTEMPTS,
     DEFAULT_TRANSLATION_MAX_TOKENS,
 )
-from book_translator.translation import runner as translation_runner
+from book_translator.stages.translation import runner as translation_runner
 
 from test_translation_runner import FakeTranslator, _files, _project
 
@@ -359,7 +359,7 @@ def test_first_chapters_translates_only_the_chunks_of_that_window(
 
 
 def test_first_chapters_ignores_front_matter(tmp_path: Path, offline):
-    from book_translator.chunking import chunk_files, run_chunking
+    from book_translator.stages.chunking import chunk_files, run_chunking
 
     book = tmp_path / "book"
     chapters = book / "01-chapters"

@@ -23,12 +23,6 @@ from __future__ import annotations
 from typing import Any, cast
 
 import pytest
-from book_translator.agent.graph import SPLIT, after_slice
-from book_translator.matter_agent.graph import BOOK as MATTER_BOOK
-from book_translator.matter_agent.graph import CHUNK as MATTER_CHUNK
-from book_translator.postprocess_agent.graph import BOOK as POSTPROCESS_BOOK
-from book_translator.postprocess_agent.graph import CHAPTER as POSTPROCESS_CHAPTER
-from book_translator.preprocess_agent.graph import PREPROCESS
 from book_translator.stage_graph import (
     AGENT,
     END_KEY,
@@ -44,6 +38,12 @@ from book_translator.stage_graph import (
     route_after_tools,
     route_after_validate,
 )
+from book_translator.stages.agent.graph import SPLIT, after_slice
+from book_translator.stages.matter_agent.graph import BOOK as MATTER_BOOK
+from book_translator.stages.matter_agent.graph import CHUNK as MATTER_CHUNK
+from book_translator.stages.postprocess_agent.graph import BOOK as POSTPROCESS_BOOK
+from book_translator.stages.postprocess_agent.graph import CHAPTER as POSTPROCESS_CHAPTER
+from book_translator.stages.preprocess_agent.graph import PREPROCESS
 from langchain_core.messages import AIMessage, ToolMessage
 
 SPECS = [

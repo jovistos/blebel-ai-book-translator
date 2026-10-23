@@ -21,8 +21,8 @@ from book_translator.documents.markdown import (
     page_number_of,
     strip_emphasis,
 )
-from book_translator.preprocess.apply import apply_cleaning_plan, text_of
-from book_translator.preprocess.damage import (
+from book_translator.stages.preprocess.apply import apply_cleaning_plan, text_of
+from book_translator.stages.preprocess.damage import (
     INLINE_PAGE_NUMBER,
     PAGE_NUMBER_IN_WORD,
     SPACE_BEFORE_PUNCTUATION,
@@ -35,7 +35,7 @@ from book_translator.preprocess.damage import (
     repair_split_word,
     scan_chapter_damage,
 )
-from book_translator.preprocess.inspect import (
+from book_translator.stages.preprocess.inspect import (
     DEMOTE,
     KEEP,
     MERGE_DEMOTE,
@@ -44,11 +44,11 @@ from book_translator.preprocess.inspect import (
     REMOVE,
     inspect_chapter,
 )
-from book_translator.preprocess.plan import (
+from book_translator.stages.preprocess.plan import (
     validate_cleaning_plan,
     validate_text_fixes,
 )
-from book_translator.preprocess.verify import verify_cleaning_plan
+from book_translator.stages.preprocess.verify import verify_cleaning_plan
 
 # --------------------------------------------------------------------------- #
 # line shapes
@@ -852,7 +852,7 @@ def test_removing_a_sentence_that_mentions_a_figure_is_rejected(tmp_path):
 def test_the_corpus_scan_counts_plain_page_numbers_and_captions(sample):
     from book_translator.documents.chapters import discover_chapters
     from book_translator.paths import book_chapters_dir
-    from book_translator.preprocess.corpus import scan_corpus_damage
+    from book_translator.stages.preprocess.corpus import scan_corpus_damage
 
     # The *sample* book's folder, named explicitly: data/output may hold other
     # books (each with its own damage profile), and globbing picks one at random.

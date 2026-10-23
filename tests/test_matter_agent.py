@@ -15,24 +15,24 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from book_translator.agent.tools import SPLIT_TOOLS, stages_of, tool_names
-from book_translator.chunking import run_chunking
-from book_translator.matter.inspect import (
+from book_translator.stages.agent.tools import SPLIT_TOOLS, stages_of, tool_names
+from book_translator.stages.chunking import run_chunking
+from book_translator.stages.matter.inspect import (
     discover_matter_sections,
     matter_chapter_names,
 )
-from book_translator.matter.plan import (
+from book_translator.stages.matter.plan import (
     validate_matter_plan,
     validate_matter_translation,
 )
-from book_translator.matter_agent import run_matter
-from book_translator.matter_agent.prompts import BOOK_SYSTEM_PROMPT
+from book_translator.stages.matter_agent import run_matter
+from book_translator.stages.matter_agent.prompts import BOOK_SYSTEM_PROMPT
+from book_translator.stages.translation import run_translation
+from book_translator.stages.translation.models import ChunkTranslationAnswer
+from book_translator.stages.translation.translator import TranslationOutcome
 from book_translator.toolkit.matter import MATTER_TOOLS
 from book_translator.toolkit.postprocess import POSTPROCESS_TOOLS
 from book_translator.toolkit.preprocess import PREPROCESS_TOOLS
-from book_translator.translation import run_translation
-from book_translator.translation.models import ChunkTranslationAnswer
-from book_translator.translation.translator import TranslationOutcome
 from langchain_core.messages import AIMessage
 
 

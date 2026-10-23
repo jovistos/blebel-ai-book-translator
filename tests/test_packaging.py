@@ -74,8 +74,8 @@ def test_the_version_has_one_source() -> None:
 def test_the_epub_stylesheet_is_declared_as_package_data() -> None:
     data = _metadata()["tool"]["setuptools"]["package-data"]
 
-    assert data["book_translator.epub"] == ["assets/*.css"]
-    assert (ROOT / "book_translator" / "epub" / "assets" / "style.css").is_file()
+    assert data["book_translator.stages.epub"] == ["assets/*.css"]
+    assert (ROOT / "book_translator" / "stages" / "epub" / "assets" / "style.css").is_file()
 
 
 @pytest.mark.parametrize(("extra", "path"), REQUIREMENTS.items())

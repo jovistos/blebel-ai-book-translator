@@ -9,7 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..conversion import is_markdown_source
+from book_translator.stages.conversion import is_markdown_source
+
 from ..core.constants import (
     ASSEMBLY_MANIFEST_FILENAME,
     ASSEMBLY_TRACE_FILENAME,

@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from book_translator.assembly import run_assembly
 from book_translator.core.constants import (
     CHAPTERS_DIRNAME,
 )
@@ -20,6 +19,7 @@ from book_translator.documents.chapters import (
     translated_chapters_dir,
     translations_dir,
 )
+from book_translator.stages.assembly import run_assembly
 
 from .. import parents
 from ..common import (
@@ -95,7 +95,7 @@ def add_parser(sub: Any) -> None:
 
 def cmd_concatenate(args: argparse.Namespace) -> int:
     """Stage 8: concatenate the translated chunks into one file per chapter."""
-    from ...assembly.runner import resolve_chunks_dir
+    from book_translator.stages.assembly.runner import resolve_chunks_dir
 
     if args.chunks_in:
         chunks_path = resolve_chunks_dir(Path(args.chunks_in).expanduser())

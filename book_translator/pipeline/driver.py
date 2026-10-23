@@ -22,9 +22,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from book_translator.conversion import (
-    classify_source,
-)
 from book_translator.core.errors import ConfigError, ToolError
 from book_translator.core.report import human_seconds
 from book_translator.core.settings import (
@@ -54,6 +51,9 @@ from book_translator.documents.window import (
 from book_translator.paths import (
     repo_root,
     resolve_book_path,
+)
+from book_translator.stages.conversion import (
+    classify_source,
 )
 
 from .console import Console
@@ -559,7 +559,7 @@ class PipelineDriver(PhaseExecutionMixin):
                 continue
 
             if name == "translate":
-                from book_translator.translation.runner import has_chunk_glossary_files
+                from book_translator.stages.translation.runner import has_chunk_glossary_files
 
                 if not has_chunk_files(self.chunks_out):
                     record.ok = True

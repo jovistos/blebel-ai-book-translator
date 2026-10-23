@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from book_translator.preprocess.apply import apply_cleaning_plan, text_of
-from book_translator.preprocess.plan import validate_cleaning_plan
-from book_translator.preprocess.verify import verify_cleaning_plan
+from book_translator.stages.preprocess.apply import apply_cleaning_plan, text_of
+from book_translator.stages.preprocess.plan import validate_cleaning_plan
+from book_translator.stages.preprocess.verify import verify_cleaning_plan
 
 LONG_LEFT = "x" * 200 + " i rije"
 

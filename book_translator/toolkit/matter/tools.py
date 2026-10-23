@@ -28,7 +28,20 @@ from typing import Annotated, Any
 
 from langchain_core.tools import InjectedToolArg, tool
 
-from ...agent.tools.registry import matter_stage
+from book_translator.stages.agent.tools.registry import matter_stage
+from book_translator.stages.matter.inspect import (
+    MatterBook,
+    MatterSection,
+    body_chapter_titles,
+    read_section_text,
+)
+from book_translator.stages.matter.plan import (
+    validate_matter_plan as validate_matter_plan_fn,
+)
+from book_translator.stages.matter.plan import (
+    validate_matter_translation as validate_matter_translation_fn,
+)
+
 from ...core.constants import (
     DEFAULT_MATTER_CREDIT,
     MATTER_TRANSLATOR_NAME,
@@ -36,18 +49,6 @@ from ...core.constants import (
 )
 from ...core.errors import ToolError
 from ...documents.text import jdump
-from ...matter.inspect import (
-    MatterBook,
-    MatterSection,
-    body_chapter_titles,
-    read_section_text,
-)
-from ...matter.plan import (
-    validate_matter_plan as validate_matter_plan_fn,
-)
-from ...matter.plan import (
-    validate_matter_translation as validate_matter_translation_fn,
-)
 from ..context import ToolContext
 
 #: A tool call carries only what the model chose. The book, section and chunk the

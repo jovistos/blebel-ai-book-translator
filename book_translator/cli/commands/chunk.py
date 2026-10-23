@@ -110,7 +110,7 @@ def add_parser(sub: Any) -> None:
 
 def cmd_chunk(args: argparse.Namespace) -> int:
     """Stage 5: cut each chapter into chunks that concatenate back exactly."""
-    from ...chunking import run_chunking
+    from book_translator.stages.chunking import run_chunking
 
     paths = _command_paths(args)
     limit = chapter_window_limit_for_path(

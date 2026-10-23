@@ -32,7 +32,36 @@ from typing import Annotated, Any
 
 from langchain_core.tools import InjectedToolArg, tool
 
-from ...agent.tools.registry import postprocess_stage
+from book_translator.stages.agent.tools.registry import postprocess_stage
+from book_translator.stages.postprocess.inspect import (
+    inspect_heading_context as inspect_heading_context_fn,
+)
+from book_translator.stages.postprocess.inspect import (
+    inspect_matter_blocks as inspect_matter_blocks_fn,
+)
+from book_translator.stages.postprocess.inspect import (
+    scan_book_structure,
+    scan_chapter_structure,
+)
+from book_translator.stages.postprocess.plan import (
+    apply_chapter_plan,
+    canonical_titles,
+    clean_title,
+    normalise_chapter_plan,
+    text_of,
+    validate_chapter_plan,
+    verify_chapter_plan,
+)
+from book_translator.stages.postprocess.plan import (
+    validate_book_plan as validate_book_plan_fn,
+)
+from book_translator.stages.postprocess.toc import (
+    apply_toc,
+    build_toc_entries,
+    detect_toc,
+    verify_toc,
+)
+
 from ...core.artifacts import write_text
 from ...core.constants import (
     DEFAULT_TOC_HEADING,
@@ -46,34 +75,6 @@ from ...core.constants import (
 from ...core.errors import ToolError
 from ...documents.chapters import postprocessed_chapters_dir
 from ...documents.text import jdump
-from ...postprocess.inspect import (
-    inspect_heading_context as inspect_heading_context_fn,
-)
-from ...postprocess.inspect import (
-    inspect_matter_blocks as inspect_matter_blocks_fn,
-)
-from ...postprocess.inspect import (
-    scan_book_structure,
-    scan_chapter_structure,
-)
-from ...postprocess.plan import (
-    apply_chapter_plan,
-    canonical_titles,
-    clean_title,
-    normalise_chapter_plan,
-    text_of,
-    validate_chapter_plan,
-    verify_chapter_plan,
-)
-from ...postprocess.plan import (
-    validate_book_plan as validate_book_plan_fn,
-)
-from ...postprocess.toc import (
-    apply_toc,
-    build_toc_entries,
-    detect_toc,
-    verify_toc,
-)
 from ..context import ToolContext
 
 #: A tool call carries only what the model chose; the folder the graph is working
@@ -519,8 +520,8 @@ def verify_postprocessed_chapters(
     when `source_path` is given every body chapter has a heading and the TOC
     lists every chapter exactly once.
     """
-    from ...postprocess.inspect import chapter_files, scan_book_structure
-    from ...postprocess.toc import detect_toc
+    from book_translator.stages.postprocess.inspect import chapter_files, scan_book_structure
+    from book_translator.stages.postprocess.toc import detect_toc
 
     folder = Path(chapters_path).expanduser()
     if folder.is_file():
@@ -568,7 +569,7 @@ def verify_postprocessed_chapters(
 
 def book_tools() -> list[Any]:
     """The tools the book-plan graph binds (definition order)."""
-    from ...agent.tools.registry import tool_by_name
+    from book_translator.stages.agent.tools.registry import tool_by_name
 
     return [
         tool for name in BOOK_TOOL_NAMES if (tool := tool_by_name(name)) is not None
@@ -577,7 +578,7 @@ def book_tools() -> list[Any]:
 
 def chapter_tools() -> list[Any]:
     """The tools the chapter-plan graph binds (definition order)."""
-    from ...agent.tools.registry import tool_by_name
+    from book_translator.stages.agent.tools.registry import tool_by_name
 
     return [
         tool for name in CHAPTER_TOOL_NAMES if (tool := tool_by_name(name)) is not None

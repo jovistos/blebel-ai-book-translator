@@ -68,7 +68,7 @@ def add_parser(sub: Any) -> None:
 
 def cmd_bind(args: argparse.Namespace) -> int:
     """Stage 10: concatenate the postprocessed chapters into one Markdown book."""
-    from ...binding import run_bind
+    from book_translator.stages.binding import run_bind
 
     if args.postprocessed_in:
         source_path = Path(args.postprocessed_in).expanduser()

@@ -29,7 +29,7 @@ def offline_tagger(monkeypatch):
     """Replace the tagger factory; no test downloads or loads a model."""
     backend = FakeBackend()
     monkeypatch.setattr(
-        "book_translator.chunk_glossary.runner.make_backend",
+        "book_translator.stages.chunk_glossary.runner.make_backend",
         lambda *args, **kwargs: backend,
     )
     return backend

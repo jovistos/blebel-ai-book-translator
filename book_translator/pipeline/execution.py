@@ -14,13 +14,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from book_translator.analysis.candidates import extract_candidates
-from book_translator.analysis.headers import assess_headers
-from book_translator.analysis.toc import detect_toc_block
-from book_translator.conversion import (
-    is_markdown_source,
-    run_conversion,
-)
 from book_translator.core.constants import (
     DEFAULT_GPU_INDEX,
     MATTER_TRANSLATOR_NAME,
@@ -47,7 +40,14 @@ from book_translator.documents.window import (
 from book_translator.paths import (
     repo_root,
 )
-from book_translator.preprocess.corpus import scan_corpus_damage
+from book_translator.stages.analysis.candidates import extract_candidates
+from book_translator.stages.analysis.headers import assess_headers
+from book_translator.stages.analysis.toc import detect_toc_block
+from book_translator.stages.conversion import (
+    is_markdown_source,
+    run_conversion,
+)
+from book_translator.stages.preprocess.corpus import scan_corpus_damage
 
 ROOT = repo_root()
 
@@ -148,7 +148,7 @@ class PhaseExecutionMixin:
     # -- phase 1: recon ---------------------------------------------------- #
     def phase_recon(self) -> tuple[str, dict[str, Any]]:
         """Deterministic structural report: no LLM, no key, no writes."""
-        from book_translator.agent.tools import scan_markdown_headers
+        from book_translator.stages.agent.tools import scan_markdown_headers
 
         args, console = self.args, self.console
         self._ensure_markdown_source()
@@ -237,7 +237,7 @@ class PhaseExecutionMixin:
         *before* any provider setting is resolved, so reusing a finished split
         needs no API key either.
         """
-        from book_translator.agent import result_from_existing_chapters
+        from book_translator.stages.agent import result_from_existing_chapters
 
         args, console = self.args, self.console
 
@@ -262,7 +262,7 @@ class PhaseExecutionMixin:
         console.kv("output", rel(self.chapters_dir))
 
         if args.map:
-            from book_translator.slicing.mapfile import load_split_map
+            from book_translator.stages.slicing.mapfile import load_split_map
 
             mapping, notes = load_split_map(args.map)
             console.kv("map", f"{rel(args.map)} · {len(mapping)} split point(s)")
@@ -557,7 +557,7 @@ class PhaseExecutionMixin:
         ``--dry-run`` calls the model and writes nothing, exactly like the
         ``glossary`` command; it is a validation run, not a free price quote.
         """
-        from book_translator.glossary.runner import resolve_sentences_dir
+        from book_translator.stages.glossary.runner import resolve_sentences_dir
 
         args, console = self.args, self.console
         chapter_source = self.text_input()
@@ -1242,7 +1242,7 @@ class PhaseExecutionMixin:
         the latter holds the whole input of every call, for debugging.
         """
         from book_translator.core.constants import GLOSSARY_FILENAME
-        from book_translator.translation.runner import has_chunk_glossary_files
+        from book_translator.stages.translation.runner import has_chunk_glossary_files
 
         args, console = self.args, self.console
         if not has_chunk_files(self.chunks_out):

@@ -57,8 +57,8 @@ def add_parser(sub: Any) -> None:
 
 def cmd_scan(args: argparse.Namespace) -> int:
     """Deterministic damage profile of a split book: no LLM, no writes."""
-    from ...preprocess.corpus import scan_corpus_damage
-    from ...preprocess.inspect import chapter_digest, inspect_chapter
+    from book_translator.stages.preprocess.corpus import scan_corpus_damage
+    from book_translator.stages.preprocess.inspect import chapter_digest, inspect_chapter
 
     chapters_dir = _resolve_chapters_dir(args.book, args.in_dir, args.out, getattr(args, "output_root", None))
     chapters = discover_chapters(chapters_dir)

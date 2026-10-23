@@ -5,9 +5,6 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
-from book_translator.analysis.candidates import extract_candidates
-from book_translator.analysis.headers import assess_headers
-from book_translator.analysis.toc import detect_toc_block
 from book_translator.core.constants import (
     DEFAULT_MAX_CANDIDATES,
     DEFAULT_MAX_HEADERS,
@@ -18,6 +15,9 @@ from book_translator.documents.io import load_lines, source_size_bytes
 from book_translator.paths import (
     default_input_dir,
 )
+from book_translator.stages.analysis.candidates import extract_candidates
+from book_translator.stages.analysis.headers import assess_headers
+from book_translator.stages.analysis.toc import detect_toc_block
 
 from .. import parents
 from ..common import (
@@ -53,7 +53,7 @@ def cmd_inspect(args: argparse.Namespace) -> int:
     Stage 0 runs first when the source is EPUB/PDF/TXT, so the report exists for
     every supported format; a Markdown source is read as-is.
     """
-    from ...agent.tools import scan_markdown_headers
+    from book_translator.stages.agent.tools import scan_markdown_headers
 
     source = _ensure_markdown_source(_resolve_book(args), output_root=getattr(args, "output_root", None))
     lines = load_lines(source)

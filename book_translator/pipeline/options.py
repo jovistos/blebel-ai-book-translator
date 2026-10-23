@@ -14,7 +14,7 @@ an ``identifier`` there, ``translate_first_chapters`` in one place and
 No ``**vars(args)``: every runner kwarg is written out, so a test can assert the
 whole contract and a new option cannot silently leak into an unrelated stage.
 Runner lookup is lazy, which keeps the existing test seam (monkeypatching
-``book_translator.agent.run_split``) working.
+``book_translator.stages.agent.run_split``) working.
 """
 
 from __future__ import annotations
@@ -25,6 +25,9 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar, cast
+
+from book_translator.stages.dictionary.reduce import DEFAULT_EXAMPLE_LIMIT
+from book_translator.stages.dictionary.unique import DEFAULT_UNIQUE_EXAMPLES
 
 from ..core.constants import (
     DEFAULT_CHUNK_GLOSSARY_CANDIDATES,
@@ -50,8 +53,6 @@ from ..core.constants import (
 )
 from ..core.errors import ConfigError, ToolError
 from ..core.settings import parse_llm_overrides
-from ..dictionary.reduce import DEFAULT_EXAMPLE_LIMIT
-from ..dictionary.unique import DEFAULT_UNIQUE_EXAMPLES
 from ..paths import default_input_dir, default_output_dir
 from .paths import StagePaths
 from .phases import NEEDS_CHAPTERS, PHASES
@@ -72,20 +73,20 @@ POSTPROCESS_ENABLED = False
 
 #: Stage name -> (module, function). Resolved lazily by :func:`resolve_runner`.
 _RUNNERS: dict[str, tuple[str, str]] = {
-    "convert": ("book_translator.conversion", "run_conversion"),
-    "split": ("book_translator.agent", "run_split"),
-    "split_map": ("book_translator.agent", "run_split_from_map"),
-    "dictionary": ("book_translator.dictionary", "run_dictionary"),
-    "glossary": ("book_translator.glossary", "run_glossary"),
-    "preprocess": ("book_translator.preprocess_agent", "run_preprocess"),
-    "chunk": ("book_translator.chunking", "run_chunking"),
-    "chunk_glossary": ("book_translator.chunk_glossary", "run_chunk_glossary"),
-    "matter": ("book_translator.matter_agent", "run_matter"),
-    "translate": ("book_translator.translation", "run_translation"),
-    "concatenate": ("book_translator.assembly", "run_assembly"),
-    "postprocess": ("book_translator.postprocess_agent", "run_postprocess"),
-    "bind": ("book_translator.binding", "run_bind"),
-    "epub": ("book_translator.epub", "run_epub"),
+    "convert": ("book_translator.stages.conversion", "run_conversion"),
+    "split": ("book_translator.stages.agent", "run_split"),
+    "split_map": ("book_translator.stages.agent", "run_split_from_map"),
+    "dictionary": ("book_translator.stages.dictionary", "run_dictionary"),
+    "glossary": ("book_translator.stages.glossary", "run_glossary"),
+    "preprocess": ("book_translator.stages.preprocess_agent", "run_preprocess"),
+    "chunk": ("book_translator.stages.chunking", "run_chunking"),
+    "chunk_glossary": ("book_translator.stages.chunk_glossary", "run_chunk_glossary"),
+    "matter": ("book_translator.stages.matter_agent", "run_matter"),
+    "translate": ("book_translator.stages.translation", "run_translation"),
+    "concatenate": ("book_translator.stages.assembly", "run_assembly"),
+    "postprocess": ("book_translator.stages.postprocess_agent", "run_postprocess"),
+    "bind": ("book_translator.stages.binding", "run_bind"),
+    "epub": ("book_translator.stages.epub", "run_epub"),
 }
 
 

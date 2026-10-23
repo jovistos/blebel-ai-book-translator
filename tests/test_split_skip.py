@@ -12,9 +12,9 @@ import json
 from pathlib import Path
 
 from book_translator import cli
-from book_translator.agent import runner
 from book_translator.core.constants import MANIFEST_FILENAME, TRACE_FILENAME
 from book_translator.documents.chapters import has_chapter_files
+from book_translator.stages.agent import runner
 
 BOOK_TEXT = "# Book\n\n## Prva\n\ntext\n\n## Druga\n\nmore text\n"
 

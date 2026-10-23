@@ -12,11 +12,11 @@ import json
 
 import pytest
 from book_translator import paths
-from book_translator.agent import build_graph
-from book_translator.agent.runner import summarise_run
-from book_translator.analysis.locate import locate_toc_titles
 from book_translator.documents.io import load_lines
-from book_translator.slicing.verify import verify_output_dir
+from book_translator.stages.agent import build_graph
+from book_translator.stages.agent.runner import summarise_run
+from book_translator.stages.analysis.locate import locate_toc_titles
+from book_translator.stages.slicing.verify import verify_output_dir
 from langchain_core.messages import AIMessage
 
 from _fixtures import SAMPLE, SAMPLE_TOC_TITLES, requires_sample

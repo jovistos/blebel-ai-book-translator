@@ -10,11 +10,11 @@ between two dataclasses. This module is the single shape both sides use.
 Field provenance:
 
 ``title`` / ``author`` / ``stem``
-    evidence from the input filename (:func:`book_translator.matter.metadata.parse_book_metadata`)
+    evidence from the input filename (:func:`book_translator.stages.matter.metadata.parse_book_metadata`)
     or from the matter manifest stage 6b wrote.
 ``language`` / ``identifier`` / ``modified`` / ``description`` / ``publisher``
     the publication fields the EPUB package writes, resolved (and defaulted) by
-    :func:`book_translator.epub.metadata.resolve_metadata`.
+    :func:`book_translator.stages.epub.metadata.resolve_metadata`.
 ``warnings``
     anything the resolver had to invent (a missing author, a language fallback),
     carried to the stage result so the run can report it.

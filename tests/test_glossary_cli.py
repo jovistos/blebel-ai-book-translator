@@ -17,8 +17,8 @@ import pytest
 from book_translator import cli
 from book_translator.core.errors import ExtractionError
 from book_translator.core.settings import LLMSettings
-from book_translator.glossary import ExtractionOutcome, TokenUsage
-from book_translator.glossary.models import ChapterExtraction
+from book_translator.stages.glossary import ExtractionOutcome, TokenUsage
+from book_translator.stages.glossary.models import ChapterExtraction
 
 from test_glossary_runner import FakeExtractor, entry, make_book
 
@@ -46,7 +46,7 @@ def offline_model(monkeypatch):
         lambda system, user: [entry("Potter", "Poter", "character", "the narrator")],
         usage=TokenUsage(input_tokens=1_000, output_tokens=100, total_tokens=1_100, calls=1),
     )
-    monkeypatch.setattr("book_translator.glossary.runner.make_extractor", lambda *a, **k: extractor)
+    monkeypatch.setattr("book_translator.stages.glossary.runner.make_extractor", lambda *a, **k: extractor)
     return extractor
 
 
@@ -175,7 +175,7 @@ def test_a_failed_chapter_exits_non_zero(tmp_path, monkeypatch, capsys):
         return [entry("Potter", "Poter")]
 
     monkeypatch.setattr(
-        "book_translator.glossary.runner.make_extractor", lambda *a, **k: FakeExtractor(handler)
+        "book_translator.stages.glossary.runner.make_extractor", lambda *a, **k: FakeExtractor(handler)
     )
     folder = make_book(tmp_path)
     code = cli.main(

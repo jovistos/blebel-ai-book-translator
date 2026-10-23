@@ -13,26 +13,26 @@ from __future__ import annotations
 import json
 import urllib.error
 
-from book_translator.agent.tools import (
-    SPLIT_TOOLS,
-    tool_names,
-)
-from book_translator.agent.tools import (
-    fetch_web_page as fetch_page_tool,
-)
-from book_translator.agent.tools import (
-    web_search as web_search_tool,
-)
-from book_translator.agent.tools.registry import SPLIT
-from book_translator.analysis.websearch import (
-    check_url,
-    fetch_web_page,
-    search_web,
-)
 from book_translator.core.constants import (
     MAX_WEB_FETCH_CHARS,
     MAX_WEB_RESULTS,
     MIN_WEB_FETCH_CHARS,
+)
+from book_translator.stages.agent.tools import (
+    SPLIT_TOOLS,
+    tool_names,
+)
+from book_translator.stages.agent.tools import (
+    fetch_web_page as fetch_page_tool,
+)
+from book_translator.stages.agent.tools import (
+    web_search as web_search_tool,
+)
+from book_translator.stages.agent.tools.registry import SPLIT
+from book_translator.stages.analysis.websearch import (
+    check_url,
+    fetch_web_page,
+    search_web,
 )
 
 BRAVE_HTML = """

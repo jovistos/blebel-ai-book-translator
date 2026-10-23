@@ -14,16 +14,16 @@ import zipfile
 from pathlib import Path
 
 import pytest
-from book_translator.conversion import (
+from book_translator.core.constants import CONVERT_MANIFEST_FILENAME
+from book_translator.core.errors import MissingDependencyError, ToolError
+from book_translator.stages.conversion import (
     classify_source,
     converted_markdown_path,
     inspect_pdf_text_layer,
     is_markdown_source,
     run_conversion,
 )
-from book_translator.conversion import runner as conversion_runner
-from book_translator.core.constants import CONVERT_MANIFEST_FILENAME
-from book_translator.core.errors import MissingDependencyError, ToolError
+from book_translator.stages.conversion import runner as conversion_runner
 
 
 def fake_docling(monkeypatch, markdown: str = "# Chapter One\n\nSome converted text.\n"):
@@ -455,7 +455,7 @@ def test_convert_cli_reports_an_image_based_pdf_as_an_error(tmp_path, monkeypatc
 def test_split_converts_a_non_markdown_source_before_slicing(tmp_path, monkeypatch, capsys):
     """`split BOOK.txt` needs Markdown: stage 0 runs first, transparently."""
     from book_translator import cli
-    from book_translator.agent.result import SplitterResult
+    from book_translator.stages.agent.result import SplitterResult
 
     source = tmp_path / "book.txt"
     source.write_text("# Chapter One\n\nSome text.\n", encoding="utf-8")
@@ -480,7 +480,7 @@ def test_split_converts_a_non_markdown_source_before_slicing(tmp_path, monkeypat
             verification={"reassembles_byte_for_byte": True},
         )
 
-    monkeypatch.setattr("book_translator.agent.run_split", fake_split)
+    monkeypatch.setattr("book_translator.stages.agent.run_split", fake_split)
 
     code = cli.main(["split", str(source), "--out", str(tmp_path / "chapters")])
 

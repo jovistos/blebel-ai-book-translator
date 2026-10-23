@@ -24,7 +24,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..conversion.runner import classify_source, converted_markdown_path
+from book_translator.stages.conversion.runner import classify_source, converted_markdown_path
+
 from ..core.artifacts import sha256_file
 from ..core.coerce import as_path as _path
 from ..core.constants import CHAPTERS_DIRNAME, CHUNK_GLOSSARY_DIRNAME

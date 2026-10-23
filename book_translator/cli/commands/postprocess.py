@@ -109,8 +109,8 @@ def add_parser(sub: Any) -> None:
 
 def cmd_postprocess(args: argparse.Namespace) -> int:
     """Stage 9: postprocess the translated chapters' headings and table of contents."""
-    from ...postprocess_agent import run_postprocess
-    from ...translation.runner import resolve_chunks_dir as _resolve_chunks
+    from book_translator.stages.postprocess_agent import run_postprocess
+    from book_translator.stages.translation.runner import resolve_chunks_dir as _resolve_chunks
 
     if args.translated_chapters_in:
         source_path = Path(args.translated_chapters_in).expanduser()

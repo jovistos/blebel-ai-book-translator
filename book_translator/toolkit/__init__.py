@@ -7,7 +7,7 @@
 ``matter``
     The front/back matter localization tools.
 
-Stage 1's tools stay in :mod:`book_translator.agent.tools` next to the splitter
+Stage 1's tools stay in :mod:`book_translator.stages.agent.tools` next to the splitter
 they serve, and the tools shared by more than one stage (headers, line windows,
 web search, the opening audit) stay there too because that is where they are
 implemented.

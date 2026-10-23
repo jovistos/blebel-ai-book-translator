@@ -103,9 +103,10 @@ def add_parser(sub: Any) -> None:
 
 
 def cmd_split(args: argparse.Namespace) -> int:
-    from ...agent import run_split, run_split_from_map
+    from book_translator.stages.agent import run_split, run_split_from_map
+    from book_translator.stages.slicing.mapfile import load_split_map
+
     from ...core.errors import ToolError
-    from ...slicing.mapfile import load_split_map
 
     source = _resolve_book(args)
     out_dir = resolve_output_dir(
@@ -115,7 +116,7 @@ def cmd_split(args: argparse.Namespace) -> int:
     if getattr(args, "skip_if_present", False) and not args.dry_run and has_chapter_files(out_dir):
         # Checked here, before any provider settings are resolved: a run that is
         # going to be skipped must not need an API key either.
-        from ...agent import result_from_existing_chapters
+        from book_translator.stages.agent import result_from_existing_chapters
 
         if not args.quiet:
             print(f"source={source}")

@@ -17,16 +17,16 @@ import json
 from pathlib import Path
 
 import pytest
-from book_translator.chunking import chunk_files, run_chunking
 from book_translator.core.errors import ToolError
-from book_translator.glossary.extract import TokenUsage
-from book_translator.translation import (
+from book_translator.stages.chunking import chunk_files, run_chunking
+from book_translator.stages.glossary.extract import TokenUsage
+from book_translator.stages.translation import (
     ChunkTranslationAnswer,
     TranslationOutcome,
     load_translation_manifest,
     run_translation,
 )
-from book_translator.translation.runner import (
+from book_translator.stages.translation.runner import (
     debug_filename,
     preserve_trailing_newlines,
     prompt_filename,

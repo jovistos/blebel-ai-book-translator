@@ -26,7 +26,8 @@ def add_parser(sub: Any) -> None:
 
 
 def cmd_tools(args: argparse.Namespace) -> int:
-    from ...agent.tools import grouped_tools
+    from book_translator.stages.agent.tools import grouped_tools
+
     from ...toolkit import import_all
 
     import_all()

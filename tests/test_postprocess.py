@@ -17,25 +17,25 @@ import json
 from pathlib import Path
 from typing import Any
 
-from book_translator.binding import run_bind
-from book_translator.postprocess.inspect import (
+from book_translator.stages.binding import run_bind
+from book_translator.stages.postprocess.inspect import (
     inspect_matter_blocks,
     scan_book_structure,
     scan_chapter_structure,
 )
-from book_translator.postprocess.plan import (
+from book_translator.stages.postprocess.plan import (
     apply_chapter_plan,
     text_of,
     validate_book_plan,
     validate_chapter_plan,
     verify_chapter_plan,
 )
-from book_translator.postprocess.toc import (
+from book_translator.stages.postprocess.toc import (
     apply_toc,
     build_toc_entries,
     verify_toc,
 )
-from book_translator.postprocess_agent import run_postprocess
+from book_translator.stages.postprocess_agent import run_postprocess
 from langchain_core.messages import AIMessage, HumanMessage
 
 
@@ -496,8 +496,8 @@ def test_chapter_agent_is_told_to_resubmit_on_its_last_turn(tmp_path: Path):
     was spent on `validate_chapter_postprocess` — which passed, but never replaced the
     plan in the state, so the chapter was written nowhere.
     """
-    from book_translator.postprocess_agent.graph import CHAPTER
     from book_translator.stage_graph import make_agent_node
+    from book_translator.stages.postprocess_agent.graph import CHAPTER
 
     source = tmp_path / "08-translated-chapters"
     source.mkdir()
@@ -553,7 +553,7 @@ def test_book_plan_requires_a_web_search_first(tmp_path: Path, monkeypatch):
         }
 
     monkeypatch.setattr(
-        "book_translator.agent.tools.websearch.search_web", fake_search
+        "book_translator.stages.agent.tools.websearch.search_web", fake_search
     )
     plan_without_evidence = {
         "naming": {"mode": "keep", "label": "Poglavlje", "level": 1},

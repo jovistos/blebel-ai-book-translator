@@ -5,15 +5,15 @@ from __future__ import annotations
 import json
 
 import pytest
-from book_translator.agent.tools import (
+from book_translator.documents.io import load_lines
+from book_translator.stages.agent.tools import (
     extract_heuristic_candidates,
     extract_markdown_headers,
     find_lines_matching,
     locate_toc_titles_in_file,
 )
-from book_translator.analysis.headers import assess_headers
-from book_translator.analysis.toc import detect_toc_block
-from book_translator.documents.io import load_lines
+from book_translator.stages.analysis.headers import assess_headers
+from book_translator.stages.analysis.toc import detect_toc_block
 
 from _fixtures import SAMPLE_SPLITS, SAMPLE_TOC_TITLES, requires_sample
 

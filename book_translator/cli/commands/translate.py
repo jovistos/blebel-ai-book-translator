@@ -372,9 +372,9 @@ class _TranslationBar:
 
 def cmd_translate(args: argparse.Namespace) -> int:
     """Stage 7: translate each chunk in reading order, with its glossary rows."""
-    from ...chunk_glossary.runner import resolve_chunks_dir
-    from ...translation import run_translation
-    from ...translation.runner import resolve_chunk_glossary_dir
+    from book_translator.stages.chunk_glossary.runner import resolve_chunks_dir
+    from book_translator.stages.translation import run_translation
+    from book_translator.stages.translation.runner import resolve_chunk_glossary_dir
 
     chapters_path = chapters_dir(_resolve_text_dir(
             args.book,

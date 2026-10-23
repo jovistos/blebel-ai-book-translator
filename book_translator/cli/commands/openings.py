@@ -48,7 +48,7 @@ def add_parser(sub: Any) -> None:
 
 def cmd_openings(args: argparse.Namespace) -> int:
     """Final phase of stages 2 and 9: audit every chapter opening (no LLM)."""
-    from ...openings import audit_openings
+    from book_translator.stages.openings import audit_openings
 
     folder = _resolve_openings_dir(args)
     if not folder.is_dir():

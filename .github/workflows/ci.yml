@@ -83,7 +83,7 @@ jobs:
           wheel = glob.glob("dist/*.whl")[0]
           names = zipfile.ZipFile(wheel).namelist()
           assert any(
-              name.endswith("book_translator/epub/assets/style.css") for name in names
+              name.endswith("book_translator/stages/epub/assets/style.css") for name in names
           ), "the EPUB stylesheet is missing from the wheel"
           metadata = next(name for name in names if name.endswith(".dist-info/METADATA"))
           text = zipfile.ZipFile(wheel).read(metadata).decode("utf-8")

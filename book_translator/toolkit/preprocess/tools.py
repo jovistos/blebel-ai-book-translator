@@ -29,7 +29,14 @@ from typing import Any
 
 from langchain_core.tools import tool
 
-from ...agent.tools.registry import preprocess_stage
+from book_translator.stages.agent.tools.registry import preprocess_stage
+from book_translator.stages.preprocess.apply import apply_cleaning_plan, text_of
+from book_translator.stages.preprocess.corpus import scan_corpus_damage
+from book_translator.stages.preprocess.damage import damage_digest, scan_chapter_damage
+from book_translator.stages.preprocess.inspect import inspect_chapter
+from book_translator.stages.preprocess.plan import validate_cleaning_plan
+from book_translator.stages.preprocess.verify import verify_cleaning_plan
+
 from ...core.artifacts import write_text
 from ...core.constants import (
     DEFAULT_MAX_HEADERS,
@@ -43,12 +50,6 @@ from ...documents.chapters import (
 )
 from ...documents.io import load_lines
 from ...documents.text import excerpt, jdump
-from ...preprocess.apply import apply_cleaning_plan, text_of
-from ...preprocess.corpus import scan_corpus_damage
-from ...preprocess.damage import damage_digest, scan_chapter_damage
-from ...preprocess.inspect import inspect_chapter
-from ...preprocess.plan import validate_cleaning_plan
-from ...preprocess.verify import verify_cleaning_plan
 
 
 def _line_number_of(entry: dict[str, Any]) -> int | None:

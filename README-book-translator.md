@@ -43,19 +43,19 @@ names; only new writes use the numbered layout.
 
 | Stage | Module | Question it answers | Writes |
 | --- | --- | --- | --- |
-| 0. **Convert** | `book_translator.conversion` | *What does this EPUB/PDF/TXT say as plain Markdown — and what do its pictures look like?* | `data/output/<book>/00-markdown/` + `00-markdown/images/` |
-| 1. **Split** | `book_translator.agent` | *Where does each chapter start?* | `data/output/<book>/01-chapters/` |
-| 2. **Preprocess** | `book_translator.preprocess_agent` | *What in this chapter is not part of the book's text?* | `data/output/<book>/02-preprocessed/` (the text stages 3–5 read by default) |
-| 3. **Dictionary** | `book_translator.dictionary` | *Which sentences carry a proper noun worth keeping consistent?* | `data/output/<book>/03-reduced/` + `03-reduced-unique/` |
-| 4. **Glossary** | `book_translator.glossary` | *How must each of those nouns be written in the target language, once and for all?* | `data/output/<book>/04-glossary/` |
-| 5. **Chunk** | `book_translator.chunking` | *Where can the chapter be cut without breaking a paragraph or a sentence — and how do we put it back?* | `data/output/<book>/05-chunks/` |
-| 6. **Chunk glossary** | `book_translator.chunk_glossary` | *Which locked renderings does this chunk actually mention?* | `data/output/<book>/06-chunk-glossary/` |
-| 6b. **Matter** | `book_translator.matter_agent` | *How is the front/back matter of the translated edition titled, credited and pruned?* | translated chunks in `07-translations/` + `06b-matter/` + `06b-matter-prompts/` |
-| 7. **Translate** | `book_translator.translation` | *What does this body chunk say in the target language, using those renderings?* | `data/output/<book>/07-translations/` + `07-translation-prompts/` |
-| 8. **Assemble** | `book_translator.assembly` | *What does each whole chapter say, now that every chunk is translated?* | `data/output/<book>/08-translated-chapters/` |
-| 9. **Postprocess** | `book_translator.postprocess_agent` | *Are the translated chapter titles, the other headings and the table of contents consistent?* | `data/output/<book>/09-postprocessed-chapters/` |
-| 10. **Bind** | `book_translator.binding` | *What does the whole translated book look like as one document?* | `data/output/<book>/10-translated-book.md` |
-| 11. **EPUB** | `book_translator.epub` | *What does the book look like in a reader — images, navigation, metadata?* | `data/output/<book>/11-translated-book.epub` |
+| 0. **Convert** | `book_translator.stages.conversion` | *What does this EPUB/PDF/TXT say as plain Markdown — and what do its pictures look like?* | `data/output/<book>/00-markdown/` + `00-markdown/images/` |
+| 1. **Split** | `book_translator.stages.agent` | *Where does each chapter start?* | `data/output/<book>/01-chapters/` |
+| 2. **Preprocess** | `book_translator.stages.preprocess_agent` | *What in this chapter is not part of the book's text?* | `data/output/<book>/02-preprocessed/` (the text stages 3–5 read by default) |
+| 3. **Dictionary** | `book_translator.stages.dictionary` | *Which sentences carry a proper noun worth keeping consistent?* | `data/output/<book>/03-reduced/` + `03-reduced-unique/` |
+| 4. **Glossary** | `book_translator.stages.glossary` | *How must each of those nouns be written in the target language, once and for all?* | `data/output/<book>/04-glossary/` |
+| 5. **Chunk** | `book_translator.stages.chunking` | *Where can the chapter be cut without breaking a paragraph or a sentence — and how do we put it back?* | `data/output/<book>/05-chunks/` |
+| 6. **Chunk glossary** | `book_translator.stages.chunk_glossary` | *Which locked renderings does this chunk actually mention?* | `data/output/<book>/06-chunk-glossary/` |
+| 6b. **Matter** | `book_translator.stages.matter_agent` | *How is the front/back matter of the translated edition titled, credited and pruned?* | translated chunks in `07-translations/` + `06b-matter/` + `06b-matter-prompts/` |
+| 7. **Translate** | `book_translator.stages.translation` | *What does this body chunk say in the target language, using those renderings?* | `data/output/<book>/07-translations/` + `07-translation-prompts/` |
+| 8. **Assemble** | `book_translator.stages.assembly` | *What does each whole chapter say, now that every chunk is translated?* | `data/output/<book>/08-translated-chapters/` |
+| 9. **Postprocess** | `book_translator.stages.postprocess_agent` | *Are the translated chapter titles, the other headings and the table of contents consistent?* | `data/output/<book>/09-postprocessed-chapters/` |
+| 10. **Bind** | `book_translator.stages.binding` | *What does the whole translated book look like as one document?* | `data/output/<book>/10-translated-book.md` |
+| 11. **EPUB** | `book_translator.stages.epub` | *What does the book look like in a reader — images, navigation, metadata?* | `data/output/<book>/11-translated-book.epub` |
 
 Stage 0 reads the source from `data/input/` and writes `00-markdown/<book>.md`.
 Three formats are accepted. A `.txt` is copied **byte for byte** and only its name
@@ -470,7 +470,7 @@ by Pydantic.
 
 ## How it works
 
-**Stage 1 — split** (`book_translator.agent`):
+**Stage 1 — split** (`book_translator.stages.agent`):
 
 ```
 START
@@ -647,7 +647,7 @@ leaves behind is plausible: at most 1 000 lines and at most a quarter of the boo
 then plans it with `kind: "back-matter"`, so it gets its own `NN-back-matter.md`, stays out of
 the chapter count, and still takes part in the byte-for-byte verification like every other file.
 
-**Stage 2 — preprocess** (`book_translator.preprocess_agent`), run once **per chapter**:
+**Stage 2 — preprocess** (`book_translator.stages.preprocess_agent`), run once **per chapter**:
 
 ```
 START
@@ -743,7 +743,7 @@ Removed lines leave a **blank slot** rather than shortening the file, so a line
 number in the log, the manifest or the trace still points at the same text in
 `01-chapters/`.
 
-#### Final phase — the chapter-opening audit (`book_translator.openings`)
+#### Final phase — the chapter-opening audit (`book_translator.stages.openings`)
 
 Every per-chapter decision is local, so after the folder is written the stage runs
 one deterministic pass over the **whole book's openings** — the first lines of
@@ -761,7 +761,7 @@ stage's line numbers stay valid. `PreprocessResult.openings` (also in
 what was clean, what was removed and what still needs a human. `--dry-run` reports
 the same findings and writes nothing.
 
-### Stage 3 — dictionary (`book_translator.dictionary`), run once **per chapter**
+### Stage 3 — dictionary (`book_translator.stages.dictionary`), run once **per chapter**
 
 No LLM, no agent, no toolset: a fixed funnel, cheapest test first, so the
 expensive step only ever sees a fraction of the text.
@@ -839,7 +839,7 @@ The stage stops there, on purpose: two reductions first, so the funnel can be
 compared folder by folder and inspected sentence by sentence before stage 4 — the
 dictionary step that consumes it — runs over the result.
 
-### Stage 4 — glossary (`book_translator.glossary`), run once **per chapter, in order**
+### Stage 4 — glossary (`book_translator.stages.glossary`), run once **per chapter, in order**
 
 This is the LLM pass stage 3 was built for. One call per chapter, first to last,
 each call handed the dictionary the earlier chapters produced:
@@ -876,7 +876,7 @@ folder whose manifest is missing. `--include-front-matter` /
 in the manifest with the reason, so a dictionary built without them is auditable.
 
 **What one entry holds** — three fields, validated with Pydantic
-(`book_translator/glossary/models.py`):
+(`book_translator/stages/glossary/models.py`):
 
 | Field | Meaning |
 | --- | --- |
@@ -967,7 +967,7 @@ or hand-edited), the run stops and says so instead of replacing the renderings a
 translation already depends on. That is the one file in this pipeline whose loss
 cannot be reconstructed from the book.
 
-### Stage 5 — chunking (`book_translator.chunking`), no model at all
+### Stage 5 — chunking (`book_translator.stages.chunking`), no model at all
 
 A chapter file is fine for a reader and far too big for a translation call: a
 100-page chapter blows through a context window, and cutting it at a fixed
@@ -1009,7 +1009,7 @@ byte for byte; `verification.chapters_reconstruct_byte_for_byte` and
 The read side is part of the package:
 
 ```python
-from book_translator.chunking import reconstruct_book, reconstruct_chapter
+from book_translator.stages.chunking import reconstruct_book, reconstruct_chapter
 
 reconstruct_book("data/output/<book>/05-chunks")                    # == the whole book
 reconstruct_chapter("data/output/<book>/05-chunks", "01-predgovor.md")
@@ -1043,7 +1043,7 @@ trace — the cheap way to price a chunk length before a full run. A previous ru
 with a different `--chunk-size` is deliberately not reused: the old files are valid
 chunks, but not chunks of the length that was just requested.
 
-### Stage 6 — chunk glossary (`book_translator.chunk_glossary`), two phases and no LLM
+### Stage 6 — chunk glossary (`book_translator.stages.chunk_glossary`), two phases and no LLM
 
 Stage 4 locked one rendering per entity for the whole book. Stage 5 cut the book
 into pieces a model can translate. The missing question is the one a translator
@@ -1078,7 +1078,7 @@ recording the order of the injected tagger and matcher. The run reports the two
 phases separately (`phases[].name` is `ner` then `match`), with their own seconds
 and counts.
 
-**The tagger is stage 3's.** `book_translator.dictionary.ner` builds the backend for
+**The tagger is stage 3's.** `book_translator.stages.dictionary.ner` builds the backend for
 the detected language — CLASSLA for Serbian/Croatian/Slovenian/Bulgarian, stanza
 for English — and stage 6 calls the same `entities()` method over each chunk's
 full text. The language is detected from a sample of the chunks (the same
@@ -1168,7 +1168,7 @@ unmatched with `Catherine` as its closest candidate (55.56), which is exactly th
 noise `--min-term-chars` and `--drop-temporal-only` exist to trim if a book needs
 it.
 
-### Stage 6b — front/back matter localization (`book_translator.matter_agent`), no dictionary
+### Stage 6b — front/back matter localization (`book_translator.stages.matter_agent`), no dictionary
 
 Front matter is not a chapter, and back matter is not an epilogue. They are the
 parts of a *published edition*: the title page, the translator credit, the
@@ -1261,7 +1261,7 @@ A resume is safe: a chunk is reused only when the manifest records it as
 successful, its source SHA-256 still matches, the language pair is unchanged, and
 the translated file exists (an omitted chunk is a legitimate empty file).
 
-### Stage 7 — translation (`book_translator.translation`), one chunk at a time
+### Stage 7 — translation (`book_translator.stages.translation`), one chunk at a time
 
 Stage 5 cut the book into pieces a model can translate; stage 4 locked one
 rendering per entity; stage 6 attached exactly the renderings each piece mentions.
@@ -1434,7 +1434,7 @@ Because the translation keeps the source chunk's trailing newlines, a
 The stage adds no dependency: it reuses `langchain-openai` and Pydantic, exactly
 like stage 4.
 
-### Stage 8 — assembly (`book_translator.assembly`), the translated chunks become chapters
+### Stage 8 — assembly (`book_translator.stages.assembly`), the translated chunks become chapters
 
 Stage 5 proved that a chapter is its chunks concatenated; stage 8 applies the same
 concatenation to the *translated* chunks, using stage 5's own index instead of
@@ -1485,7 +1485,7 @@ sibling `07-translations/`; `--chapters-out` defaults to `08-translated-chapters
 `--dry-run` assembles every chapter in memory and writes nothing. `--json` returns
 the same records machine-readably.
 
-### Stage 9 — postprocess (`book_translator.postprocess_agent`), headings first, prose never
+### Stage 9 — postprocess (`book_translator.stages.postprocess_agent`), headings first, prose never
 
 Stage 8 produces one translated file per chapter; stage 9 makes their **structure**
 consistent. It is the third agent stage, and it is deliberately not a prose editor:
@@ -1539,7 +1539,7 @@ consistent. It is the third agent stage, and it is deliberately not a prose edit
    expected title appears once, in order.
 5. **Opening audit (final phase).** After every chapter is written — reused ones
    included — the stage walks the first lines of all of them, the same deterministic
-   pass stage 2 runs (`book_translator.openings`). It removes a stray copy of the
+   pass stage 2 runs (`book_translator.stages.openings`). It removes a stray copy of the
    chapter number under the title (`# Poglavlje 2` then `2`), a duplicated title
    line and a leftover page number, collapsing the blank around the removed line,
    and reports what still needs a human (a title that is only a number, a chapter
@@ -1596,7 +1596,7 @@ so line numbers stay valid); the default is stage 9's (remove the line and colla
 the blank). Only a line that is nothing but a stray number or a copy of the title
 is ever deleted.
 
-### Stage 10 — bind (`book_translator.binding`), one Markdown book
+### Stage 10 — bind (`book_translator.stages.binding`), one Markdown book
 
 The final step is deterministic. `run_bind` reads
 `09-postprocessed-chapters/*.md` in reading order — front matter, the separate TOC
@@ -1625,7 +1625,7 @@ it joins the files. The verification step applies the same rewrite to each input
 before looking for it in the output, and `image_refs` in the result/manifest is
 the number of pictures the final book points at.
 
-### Stage 11 — EPUB (`book_translator.epub`), the book a reader opens
+### Stage 11 — EPUB (`book_translator.stages.epub`), the book a reader opens
 
 `10-translated-book.md` is the reading copy for a human and the input for nothing;
 a reader wants an EPUB. Stage 11 packages the **same** chapter folder as an EPUB 3
@@ -1675,7 +1675,7 @@ python -m book_translator epub mybook --dry-run         # build and verify, writ
 The package uses only the standard library for the container and `markdown-it-py`
 for the Markdown-to-XHTML render, imported lazily: no pandoc, no calibre, no
 ebooklib. The stylesheet is a small file shipped with the package
-(`book_translator/epub/assets/style.css`): justified prose with a first-line indent,
+(`book_translator/stages/epub/assets/style.css`): justified prose with a first-line indent,
 hyphenation driven by the document's `lang`, an `<hr>` scene divider that survives
 every reader, and `max-width: 100%` on pictures.
 
@@ -2035,7 +2035,7 @@ python -m build
 ```
 
 The wheel installs the `book_translator` package (including
-`book_translator/epub/assets/style.css`), both console scripts and all five extras.
+`book_translator/stages/epub/assets/style.css`), both console scripts and all five extras.
 The sdist includes the README, the `book_translator.toml` example, the tests and the
 scripts; `MANIFEST.in` is the list. CI builds both and smoke-tests the installed
 wheel, so packaging regressions fail before a release.
@@ -2635,9 +2635,9 @@ and a `cat` of `07-translations/*.md` in the same order is the whole translated 
 is the first field of every name. Per chapter, the manifest's `chapter_filename` groups the files and
 `chunk_index` orders them; the translated chunks keep those names, so the same grouping works for the
 translation — and that grouping is exactly what stage 8 writes out as
-`08-translated-chapters/<chapter>.md`. In Python, `book_translator.chunking.reconstruct_chapter()` and
+`08-translated-chapters/<chapter>.md`. In Python, `book_translator.stages.chunking.reconstruct_chapter()` and
 `reconstruct_book()` do the same without reading a filename, and
-`book_translator.assembly.run_assembly()` does it for the translated side.
+`book_translator.stages.assembly.run_assembly()` does it for the translated side.
 
 ## Tests
 
@@ -2764,7 +2764,7 @@ python -m book_translator split BOOK.md --map my-map.json --dry-run    # validat
 python scripts/run_pipeline.py BOOK.md --map my-map.json --stop-after split
 ```
 
-The format is documented in [book_translator/slicing/mapfile.py](book_translator/slicing/mapfile.py):
+The format is documented in [book_translator/stages/slicing/mapfile.py](book_translator/stages/slicing/mapfile.py):
 a list of `{"line_number", "filename", "title"?, "role"?, "evidence"?}` entries, or an object
 with that list under `splits` / `split_mapping` / `map` / `chapters` / `entries`. Aliases are
 accepted (`line`/`start_line`, `file`/`name`, `kind` for `role`, `provenance` for `evidence`), so
@@ -2814,7 +2814,7 @@ The package is split by responsibility; each folder can be read on its own.
 | Path | Role |
 | --- | --- |
 | [book_translator/paths.py](book_translator/paths.py) | where documents live: `data/input/` in, `data/output/` out |
-| [book_translator/conversion/runner.py](book_translator/conversion/runner.py) | stage 0: EPUB/PDF/TXT → Markdown (`00-markdown/`), picture extraction to `00-markdown/images/`, the PDF text-layer gate (no OCR) and the conversion manifest |
+| [book_translator/stages/conversion/runner.py](book_translator/stages/conversion/runner.py) | stage 0: EPUB/PDF/TXT → Markdown (`00-markdown/`), picture extraction to `00-markdown/images/`, the PDF text-layer gate (no OCR) and the conversion manifest |
 | [book_translator/cli/](book_translator/cli/__init__.py) | the command-line package: `main`/`build_parser` compatibility surface, one module per command under `cli/commands/`, shared helpers (`cli/common.py`), argparse parents (`cli/parents.py`), the root parser (`cli/parser.py`) and the `pipeline` dispatch; `cli/legacy.py` is a re-export shim |
 | [book_translator/pipeline/](book_translator/pipeline/__init__.py) | the one orchestrator: `options.py` (normalized options + exact runner kwargs), `paths.py` (`StagePaths`), `sources.py` (text/chunk fallbacks), `driver.py` (phase order, stop/start, records) and `parser.py` (the shared whole-pipeline CLI) |
 | [book_translator/core/report.py](book_translator/core/report.py) | `human_seconds`, `human_bytes`, `human_count` and the small `recon`/`scan` payload summary shared by both front ends (stage narration stays with the front end that owns it) |
@@ -2835,89 +2835,89 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_translator/documents/manifest.py](book_translator/documents/manifest.py) | every stage manifest reader (`load_split_manifest`, `load_chunk_manifest`, `load_translation_manifest`, …), so a stage never imports the stage that wrote one |
 | [book_translator/documents/window.py](book_translator/documents/window.py) | the `--first-chapters N` window: body-chapter selection, file-count arithmetic for chapter-based stages, and chunk-membership filtering for chunk-based stages |
 | [book_translator/documents/text.py](book_translator/documents/text.py) | folding, similarity, slugs, tool-result caps |
-| [book_translator/analysis/toc.py](book_translator/analysis/toc.py) | printed-TOC block detection |
-| [book_translator/analysis/headers.py](book_translator/analysis/headers.py) | `strong` / `noisy` / `absent` verdict |
-| [book_translator/analysis/candidates.py](book_translator/analysis/candidates.py) | heuristic title candidates |
-| [book_translator/analysis/locate.py](book_translator/analysis/locate.py) | fuzzy title → line number, heading snapping |
-| [book_translator/slicing/plan.py](book_translator/slicing/plan.py) | safe filenames and line ranges |
-| [book_translator/slicing/slice.py](book_translator/slicing/slice.py) | verbatim copy, manifest, dry-run preview |
-| [book_translator/slicing/validation.py](book_translator/slicing/validation.py) | deterministic map scoring |
-| [book_translator/slicing/verify.py](book_translator/slicing/verify.py) | SHA-256 proof that nothing was lost |
-| [book_translator/preprocess/inspect.py](book_translator/preprocess/inspect.py) | one chapter's headers + evidence + deterministic recommendation |
-| [book_translator/preprocess/damage.py](book_translator/preprocess/damage.py) | damage detection and the three repair rules |
-| [book_translator/preprocess/corpus.py](book_translator/preprocess/corpus.py) | sampling and the book-wide damage profile |
-| [book_translator/preprocess/plan.py](book_translator/preprocess/plan.py) | the legal-edit vocabulary, its predicates and the two validators (no writes) |
-| [book_translator/preprocess/apply.py](book_translator/preprocess/apply.py) | pure line rewriting, the provenance map and the `LineProvenance` index |
-| [book_translator/preprocess/verify.py](book_translator/preprocess/verify.py) | the content proof that only declared lines changed |
-| [book_translator/openings/inspect.py](book_translator/openings/inspect.py) | the final phase of stages 2/9: one chapter's opening — title candidate, ≤12 clipped lines and the provable issue vocabulary |
-| [book_translator/openings/repair.py](book_translator/openings/repair.py) | the final phase: pure removal of the audited junk lines (blank slot for stage 2, collapsed blank for stage 9) |
-| [book_translator/openings/phase.py](book_translator/openings/phase.py) | the final phase: the book-wide pass, counts/findings and the per-chapter report both stage runners store |
-| [book_translator/dictionary/sentences.py](book_translator/dictionary/sentences.py) | stage 3: sentence splitting and the two dependency-free filters |
-| [book_translator/dictionary/language.py](book_translator/dictionary/language.py) | stage 3: sampled language detection (`lingua-py`), the ekavian/ijekavian tie-breaker, backend routing |
-| [book_translator/dictionary/ner.py](book_translator/dictionary/ner.py) | stage 3: the CLASSLA/stanza gate, entity rules, GPU selection and the device actually used |
-| [book_translator/dictionary/unique.py](book_translator/dictionary/unique.py) | stage 3: the noun key and the first-mention filter (book-wide, in chapter order) |
-| [book_translator/dictionary/runner.py](book_translator/dictionary/runner.py) | stage 3: `run_dictionary`, the chapter loop, timings, `03-reduced/` + `03-reduced-unique/` and their manifest |
-| [book_translator/glossary/models.py](book_translator/glossary/models.py) | stage 4: the Pydantic answer (`term` / `category` / `translation`) and category normalisation |
-| [book_translator/glossary/prompts.py](book_translator/glossary/prompts.py) | stage 4: the book-translation system prompt, the incremental chapter prompt, the dictionary renderer |
-| [book_translator/glossary/extract.py](book_translator/glossary/extract.py) | stage 4: the chapter schema and outcome over `core.llm.StructuredCaller` |
-| [book_translator/glossary/book.py](book_translator/glossary/book.py) | stage 4: the live dictionary — first rendering wins, repeats deduplicated, drift recorded as a conflict |
-| [book_translator/glossary/records.py](book_translator/glossary/records.py) | stage 4: the four records (`GlossaryTerm`, `ChapterPlan`, `ChapterGlossary`, `GlossaryResult`) and the chapter selection |
-| [book_translator/glossary/runner.py](book_translator/glossary/runner.py) | stage 4: `run_glossary`, the ordered chapter walk, the front/back-matter skip and the four artifacts |
-| [book_translator/chunking/boundaries.py](book_translator/chunking/boundaries.py) | stage 5: names the boundary kind of a cut (paragraph / sentence / line / word / hard) |
-| [book_translator/chunking/tokenizer.py](book_translator/chunking/tokenizer.py) | stage 5: resolves the tokenizer and the offline approximation, with the reason recorded |
-| [book_translator/chunking/runner.py](book_translator/chunking/runner.py) | stage 5: `run_chunking`, the reversible cut, the manifest, the skip/reuse rules and the reconstruction helpers |
-| [book_translator/chunking/__init__.py](book_translator/chunking/__init__.py) | stage 5: public write side (`run_chunking`) and read side (`reconstruct_chapter` / `reconstruct_book`) |
-| [book_translator/chunk_glossary/matching.py](book_translator/chunk_glossary/matching.py) | stage 6: glossary loading, term normalisation and the rapidfuzz matcher (threshold and scorer are options) |
-| [book_translator/chunk_glossary/runner.py](book_translator/chunk_glossary/runner.py) | stage 6: `run_chunk_glossary`, the two phases (NER over every chunk, then retrieval), the per-chunk files and the manifest/trace |
-| [book_translator/chunk_glossary/__init__.py](book_translator/chunk_glossary/__init__.py) | stage 6: public surface (`run_chunk_glossary`, the matcher and the per-chunk records) |
-| [book_translator/matter/metadata.py](book_translator/matter/metadata.py) | stage 6b: `Title - Author` parsing from the input filename (re-exports the shared `BookMetadata`) |
-| [book_translator/matter/generate.py](book_translator/matter/generate.py) | stage 6b: the English text of a synthetic front/back matter section |
-| [book_translator/matter/records.py](book_translator/matter/records.py) | stage 6b: split/chunk manifest records, totals and the two manifest updates |
-| [book_translator/matter/synthesize.py](book_translator/matter/synthesize.py) | stage 6b: `ensure_matter_sections` — decide what is missing and write it |
-| [book_translator/translation/models.py](book_translator/translation/models.py) | stage 7: the Pydantic answer — one `translation` field, non-blank |
-| [book_translator/translation/prompts.py](book_translator/translation/prompts.py) | stage 7: the constant translator system prompt and the per-chunk prompt (glossary, optional context, source, task) |
-| [book_translator/translation/translator.py](book_translator/translation/translator.py) | stage 7: the translation schema, quality validation and JSON recovery over `core.llm.StructuredCaller` |
-| [book_translator/translation/runner.py](book_translator/translation/runner.py) | stage 7: `run_translation`, the ordered chunk walk, `--limit`/resume rules, the translation files and the whole-input debug records |
-| [book_translator/translation/__init__.py](book_translator/translation/__init__.py) | stage 7: public surface (`run_translation`, the prompt builders, the translator and the records) |
-| [book_translator/assembly/runner.py](book_translator/assembly/runner.py) | stage 8: `run_assembly`, the chapter grouping, all-or-nothing assembly, the resume comparison and the manifest/trace |
-| [book_translator/assembly/__init__.py](book_translator/assembly/__init__.py) | stage 8: public surface (`run_assembly`, the result record and the folder resolvers) |
-| [book_translator/postprocess/inspect.py](book_translator/postprocess/inspect.py) | stage 9: the chapter-title inventory, bounded openings, heading records and matter inspection |
-| [book_translator/postprocess/titles.py](book_translator/postprocess/titles.py) | stage 9: title text primitives and the canonical chapter-title policy |
-| [book_translator/postprocess/rules/](book_translator/postprocess/rules/__init__.py) | stage 9: validation split by rule group (evidence, naming, overrides, TOC, titles, chapter title, headings) |
-| [book_translator/postprocess/plan.py](book_translator/postprocess/plan.py) | stage 9: the public validators (thin orchestrators), chapter apply and provenance verification |
-| [book_translator/postprocess/toc.py](book_translator/postprocess/toc.py) | stage 9: TOC detection, generation, in-place update and consistency verification |
-| [book_translator/postprocess_agent/graph.py](book_translator/postprocess_agent/graph.py) | stage 9: the book-level and per-chapter `StageSpec`s, compiled by the scaffold |
-| [book_translator/postprocess_agent/runner.py](book_translator/postprocess_agent/runner.py) | stage 9: `run_postprocess`, the book pass, the ordered chapter walk and the TOC write |
-| [book_translator/binding/runner.py](book_translator/binding/runner.py) | stage 10: `run_bind`, the ordered single-file concatenation and its verification |
-| [book_translator/epub/runner.py](book_translator/epub/runner.py) | stage 11: `run_epub`, the chapter render, picture embedding, metadata resolution and the package write |
-| [book_translator/epub/verify.py](book_translator/epub/verify.py) | stage 11: post-write verification, split by rule (mimetype, container, package document, navigation, documents, cover) |
-| [book_translator/epub/render.py](book_translator/epub/render.py) | stage 11: Markdown → XHTML (`markdown_it`, imported lazily), heading anchors, picture figures |
-| [book_translator/epub/package.py](book_translator/epub/package.py) | stage 11: the EPUB 3 container — zip layout, package document, navigation document, cover page |
-| [book_translator/epub/metadata.py](book_translator/epub/metadata.py) | stage 11: `dc:` metadata from stage 6b's records, the stable UUID, the package timestamp and the ZIP date encoding |
-| [book_translator/epub/assets/style.css](book_translator/epub/assets/style.css) | stage 11: the stylesheet every package ships |
-| [book_translator/agent/prompts.py](book_translator/agent/prompts.py) | stage 1 system prompt and the fallback protocol |
-| [book_translator/agent/llm.py](book_translator/agent/llm.py) | the chat model with the toolset bound |
-| [book_translator/agent/tools/registry.py](book_translator/agent/tools/registry.py) | tool registry with the `shared` / `split` / `preprocess` stage tags |
-| [book_translator/agent/tools/shared.py](book_translator/agent/tools/shared.py) | the generic tools both stages bind |
-| [book_translator/agent/tools/](book_translator/agent/tools/__init__.py) | stage 1 tools: `extract` / `toc` / `proposal` / `execution` |
+| [book_translator/stages/analysis/toc.py](book_translator/stages/analysis/toc.py) | printed-TOC block detection |
+| [book_translator/stages/analysis/headers.py](book_translator/stages/analysis/headers.py) | `strong` / `noisy` / `absent` verdict |
+| [book_translator/stages/analysis/candidates.py](book_translator/stages/analysis/candidates.py) | heuristic title candidates |
+| [book_translator/stages/analysis/locate.py](book_translator/stages/analysis/locate.py) | fuzzy title → line number, heading snapping |
+| [book_translator/stages/slicing/plan.py](book_translator/stages/slicing/plan.py) | safe filenames and line ranges |
+| [book_translator/stages/slicing/slice.py](book_translator/stages/slicing/slice.py) | verbatim copy, manifest, dry-run preview |
+| [book_translator/stages/slicing/validation.py](book_translator/stages/slicing/validation.py) | deterministic map scoring |
+| [book_translator/stages/slicing/verify.py](book_translator/stages/slicing/verify.py) | SHA-256 proof that nothing was lost |
+| [book_translator/stages/preprocess/inspect.py](book_translator/stages/preprocess/inspect.py) | one chapter's headers + evidence + deterministic recommendation |
+| [book_translator/stages/preprocess/damage.py](book_translator/stages/preprocess/damage.py) | damage detection and the three repair rules |
+| [book_translator/stages/preprocess/corpus.py](book_translator/stages/preprocess/corpus.py) | sampling and the book-wide damage profile |
+| [book_translator/stages/preprocess/plan.py](book_translator/stages/preprocess/plan.py) | the legal-edit vocabulary, its predicates and the two validators (no writes) |
+| [book_translator/stages/preprocess/apply.py](book_translator/stages/preprocess/apply.py) | pure line rewriting, the provenance map and the `LineProvenance` index |
+| [book_translator/stages/preprocess/verify.py](book_translator/stages/preprocess/verify.py) | the content proof that only declared lines changed |
+| [book_translator/stages/openings/inspect.py](book_translator/stages/openings/inspect.py) | the final phase of stages 2/9: one chapter's opening — title candidate, ≤12 clipped lines and the provable issue vocabulary |
+| [book_translator/stages/openings/repair.py](book_translator/stages/openings/repair.py) | the final phase: pure removal of the audited junk lines (blank slot for stage 2, collapsed blank for stage 9) |
+| [book_translator/stages/openings/phase.py](book_translator/stages/openings/phase.py) | the final phase: the book-wide pass, counts/findings and the per-chapter report both stage runners store |
+| [book_translator/stages/dictionary/sentences.py](book_translator/stages/dictionary/sentences.py) | stage 3: sentence splitting and the two dependency-free filters |
+| [book_translator/stages/dictionary/language.py](book_translator/stages/dictionary/language.py) | stage 3: sampled language detection (`lingua-py`), the ekavian/ijekavian tie-breaker, backend routing |
+| [book_translator/stages/dictionary/ner.py](book_translator/stages/dictionary/ner.py) | stage 3: the CLASSLA/stanza gate, entity rules, GPU selection and the device actually used |
+| [book_translator/stages/dictionary/unique.py](book_translator/stages/dictionary/unique.py) | stage 3: the noun key and the first-mention filter (book-wide, in chapter order) |
+| [book_translator/stages/dictionary/runner.py](book_translator/stages/dictionary/runner.py) | stage 3: `run_dictionary`, the chapter loop, timings, `03-reduced/` + `03-reduced-unique/` and their manifest |
+| [book_translator/stages/glossary/models.py](book_translator/stages/glossary/models.py) | stage 4: the Pydantic answer (`term` / `category` / `translation`) and category normalisation |
+| [book_translator/stages/glossary/prompts.py](book_translator/stages/glossary/prompts.py) | stage 4: the book-translation system prompt, the incremental chapter prompt, the dictionary renderer |
+| [book_translator/stages/glossary/extract.py](book_translator/stages/glossary/extract.py) | stage 4: the chapter schema and outcome over `core.llm.StructuredCaller` |
+| [book_translator/stages/glossary/book.py](book_translator/stages/glossary/book.py) | stage 4: the live dictionary — first rendering wins, repeats deduplicated, drift recorded as a conflict |
+| [book_translator/stages/glossary/records.py](book_translator/stages/glossary/records.py) | stage 4: the four records (`GlossaryTerm`, `ChapterPlan`, `ChapterGlossary`, `GlossaryResult`) and the chapter selection |
+| [book_translator/stages/glossary/runner.py](book_translator/stages/glossary/runner.py) | stage 4: `run_glossary`, the ordered chapter walk, the front/back-matter skip and the four artifacts |
+| [book_translator/stages/chunking/boundaries.py](book_translator/stages/chunking/boundaries.py) | stage 5: names the boundary kind of a cut (paragraph / sentence / line / word / hard) |
+| [book_translator/stages/chunking/tokenizer.py](book_translator/stages/chunking/tokenizer.py) | stage 5: resolves the tokenizer and the offline approximation, with the reason recorded |
+| [book_translator/stages/chunking/runner.py](book_translator/stages/chunking/runner.py) | stage 5: `run_chunking`, the reversible cut, the manifest, the skip/reuse rules and the reconstruction helpers |
+| [book_translator/stages/chunking/__init__.py](book_translator/stages/chunking/__init__.py) | stage 5: public write side (`run_chunking`) and read side (`reconstruct_chapter` / `reconstruct_book`) |
+| [book_translator/stages/chunk_glossary/matching.py](book_translator/stages/chunk_glossary/matching.py) | stage 6: glossary loading, term normalisation and the rapidfuzz matcher (threshold and scorer are options) |
+| [book_translator/stages/chunk_glossary/runner.py](book_translator/stages/chunk_glossary/runner.py) | stage 6: `run_chunk_glossary`, the two phases (NER over every chunk, then retrieval), the per-chunk files and the manifest/trace |
+| [book_translator/stages/chunk_glossary/__init__.py](book_translator/stages/chunk_glossary/__init__.py) | stage 6: public surface (`run_chunk_glossary`, the matcher and the per-chunk records) |
+| [book_translator/stages/matter/metadata.py](book_translator/stages/matter/metadata.py) | stage 6b: `Title - Author` parsing from the input filename (re-exports the shared `BookMetadata`) |
+| [book_translator/stages/matter/generate.py](book_translator/stages/matter/generate.py) | stage 6b: the English text of a synthetic front/back matter section |
+| [book_translator/stages/matter/records.py](book_translator/stages/matter/records.py) | stage 6b: split/chunk manifest records, totals and the two manifest updates |
+| [book_translator/stages/matter/synthesize.py](book_translator/stages/matter/synthesize.py) | stage 6b: `ensure_matter_sections` — decide what is missing and write it |
+| [book_translator/stages/translation/models.py](book_translator/stages/translation/models.py) | stage 7: the Pydantic answer — one `translation` field, non-blank |
+| [book_translator/stages/translation/prompts.py](book_translator/stages/translation/prompts.py) | stage 7: the constant translator system prompt and the per-chunk prompt (glossary, optional context, source, task) |
+| [book_translator/stages/translation/translator.py](book_translator/stages/translation/translator.py) | stage 7: the translation schema, quality validation and JSON recovery over `core.llm.StructuredCaller` |
+| [book_translator/stages/translation/runner.py](book_translator/stages/translation/runner.py) | stage 7: `run_translation`, the ordered chunk walk, `--limit`/resume rules, the translation files and the whole-input debug records |
+| [book_translator/stages/translation/__init__.py](book_translator/stages/translation/__init__.py) | stage 7: public surface (`run_translation`, the prompt builders, the translator and the records) |
+| [book_translator/stages/assembly/runner.py](book_translator/stages/assembly/runner.py) | stage 8: `run_assembly`, the chapter grouping, all-or-nothing assembly, the resume comparison and the manifest/trace |
+| [book_translator/stages/assembly/__init__.py](book_translator/stages/assembly/__init__.py) | stage 8: public surface (`run_assembly`, the result record and the folder resolvers) |
+| [book_translator/stages/postprocess/inspect.py](book_translator/stages/postprocess/inspect.py) | stage 9: the chapter-title inventory, bounded openings, heading records and matter inspection |
+| [book_translator/stages/postprocess/titles.py](book_translator/stages/postprocess/titles.py) | stage 9: title text primitives and the canonical chapter-title policy |
+| [book_translator/stages/postprocess/rules/](book_translator/stages/postprocess/rules/__init__.py) | stage 9: validation split by rule group (evidence, naming, overrides, TOC, titles, chapter title, headings) |
+| [book_translator/stages/postprocess/plan.py](book_translator/stages/postprocess/plan.py) | stage 9: the public validators (thin orchestrators), chapter apply and provenance verification |
+| [book_translator/stages/postprocess/toc.py](book_translator/stages/postprocess/toc.py) | stage 9: TOC detection, generation, in-place update and consistency verification |
+| [book_translator/stages/postprocess_agent/graph.py](book_translator/stages/postprocess_agent/graph.py) | stage 9: the book-level and per-chapter `StageSpec`s, compiled by the scaffold |
+| [book_translator/stages/postprocess_agent/runner.py](book_translator/stages/postprocess_agent/runner.py) | stage 9: `run_postprocess`, the book pass, the ordered chapter walk and the TOC write |
+| [book_translator/stages/binding/runner.py](book_translator/stages/binding/runner.py) | stage 10: `run_bind`, the ordered single-file concatenation and its verification |
+| [book_translator/stages/epub/runner.py](book_translator/stages/epub/runner.py) | stage 11: `run_epub`, the chapter render, picture embedding, metadata resolution and the package write |
+| [book_translator/stages/epub/verify.py](book_translator/stages/epub/verify.py) | stage 11: post-write verification, split by rule (mimetype, container, package document, navigation, documents, cover) |
+| [book_translator/stages/epub/render.py](book_translator/stages/epub/render.py) | stage 11: Markdown → XHTML (`markdown_it`, imported lazily), heading anchors, picture figures |
+| [book_translator/stages/epub/package.py](book_translator/stages/epub/package.py) | stage 11: the EPUB 3 container — zip layout, package document, navigation document, cover page |
+| [book_translator/stages/epub/metadata.py](book_translator/stages/epub/metadata.py) | stage 11: `dc:` metadata from stage 6b's records, the stable UUID, the package timestamp and the ZIP date encoding |
+| [book_translator/stages/epub/assets/style.css](book_translator/stages/epub/assets/style.css) | stage 11: the stylesheet every package ships |
+| [book_translator/stages/agent/prompts.py](book_translator/stages/agent/prompts.py) | stage 1 system prompt and the fallback protocol |
+| [book_translator/stages/agent/llm.py](book_translator/stages/agent/llm.py) | the chat model with the toolset bound |
+| [book_translator/stages/agent/tools/registry.py](book_translator/stages/agent/tools/registry.py) | tool registry with the `shared` / `split` / `preprocess` stage tags |
+| [book_translator/stages/agent/tools/shared.py](book_translator/stages/agent/tools/shared.py) | the generic tools both stages bind |
+| [book_translator/stages/agent/tools/](book_translator/stages/agent/tools/__init__.py) | stage 1 tools: `extract` / `toc` / `proposal` / `execution` |
 | [book_translator/toolkit/preprocess/tools.py](book_translator/toolkit/preprocess/tools.py) | stage 2 tools: header collection, damage, plan submission, apply |
 | [book_translator/toolkit/postprocess/tools.py](book_translator/toolkit/postprocess/tools.py) | stage 9 tools: title inventory, heading records, plan submission, apply/verify |
 | [book_translator/toolkit/matter/tools.py](book_translator/toolkit/matter/tools.py) | the front/back matter readers and localization tools |
 | [book_translator/toolkit/context.py](book_translator/toolkit/context.py) | `ToolContext`: the run's folder/book/section/chunk, passed to tools explicitly instead of through a `ContextVar` |
-| [book_translator/agent/tools/openings.py](book_translator/agent/tools/openings.py) | the chapter-opening audit tools shared by stages 2 and 9 (`audit_chapter_opening`, `audit_book_openings`) |
-| [book_translator/agent/nodes/](book_translator/agent/nodes/__init__.py) | `scout` / `validate` / `slice` / `verify`, plus the splitter's `give_up` override |
+| [book_translator/stages/agent/tools/openings.py](book_translator/stages/agent/tools/openings.py) | the chapter-opening audit tools shared by stages 2 and 9 (`audit_chapter_opening`, `audit_book_openings`) |
+| [book_translator/stages/agent/nodes/](book_translator/stages/agent/nodes/__init__.py) | `scout` / `validate` / `slice` / `verify`, plus the splitter's `give_up` override |
 | [book_translator/stage_graph/](book_translator/stage_graph/__init__.py) | the shared scaffold every stage is compiled from: `AgentStateBase`, `StageSpec`, `build_stage_graph` and the three routers |
 | [book_translator/stage_graph/nodes.py](book_translator/stage_graph/nodes.py) | the shared `agent` / `tools` / `give_up` node bodies, `absorb_plan` and `usage` |
-| [book_translator/agent/graph.py](book_translator/agent/graph.py) | stage 1 `StageSpec` (`scout` → `agent` ↔ `tools` → `validate` → `slice` → `verify`) and the dry-run router, compiled by the scaffold |
-| [book_translator/agent/runner.py](book_translator/agent/runner.py) | `run_split` and the trace writer |
-| [book_translator/agent/state.py](book_translator/agent/state.py) | stage 1 graph state (metadata only, never prose); the shared keys come from `AgentStateBase` |
-| [book_translator/agent/result.py](book_translator/agent/result.py) | the `SplitterResult` dataclass |
-| [book_translator/preprocess_agent/prompts.py](book_translator/preprocess_agent/prompts.py) | stage 2 system prompt and the decision vocabulary |
-| [book_translator/preprocess_agent/llm.py](book_translator/preprocess_agent/llm.py) | the model with *only* the preprocessing tools bound |
-| [book_translator/preprocess_agent/nodes.py](book_translator/preprocess_agent/nodes.py) | `collect` / `validate` / `apply` / `verify` |
-| [book_translator/preprocess_agent/graph.py](book_translator/preprocess_agent/graph.py) | stage 2 `StageSpec` for **one chapter**, compiled by the scaffold |
-| [book_translator/preprocess_agent/runner.py](book_translator/preprocess_agent/runner.py) | `run_preprocess`: the sequential (or pooled) chapter loop |
-| [book_translator/preprocess_agent/state.py](book_translator/preprocess_agent/state.py) | stage 2 graph state (metadata only, never prose); the shared keys come from `AgentStateBase` |
+| [book_translator/stages/agent/graph.py](book_translator/stages/agent/graph.py) | stage 1 `StageSpec` (`scout` → `agent` ↔ `tools` → `validate` → `slice` → `verify`) and the dry-run router, compiled by the scaffold |
+| [book_translator/stages/agent/runner.py](book_translator/stages/agent/runner.py) | `run_split` and the trace writer |
+| [book_translator/stages/agent/state.py](book_translator/stages/agent/state.py) | stage 1 graph state (metadata only, never prose); the shared keys come from `AgentStateBase` |
+| [book_translator/stages/agent/result.py](book_translator/stages/agent/result.py) | the `SplitterResult` dataclass |
+| [book_translator/stages/preprocess_agent/prompts.py](book_translator/stages/preprocess_agent/prompts.py) | stage 2 system prompt and the decision vocabulary |
+| [book_translator/stages/preprocess_agent/llm.py](book_translator/stages/preprocess_agent/llm.py) | the model with *only* the preprocessing tools bound |
+| [book_translator/stages/preprocess_agent/nodes.py](book_translator/stages/preprocess_agent/nodes.py) | `collect` / `validate` / `apply` / `verify` |
+| [book_translator/stages/preprocess_agent/graph.py](book_translator/stages/preprocess_agent/graph.py) | stage 2 `StageSpec` for **one chapter**, compiled by the scaffold |
+| [book_translator/stages/preprocess_agent/runner.py](book_translator/stages/preprocess_agent/runner.py) | `run_preprocess`: the sequential (or pooled) chapter loop |
+| [book_translator/stages/preprocess_agent/state.py](book_translator/stages/preprocess_agent/state.py) | stage 2 graph state (metadata only, never prose); the shared keys come from `AgentStateBase` |
 | [tests/](tests/conftest.py) | the test suite, split the same way as the code |
 
 ## Related but external

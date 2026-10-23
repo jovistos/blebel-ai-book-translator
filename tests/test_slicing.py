@@ -5,9 +5,9 @@ from __future__ import annotations
 import pytest
 from book_translator.documents.io import load_lines
 from book_translator.documents.text import normalize_filename
-from book_translator.slicing.plan import plan_files
-from book_translator.slicing.slice import preview_split, slice_book
-from book_translator.slicing.verify import verify_output
+from book_translator.stages.slicing.plan import plan_files
+from book_translator.stages.slicing.slice import preview_split, slice_book
+from book_translator.stages.slicing.verify import verify_output
 
 from _fixtures import PLAIN, SAMPLE, SAMPLE_SPLITS, requires_sample
 
@@ -91,6 +91,6 @@ def test_slice_writes_manifest_next_to_chapters(plain, tmp_path, plan):
     slice_book(str(plain), mapping, str(tmp_path))
     assert (tmp_path / "_manifest.json").is_file()
 
-    from book_translator.slicing.verify import verify_output_dir
+    from book_translator.stages.slicing.verify import verify_output_dir
 
     assert verify_output_dir(tmp_path)["ok"]

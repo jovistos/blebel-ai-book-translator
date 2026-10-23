@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
-from book_translator.conversion import run_conversion
+from book_translator.stages.conversion import run_conversion
 
 from .. import parents
 from ..common import (
