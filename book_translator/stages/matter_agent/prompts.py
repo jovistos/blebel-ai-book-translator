@@ -110,7 +110,8 @@ localization in Markdown.
 - If this chunk is the **first front-matter chunk**, the translated edition must open with
   the localized title and state that it was translated by **BleBel**. The graph adds a
   title and credit if you omit them, so write them deliberately instead of relying on the
-  fallback.
+  fallback. When the chunk carries a **cover picture**, the picture comes first: put the
+  title page directly after the cover, never above it.
 - Format it beautifully with Markdown: one `#` title, a short italic credit line, blank
   lines between blocks, `##` section headings for a contents/preface/notes block, lists
   for an epigraph or a contents list, and a `---` rule only when it separates the title

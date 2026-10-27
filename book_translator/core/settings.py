@@ -76,7 +76,7 @@ PROVIDERS: dict[str, dict[str, str]] = {
     },
     "gemini": {
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-        "model": "gemini-2.5-flash",
+        "model": "gemini-3.8-flash",
         "key_env": "GEMINI_API_KEY",
     },
     "claude": {
@@ -132,6 +132,7 @@ STAGES: dict[str, str] = {
     "preprocess": "stage 2 — the per-chapter cleaning agent",
     "dictionary": "stages 3–4 — the glossary extractor",
     "matter": "stage 6b — the front/back matter agent",
+    "matter_image": "stage 6b — multimodal matter image recreation",
     "translate": "stage 7 — the chunk translator",
     "postprocess": "stage 9 — the headings/TOC agent",
 }
@@ -145,6 +146,8 @@ STAGE_ALIASES = {
     "translation": "translate",
     "pre_process": "preprocess",
     "post_process": "postprocess",
+    "matter_images": "matter_image",
+    "matter_img": "matter_image",
 }
 
 #: Provider-specific names that may stand in for a stage setting.

@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 280" width="100%" height="auto" style="background: transparent;">
+  <defs>
+    <linearGradient id="card-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#1e293b" />
+    </linearGradient>
+
+    <linearGradient id="input-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </linearGradient>
+
+    <linearGradient id="agent-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8b5cf6" />
+      <stop offset="100%" stop-color="#6d28d9" />
+    </linearGradient>
+
+    <linearGradient id="funnel-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0ea5e9" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+
+    <linearGradient id="output-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#047857" />
+    </linearGradient>
+
+    <filter id="card-shadow" x="-5%" y="-5%" width="110%" height="115%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000000" flood-opacity="0.3" />
+    </filter>
+  </defs>
+
+  <!-- Background Canvas -->
+  <rect x="5" y="5" width="1090" height="270" rx="16" fill="#090d16" stroke="#1e293b" stroke-width="1.5" />
+
+  <!-- Section Title -->
+  <text x="30" y="38" fill="#94a3b8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" letter-spacing="1.5">HYBRID PIPELINE: INTELLIGENT AGENTS + VERIFIABLE FUNNELS</text>
+
+  <!-- Node 1: Ingestion -->
+  <g transform="translate(30, 60)" filter="url(#card-shadow)">
+    <rect width="180" height="180" rx="12" fill="url(#card-bg)" stroke="#3b82f6" stroke-width="1.5" />
+    <rect x="0" y="0" width="180" height="32" rx="12" fill="url(#input-grad)" />
+    <!-- Fix bottom rounded corners of header -->
+    <rect x="0" y="20" width="180" height="12" fill="url(#input-grad)" />
+    <text x="90" y="21" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" text-anchor="middle">1. INGESTION &amp; EXTRACTION</text>
+    
+    <text x="20" y="65" fill="#f8fafc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="600">Raw Inputs:</text>
+    <text x="20" y="88" fill="#94a3b8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12">• EPUB / PDF / TXT</text>
+    <text x="20" y="110" fill="#94a3b8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12">• Docling Markdown</text>
+    <text x="20" y="132" fill="#94a3b8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12">• Picture extraction</text>
+    
+    <rect x="15" y="152" width="150" height="20" rx="4" fill="#1e293b" stroke="#334155" />
+    <text x="90" y="166" fill="#38bdf8" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10.5" font-weight="600" text-anchor="middle">00-markdown/ + images/</text>
+  </g>
+
+  <!-- Arrow 1 -> 2 -->
+  <path d="M 215,150 L 245,150" stroke="#475569" stroke-width="2" marker-end="url(#arrow)" />
+  <polygon points="245,145 255,150 245,155" fill="#64748b" />
+
+  <!-- Node 2: LangGraph Structural Agents -->
+  <g transform="translate(260, 60)" filter="url(#card-shadow)">
+    <rect width="240" height="180" rx="12" fill="url(#card-bg)" stroke="#8b5cf6" stroke-width="1.5" />
+    <rect x="0" y="0" width="240" height="32" rx="12" fill="url(#agent-grad)" />
+    <rect x="0" y="20" width="240" height="12" fill="url(#agent-grad)" />
+    <text x="120" y="21" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" text-anchor="middle">2. STRUCTURAL AGENTS</text>
+    
+    <text x="18" y="65" fill="#f8fafc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="600">Adaptive Book Reasoning:</text>
+    <text x="18" y="88" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12">🤖 <tspan font-weight="600">Split Agent</tspan> (boundaries)</text>
+    <text x="18" y="110" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12">🤖 <tspan font-weight="600">Preprocess Agent</tspan> (damage)</text>
+    <text x="18" y="132" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12">🤖 <tspan font-weight="600">Matter Agent</tspan> (front/back)</text>
+
+    <rect x="18" y="152" width="204" height="20" rx="4" fill="#2e1065" stroke="#7c3aed" />
+    <text x="120" y="166" fill="#d8b4fe" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10.5" font-weight="600" text-anchor="middle">Never Reads Body Prose</text>
+  </g>
+
+  <!-- Arrow 2 -> 3 -->
+  <polygon points="505,145 515,150 505,155" fill="#64748b" />
+  <line x1="500" y1="150" x2="510" y2="150" stroke="#475569" stroke-width="2" />
+
+  <!-- Node 3: Deterministic Funnels & Glossary -->
+  <g transform="translate(520, 60)" filter="url(#card-shadow)">
+    <rect width="260" height="180" rx="12" fill="url(#card-bg)" stroke="#0ea5e9" stroke-width="1.5" />
+    <rect x="0" y="0" width="260" height="32" rx="12" fill="url(#funnel-grad)" />
+    <rect x="0" y="20" width="260" height="12" fill="url(#funnel-grad)" />
+    <text x="130" y="21" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" text-anchor="middle">3. GLOSSARY &amp; CHUNKING</text>
+
+    <text x="18" y="65" fill="#f8fafc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="600">Zero-Drift Guarantees:</text>
+    <text x="18" y="88" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12">🔒 <tspan font-weight="600">NER &amp; Book Glossary</tspan> (Stanza)</text>
+    <text x="18" y="110" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12">✂️ <tspan font-weight="600">Chonkie Slicing</tspan> (Reversible)</text>
+    <text x="18" y="132" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12">🎯 <tspan font-weight="600">Per-Chunk RapidFuzz</tspan> Locking</text>
+
+    <rect x="18" y="152" width="224" height="20" rx="4" fill="#082f49" stroke="#0284c7" />
+    <text x="130" y="166" fill="#7dd3fc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10.5" font-weight="600" text-anchor="middle">Character &amp; Term Consistency</text>
+  </g>
+
+  <!-- Arrow 3 -> 4 -->
+  <polygon points="785,145 795,150 785,155" fill="#64748b" />
+  <line x1="780" y1="150" x2="790" y2="150" stroke="#475569" stroke-width="2" />
+
+  <!-- Node 4: Translation & Final EPUB -->
+  <g transform="translate(800, 60)" filter="url(#card-shadow)">
+    <rect width="270" height="180" rx="12" fill="url(#card-bg)" stroke="#10b981" stroke-width="1.5" />
+    <rect x="0" y="0" width="270" height="32" rx="12" fill="url(#output-grad)" />
+    <rect x="0" y="20" width="270" height="12" fill="url(#output-grad)" />
+    <text x="135" y="21" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="700" text-anchor="middle">4. TRANSLATION &amp; PACKAGING</text>
+
+    <text x="18" y="65" fill="#f8fafc" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13" font-weight="600">Cost-Optimized Outputs:</text>
+    <text x="18" y="88" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12">🌐 <tspan font-weight="600">Structured LLM</tspan> (DeepSeek/LM Studio)</text>
+    <text x="18" y="110" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12">✨ <tspan font-weight="600">Heading Postprocessing</tspan> Agent</text>
+    <text x="18" y="132" fill="#cbd5e1" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12">📚 <tspan font-weight="600">EPUB 3</tspan> + Markdown Generation</text>
+
+    <rect x="18" y="152" width="234" height="20" rx="4" fill="#064e3b" stroke="#059669" />
+    <text x="135" y="166" fill="#6ee7b7" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="10.5" font-weight="600" text-anchor="middle">Publisher-Quality Book</text>
+  </g>
+</svg>

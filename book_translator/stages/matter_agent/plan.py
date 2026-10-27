@@ -344,6 +344,9 @@ def prepare_matter(
             if fallback_validation.get("ok"):
                 plan = fallback_validation["plan"]
                 warnings = list(fallback_validation.get("warnings") or [])
+                err_msg = (book_final.get("result") or {}).get("error")
+                if err_msg:
+                    warnings.append(err_msg)
                 warnings.append(
                     "the planning model did not produce a plan; used the filename fallback"
                 )

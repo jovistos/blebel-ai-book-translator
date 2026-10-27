@@ -30,6 +30,7 @@
     "03-reduced/_reduced_trace.json": "b799dfb03cc4e0e23b3494ac4737851ef519932a7791ef589734345deb25f215",
     "04-glossary/_glossary_manifest.json": "379fae5f98f8d104faa6bff08ad239d431ab2159e515e5506ce6e32d0cdf4091",
     "04-glossary/_glossary_trace.json": "bfaaea309e1bfc77f72c6b2020b2b5dacf7267407b51da6856aa23623fcbcd37",
+    "04-glossary/glossary.csv": "38ec7dbb4a72ec301d34ad67183662c8fc7baf9ebf800ca87725aaa247512315",
     "04-glossary/glossary.json": "52e707837f8f1e4bdd66fafa3ce69dfbecfe53b7c611525aaf8956380e4a1f0b",
     "04-glossary/glossary.md": "5cc8d087ef2232671f50e7893549c0b3a7413ed784825787c11e48b5b6822209",
     "05-chunks/00000-00-title-page-0000.md": "5987a8fed4ea5072f5ab8897402b0b4e5b80cc603191de7ebb410cdc4946a91d",
@@ -46,12 +47,12 @@
     "06-chunk-glossary/00004-04-notes-0000.md.json": "6985435bf7a608bff20f003cdd51563b241f88504fce6d0e85a30f671a89e2ef",
     "06-chunk-glossary/_chunk_glossary_manifest.json": "dc7ce2b57d3842f56fe82f064fca804c1971a59ba98197fa11cc5162aa8f34f5",
     "06-chunk-glossary/_chunk_glossary_trace.json": "7514b2b26b75bdf5881e35c4f7b2783ba1e55a9bbfa8d52ddf630ad929b15d2c",
-    "06b-matter-prompts/00000-00-title-page-0000.md.json": "a17430d98fd6a1aef75b4694fffa8064392dd0dce1acae005897f70b2ade06ca",
-    "06b-matter-prompts/00000-00-title-page-0000.md.prompt.md": "6b7eccab1870c21d451713ac49f7812a0a884e8cc4eb49e92b0d940395d256fc",
-    "06b-matter-prompts/00001-01-preface-0000.md.json": "9da09056e357cefb4e6b46190a259ea9151cf724e0b0a35d939913b4dfedbed6",
-    "06b-matter-prompts/00001-01-preface-0000.md.prompt.md": "2caa0736d5fc33d3cdfeddbf0901366fe189ca2b6795507ed6aaf7f8aa988e2c",
-    "06b-matter-prompts/00004-04-notes-0000.md.json": "1e46233f2342264f01659a4323b0acb16dfed2a4369ab16fb6a8bd3949855450",
-    "06b-matter-prompts/00004-04-notes-0000.md.prompt.md": "e86614d2db90998afe2dd3ca8b31eac865d1001559fd42ffb2c297049f8427be",
+    "06b-matter-prompts/00000-00-title-page-0000.md.json": "aea726ea0a0f645d6eb2bb84da308304bbbe49d635a2c86d3d0a921ec4a95cd6",
+    "06b-matter-prompts/00000-00-title-page-0000.md.prompt.md": "da5d7b62a66a6c6b4d40e4d9e921cb3c5945464cfe622831b90c5fabf58b15f8",
+    "06b-matter-prompts/00001-01-preface-0000.md.json": "76d68fa3f4bea495fe0c0d0529da41ee8f678df49d7890183a4de7c3027ff77d",
+    "06b-matter-prompts/00001-01-preface-0000.md.prompt.md": "6a4d45bfd7e9e073facdff12462ee737f725f05153ac36348accf9a6094d97a9",
+    "06b-matter-prompts/00004-04-notes-0000.md.json": "d03165de8c431a62ffe16986c22e5a2515ffac0d7e5aeeb6a303161cfcdf7fe1",
+    "06b-matter-prompts/00004-04-notes-0000.md.prompt.md": "baebddedf3080c87f803b4e66e06fb92a7de21dc317f7ea2ff54144a3543bb49",
     "06b-matter-prompts/_book-plan.json": "a470a3811473039fbea97bb8d5f4639945a79181a30b413bea40bbf5897da083",
     "06b-matter-prompts/_book-plan.prompt.md": "6d4d1aea94637267e7d15b6dc0d7a891328a6a08b0846412d07d4d3fadbb1ef7",
     "06b-matter/_matter_manifest.json": "ddc4d139358d2ca10f85210bf314abdd62966dabb614a39a8dd4fce310499964",
@@ -90,5 +91,5 @@
     "_epub_manifest.json": "bbe47213e67f2d8b052cb875fd41cfce7088653eb6656549b626bf685d903573",
     "_epub_trace.json": "0accec3d4e9b84d1374964a2241ce70384c2255ac59874fd1c1b2c1265b1aa90"
   },
-  "root": "796c10f1e68fa8ef53f413535e05b74bfaf707d3a603bc231f93d90d313f9cee"
+  "root": "a642aeaaf84de2cc711a4b8c1ba20aac52b94bc9464f80127631b9b468ef6fd0"
 }

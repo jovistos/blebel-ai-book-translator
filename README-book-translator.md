@@ -50,7 +50,7 @@ names; only new writes use the numbered layout.
 | 4. **Glossary** | `book_translator.stages.glossary` | *How must each of those nouns be written in the target language, once and for all?* | `data/output/<book>/04-glossary/` |
 | 5. **Chunk** | `book_translator.stages.chunking` | *Where can the chapter be cut without breaking a paragraph or a sentence — and how do we put it back?* | `data/output/<book>/05-chunks/` |
 | 6. **Chunk glossary** | `book_translator.stages.chunk_glossary` | *Which locked renderings does this chunk actually mention?* | `data/output/<book>/06-chunk-glossary/` |
-| 6b. **Matter** | `book_translator.stages.matter_agent` | *How is the front/back matter of the translated edition titled, credited and pruned?* | translated chunks in `07-translations/` + `06b-matter/` + `06b-matter-prompts/` |
+| 6b. **Matter** | `book_translator.stages.matter_agent` | *How is the front/back matter of the translated edition titled, credited, pruned, and its images/covers recreated? (Requires multimodal model)* | translated chunks in `07-translations/` + `06b-matter/` + `06b-matter-prompts/` |
 | 7. **Translate** | `book_translator.stages.translation` | *What does this body chunk say in the target language, using those renderings?* | `data/output/<book>/07-translations/` + `07-translation-prompts/` |
 | 8. **Assemble** | `book_translator.stages.assembly` | *What does each whole chapter say, now that every chunk is translated?* | `data/output/<book>/08-translated-chapters/` |
 | 9. **Postprocess** | `book_translator.stages.postprocess_agent` | *Are the translated chapter titles, the other headings and the table of contents consistent?* | `data/output/<book>/09-postprocessed-chapters/` |
@@ -169,9 +169,20 @@ translator credit, and an omitted chunk is written empty with the reason in the
 manifest. The localized chunks land in `07-translations/` under the usual chunk
 names, so stage 8 joins them with the body without a new rule, while the plan,
 manifest, trace and the whole prompt of every agent call are kept in `06b-matter/`
-and `06b-matter-prompts/`. Stage 7 skips those chapters by default;
-`--include-matter` restores the old behaviour for a caller that wants the body
-prompt to translate everything.
+and `06b-matter-prompts/`.
+
+Stage 6b additionally executes an end-to-end **multimodal matter image translation**
+phase: images referenced in matter chunks (such as original book covers, title
+plates, or frontispieces) are sent with book context (localized title, author,
+BleBel credit, and chapter text) to a multimodal vision + image generation model
+(`gemini-nano-banana-2.1`, requiring a multimodal model and `GEMINI_API_KEY`).
+The model recreates the artwork seamlessly from scratch with translated lettering
+natively embedded in the typography and artwork (avoiding patch overlays or bounding
+boxes), while leaving pure text-free art untouched. Recreated images land in
+`07-translations/images/<stem>_translated.<ext>` and Markdown references are rewritten.
+
+Stage 7 skips those chapters by default; `--include-matter` restores the old
+behaviour for a caller that wants the body prompt to translate everything.
 
 Stage 7 is the call that file exists for. It walks the **body** chunks in reading
 order, one model call at a time, and sends each chunk with its `matched_terms` as

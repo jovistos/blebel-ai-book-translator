@@ -285,7 +285,7 @@ def _maybe_write_trace(
 
 
 def matter_manifest_payload(result: MatterResult) -> dict[str, Any]:
-    return {
+    payload = {
         "stage": "matter",
         "generated_at": timestamp(),
         "ok": result.ok,
@@ -311,6 +311,9 @@ def matter_manifest_payload(result: MatterResult) -> dict[str, Any]:
         ],
         "errors": result.errors,
     }
+    if getattr(result, "images", None):
+        payload["images"] = list(result.images)
+    return payload
 
 
 def write_matter_manifest(out_dir: str | Path, result: MatterResult) -> Path:

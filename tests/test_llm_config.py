@@ -351,12 +351,16 @@ def test_the_project_config_pins_deepseek_flash_in_every_stage():
     loaded = settings_module.load_llm_config(repo_root() / "book_translator.toml")
 
     assert loaded.defaults["model"] == "deepseek-flash"
-    for stage in settings_module.STAGES:
+    text_stages = ("split", "preprocess", "dictionary", "matter", "translate", "postprocess")
+    for stage in text_stages:
         assert loaded.stages[stage]["model"] == "deepseek-flash"
         resolved = settings_module.resolve_settings(
             stage=stage, config=loaded, require_key=False
         )
         assert (resolved.provider, resolved.model) == ("deepseek", "deepseek-flash")
+
+    assert loaded.stages["matter_image"]["provider"] == "gemini"
+    assert loaded.stages["matter_image"]["model"] == "gemini-nano-banana-2.1"
 
 
 def test_a_stage_model_does_not_follow_a_provider_switch(tmp_path, monkeypatch):

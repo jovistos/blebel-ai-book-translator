@@ -36,6 +36,46 @@ def _format_size(size_bytes: int) -> str:
     return human_bytes(size_bytes)
 
 
+def _print_language_codes(console: Any = None) -> None:
+    from book_translator.stages.glossary.prompts import LANGUAGE_NAMES
+
+    items = sorted(LANGUAGE_NAMES.items(), key=lambda x: x[0].lower())
+    chunked = [items[i : i + 3] for i in range(0, len(items), 3)]
+
+    if console:
+        from rich.table import Table
+
+        table = Table(
+            title="Supported Language Codes",
+            border_style="dim",
+            show_header=True,
+            header_style="bold cyan",
+        )
+        table.add_column("Code", style="bold cyan", justify="center")
+        table.add_column("Language", style="white")
+        table.add_column("Code", style="bold cyan", justify="center")
+        table.add_column("Language", style="white")
+        table.add_column("Code", style="bold cyan", justify="center")
+        table.add_column("Language", style="white")
+
+        for row in chunked:
+            row_cells: list[str] = []
+            for code, name in row:
+                row_cells.extend([code, name])
+            while len(row_cells) < 6:
+                row_cells.extend(["", ""])
+            table.add_row(*row_cells)
+
+        console.print(table)
+        console.print("[dim]Tip: You can also enter any other standard ISO 639-1 language code.[/dim]\n")
+    else:
+        print("\nSupported Language Codes:")
+        for row in chunked:
+            line = "  ".join(f"{code:>7} : {name:<22}" for code, name in row)
+            print(f"  {line}")
+        print("  (Tip: You can also enter any other standard ISO 639-1 language code)\n")
+
+
 def _list_input_books(input_dir: Path) -> list[Path]:
     if not input_dir.exists():
         return []
@@ -50,6 +90,9 @@ def cmd_wizard(args: argparse.Namespace) -> int:
 
     if getattr(args, "json", False):
         import json
+
+        from book_translator.core.constants import DEFAULT_SOURCE_LANGUAGE, DEFAULT_TARGET_LANGUAGE
+        from book_translator.stages.glossary.prompts import LANGUAGE_NAMES
 
         input_dir = default_input_dir()
         books = _list_input_books(input_dir)
@@ -66,6 +109,9 @@ def cmd_wizard(args: argparse.Namespace) -> int:
                         "convert",
                         "custom",
                     ],
+                    "languages": dict(sorted(LANGUAGE_NAMES.items(), key=lambda x: x[0].lower())),
+                    "default_source_language": DEFAULT_SOURCE_LANGUAGE,
+                    "default_target_language": DEFAULT_TARGET_LANGUAGE,
                 },
                 indent=2,
             )
@@ -258,9 +304,53 @@ def cmd_wizard(args: argparse.Namespace) -> int:
         else:
             pass
 
-        lang = input("Target language code (default 'sr' for Serbian, Enter to keep default): ").strip()
-        if lang and lang != "sr":
-            cmd_flags.extend(["--target-language", lang])
+    if pname != "Convert Only":
+        from book_translator.core.constants import DEFAULT_SOURCE_LANGUAGE, DEFAULT_TARGET_LANGUAGE
+        from book_translator.stages.glossary.prompts import LANGUAGE_NAMES, language_name
+
+        if console:
+            console.print("\n[bold cyan]Language Configuration[/bold cyan]")
+        else:
+            print("\nLanguage Configuration:")
+
+        _print_language_codes(console)
+
+        canonical_codes = {k.lower(): k for k in LANGUAGE_NAMES}
+
+        src_name = language_name(DEFAULT_SOURCE_LANGUAGE)
+        src_prompt = (
+            f"Source language code (default '{DEFAULT_SOURCE_LANGUAGE}' for {src_name}, Enter to keep default): "
+        )
+        src_input = input(src_prompt).strip()
+        if src_input:
+            src_code = canonical_codes.get(src_input.lower(), src_input)
+            if src_code != DEFAULT_SOURCE_LANGUAGE:
+                cmd_flags.extend(["--source-language", src_code])
+        else:
+            src_code = DEFAULT_SOURCE_LANGUAGE
+
+        dest_name = language_name(DEFAULT_TARGET_LANGUAGE)
+        dest_prompt = (
+            f"Destination language code (default '{DEFAULT_TARGET_LANGUAGE}' for {dest_name}, Enter to keep default): "
+        )
+        dest_input = input(dest_prompt).strip()
+        if dest_input:
+            dest_code = canonical_codes.get(dest_input.lower(), dest_input)
+            if dest_code != DEFAULT_TARGET_LANGUAGE:
+                cmd_flags.extend(["--target-language", dest_code])
+        else:
+            dest_code = DEFAULT_TARGET_LANGUAGE
+
+        if console:
+            console.print(
+                f"  [dim]Languages selected:[/] [bold cyan]{src_code}[/] ({language_name(src_code)}) "
+                f"→ [bold cyan]{dest_code}[/] ({language_name(dest_code)})\n"
+            )
+        else:
+            print(
+                f"  Languages selected: {src_code} ({language_name(src_code)}) "
+                f"→ {dest_code} ({language_name(dest_code)})\n"
+            )
 
     # Step 4: Safety & Checkpoints
     if console:
@@ -287,10 +377,6 @@ def cmd_wizard(args: argparse.Namespace) -> int:
     cpu_choice = input("Force CPU for NER tagging (--cpu)? [y/N]: ").strip().lower()
     if cpu_choice in {"y", "yes"}:
         cmd_flags.append("--cpu")
-
-    dry_choice = input("Dry run only (validate without calling paid models or writing)? [y/N]: ").strip().lower()
-    if dry_choice in {"y", "yes"}:
-        cmd_flags.append("--dry-run")
 
     # Step 5: Synthesize Command
     full_argv = [selected_book, *cmd_flags]

@@ -723,6 +723,20 @@ class StageOptions:
     def _call_epub(self, runtime: StageRuntime, write_manifest: bool, write_prompts: bool, chapter_limit: int | None):
         paths, sources = runtime.paths, runtime.sources
         positional = (sources.postprocess, paths.epub_path)
+        cover = self.epub_cover
+        if cover is None and sources.postprocess is not None:
+            parent = Path(sources.postprocess).parent
+            trans_img = parent / "07-translations" / "images"
+            orig_img = parent / "00-markdown" / "images"
+            for d in (trans_img, orig_img):
+                if d.is_dir():
+                    for pat in ("*cover*_translated.*", "image_000000*_translated.*", "*cover*.*", "image_000000*.*"):
+                        matches = sorted(d.glob(pat))
+                        if matches:
+                            cover = str(matches[0])
+                            break
+                if cover:
+                    break
         kwargs = {
             "title": self.epub_title,
             "author": self.epub_author,
@@ -730,7 +744,7 @@ class StageOptions:
             "identifier": self.epub_identifier,
             "description": self.epub_description,
             "publisher": self.epub_publisher,
-            "cover": self.epub_cover,
+            "cover": cover,
             "dry_run": self.dry_run,
             "write_manifest": write_manifest,
         }

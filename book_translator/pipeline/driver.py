@@ -635,15 +635,18 @@ class PipelineDriver(PhaseExecutionMixin):
                 self._refresh_chapter_limit()
             self.console.info(f"  ✓ {name} finished in {human_seconds(record.seconds)}")
 
+            checkpoint_phase = (
+                "glossary" if (name == "dictionary" and self.glossary_enabled) else name
+            )
             if (
                 getattr(self.args, "interactive", False)
                 and not getattr(self.args, "dry_run", False)
                 and sys.stdin.isatty()
-                and name in {"glossary", "matter", "postprocess"}
+                and checkpoint_phase in {"glossary", "matter", "postprocess"}
             ):
-                proceed = self._checkpoint_pause(name, record)
+                proceed = self._checkpoint_pause(checkpoint_phase, record)
                 if not proceed:
-                    self.console.info(f"  · aborted at {name} checkpoint by user")
+                    self.console.info(f"  · aborted at {checkpoint_phase} checkpoint by user")
                     self.exit_code = 130
                     break
 
@@ -661,6 +664,8 @@ class PipelineDriver(PhaseExecutionMixin):
 
             if name == "glossary":
                 glossary_file = self.glossary_out / "glossary.json"
+                glossary_csv = self.glossary_out / "glossary.csv"
+                csv_path_display = str(glossary_csv.resolve())
                 terms_count = 0
                 sample_rows: list[dict[str, Any]] = []
                 if glossary_file.exists():
@@ -687,10 +692,13 @@ class PipelineDriver(PhaseExecutionMixin):
                 rich_c.print(tbl)
                 rich_c.print(
                     Panel(
-                        f"[bold yellow]Checkpoint Pause[/bold yellow]\n"
-                        f"Glossary saved to: [cyan]{rel(glossary_file)}[/cyan]\n\n"
-                        f"[bold][c][/bold] Continue to chunking / translation\n"
-                        f"[bold][e][/bold] Pause to edit glossary in your editor\n"
+                        f"[bold yellow]Checkpoint Pause: Stage 4 Glossary Complete[/bold yellow]\n\n"
+                        f"Please check out the CSV file with the dictionary entries:\n"
+                        f"  [bold cyan]{csv_path_display}[/bold cyan]\n\n"
+                        f"You can open and edit this CSV file to change any translations.\n"
+                        f"Your changes will be automatically applied to the rest of the translation process.\n\n"
+                        f"[bold][c][/bold] Continue to chunking / translation (applies CSV edits)\n"
+                        f"[bold][e][/bold] Pause to edit glossary CSV in your editor\n"
                         f"[bold][a][/bold] Abort pipeline",
                         border_style="yellow",
                     )
@@ -725,7 +733,26 @@ class PipelineDriver(PhaseExecutionMixin):
                 )
         else:
             print(f"\n--- Checkpoint: {name} completed ---")
+            if name == "glossary":
+                glossary_csv = self.glossary_out / "glossary.csv"
+                print("Please check out the CSV file with the dictionary entries:")
+                print(f"  {glossary_csv.resolve()}")
+                print("You can open and edit this CSV file to change translations.")
+                print("Your changes will be applied in the rest of the translation process.")
             print("[c] Continue / [e] Edit file / [a] Abort")
+
+        def _apply_glossary_sync() -> None:
+            if name == "glossary":
+                from book_translator.stages.glossary.artifacts import sync_glossary_from_csv
+
+                try:
+                    updated, added = sync_glossary_from_csv(self.glossary_out)
+                    if updated or added:
+                        self.console.info(
+                            f"  ✓ Applied {updated} translation update(s) and {added} new term(s) from glossary.csv"
+                        )
+                except Exception as exc:
+                    self.console.warning(f"  · warning: could not sync glossary.csv: {exc}")
 
         while True:
             try:
@@ -733,16 +760,22 @@ class PipelineDriver(PhaseExecutionMixin):
             except (EOFError, KeyboardInterrupt):
                 return False
             if choice in {"", "c", "continue", "y", "yes"}:
+                _apply_glossary_sync()
                 return True
             elif choice in {"a", "abort", "n", "no", "q", "quit"}:
                 return False
             elif choice in {"e", "edit"}:
-                target_path = self.glossary_out / "glossary.json" if name == "glossary" else self.book_dir
-                print(f"You can now edit: {target_path}")
+                if name == "glossary":
+                    csv_target = self.glossary_out / "glossary.csv"
+                    target_path = csv_target if csv_target.exists() else (self.glossary_out / "glossary.json")
+                else:
+                    target_path = self.book_dir
+                print(f"You can now edit: {target_path.resolve() if hasattr(target_path, 'resolve') else target_path}")
                 try:
                     input("Press [Enter] when finished editing to resume...")
                 except (EOFError, KeyboardInterrupt):
                     return False
+                _apply_glossary_sync()
                 return True
             else:
                 print("Invalid choice. Please enter 'c', 'e', or 'a'.")

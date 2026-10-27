@@ -328,6 +328,21 @@ def test_a_page_number_heading_above_the_real_title_is_still_skipped(tmp_path: P
     assert candidate["text"] == "Poglavlje 1"
 
 
+def test_a_cover_picture_is_not_a_title():
+    lines = [
+        "![Image](../00-markdown/images/cover.png)",
+        "",
+        "# Alisa u zemlji čuda",
+        "",
+        "Tekst.",
+    ]
+
+    candidate = find_title_candidate(lines)
+
+    assert candidate["line_number"] == 3
+    assert candidate["text"] == "Alisa u zemlji čuda"
+
+
 def test_setting_the_bare_number_title_leaves_no_stray_number(tmp_path: Path):
     folder = tmp_path / "08-translated-chapters"
     path = _chapter(folder, "05-chapter-2.md", "## 2\n\n2\n\nMila laktova dalje.\n")

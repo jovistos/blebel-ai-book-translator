@@ -347,6 +347,8 @@ def _print_glossary_summary(result, dry_run: bool = False) -> None:
     print(f"output dir      : {result.output_dir}")
     if result.glossary_path:
         print(f"glossary        : {result.glossary_path}")
+    if getattr(result, "csv_path", None):
+        print(f"csv             : {result.csv_path}")
     if result.markdown_path:
         print(f"markdown        : {result.markdown_path}")
     if result.manifest_path:

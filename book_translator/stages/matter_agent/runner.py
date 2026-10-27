@@ -30,6 +30,7 @@ dictionary-driven.
 
 from __future__ import annotations
 
+import contextlib
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -71,6 +72,8 @@ def run_matter(
     model: Any | None = None,
     book_model: Any | None = None,
     chunk_model: Any | None = None,
+    image_model: Any | None = None,
+    recreate_images: bool = True,
     max_attempts: int = DEFAULT_MATTER_ATTEMPTS,
     recursion_limit: int = DEFAULT_RECURSION_LIMIT,
     dry_run: bool = False,
@@ -171,6 +174,15 @@ def run_matter(
         else None
     )
 
+    if image_model is None and recreate_images and not dry_run:
+        from book_translator.core.settings import resolve_settings
+        from .llm import make_matter_image_llm
+
+        with contextlib.suppress(Exception):
+            img_settings = resolve_settings(stage="matter_image", require_key=False)
+            if getattr(img_settings, "api_key", None):
+                image_model = make_matter_image_llm(img_settings)
+
     records, errors, usage_tokens = run_chunks(
         MatterChunkRun(
             inputs=inputs,
@@ -194,6 +206,8 @@ def run_matter(
             first_in_section=first_in_section,
             previous_files=previous_files,
             usage_tokens=usage_tokens,
+            image_model=image_model,
+            recreate_images=recreate_images,
         )
     )
     return finish_matter(

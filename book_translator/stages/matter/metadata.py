@@ -75,6 +75,63 @@ _TITLE_TAIL = re.compile(
     re.IGNORECASE,
 )
 
+#: Common digital / Libgen / piracy release patterns.
+_RELEASE_DOMAIN = re.compile(
+    r"\b(?:libgen(?:\.[a-z0-9]+)?|z-?lib(?:\.org)?)\b", re.IGNORECASE
+)
+_RELEASE_BRACKETS = re.compile(r"^\s*\[[^\]]+\]\s*")
+_YEAR_PUBLISHER = re.compile(r"\(\s*\d{4}(?:,\s*[^)]*)?\s*\)")
+_TRAILING_ID = re.compile(r"[-_\s]\d{5,}\s*$")
+_TRAILING_ELLIPSIS = re.compile(r"\.{2,}\s*$")
+
+
+def _parse_digital_release(raw_stem: str) -> tuple[str, str] | None:
+    """Extract (title, author) from Libgen, Calibre, or digital release filenames."""
+    has_release_domain = bool(_RELEASE_DOMAIN.search(raw_stem))
+    curly_matches = re.findall(r"\{([^}]+)\}", raw_stem)
+    author = ""
+    for m in curly_matches:
+        cleaned_m = _clean(m)
+        if not cleaned_m.isdigit() and _name_score(cleaned_m) >= 2:
+            author = cleaned_m
+            break
+
+    if not author and not has_release_domain:
+        return None
+
+    title = raw_stem
+    title = _RELEASE_DOMAIN.sub("", title)
+    title = re.sub(r"\{[^}]+\}", "", title)
+    title = _YEAR_PUBLISHER.sub("", title)
+    title = _RELEASE_BRACKETS.sub("", title)
+    if "---" in title:
+        parts = [p for p in title.split("---") if p.strip()]
+        if len(parts) >= 2:
+            title = parts[-1]
+    title = _TRAILING_ID.sub("", title)
+    title = re.sub(r"[-_]\d{4}[-_][A-Za-z0-9-_ ]+$", "", title)
+    title = _TRAILING_ID.sub("", title)
+    title = _TRAILING_ELLIPSIS.sub("", title)
+    title = re.sub(r"_\s*", ": ", title)
+
+    if not author and has_release_domain:
+        norm = re.sub(r"-+", " ", title)
+        words = norm.split()
+        for length in (4, 3, 2):
+            if len(words) > length:
+                candidate = " ".join(words[-length:])
+                if _name_score(candidate) >= 3:
+                    author = candidate
+                    title = " ".join(words[:-length])
+                    break
+
+    if "-" in title and " " not in title:
+        title = title.replace("-", " ")
+    title = _clean(title)
+    if title:
+        return title, author
+    return None
+
 
 def _clean(value: str) -> str:
     text = str(value or "").replace("_", " ")
@@ -143,9 +200,20 @@ def parse_book_metadata(source_file: str | Path) -> BookMetadata:
     guessing that half of a real title is a person's name.
     """
     path = Path(str(source_file or "").strip())
-    stem = _clean(path.stem)
+    raw_stem = path.stem
+    stem = _clean(raw_stem)
     if not stem:
         return BookMetadata()
+
+    digital_meta = _parse_digital_release(raw_stem)
+    if digital_meta is not None:
+        title, author = digital_meta
+        if title:
+            return BookMetadata(
+                title=_TITLE_TAIL.sub("", title),
+                author=author,
+                stem=stem,
+            )
 
     by_match = _BY_SEPARATOR.search(stem)
     if by_match:

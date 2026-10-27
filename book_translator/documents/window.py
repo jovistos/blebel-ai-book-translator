@@ -7,11 +7,12 @@ splitting can be narrowed to a prefix of those chapters, and this module is the
 single place that turns ``N`` into the unit count each stage understands.
 
 ``N`` counts **body chapters**, not loose book files. A split book usually starts
-with ``00-front-matter.md`` and may end with a back-matter file; neither consumes
+with ``00-front-matter.md``, and a publisher's introduction or note on the text
+may be written as a numbered file even though it is front matter. Neither consumes
 one of the N, so ``--first-chapters 5`` means chapters 1–5, not "front matter plus
-chapters 1–4". The split manifest's ``kind`` is the authority when it is present;
-the filename fallback (``00-*``, ``back-matter``) covers a folder whose manifest
-was lost.
+chapters 1–4". Stage 1's explicit front/back ``kind`` is honoured when it is
+present; otherwise the shared filename rule (``00-*``, ``01-introduction``,
+``03-preface``, ``back-matter``) decides.
 
 * **Chapter-based stages** (dictionary, preprocess, chunk, glossary, scan) take a
   ``limit`` that counts ``discover_chapters`` entries. The window is turned into
@@ -35,6 +36,7 @@ translating the wrong prefix.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -54,6 +56,51 @@ Limit = int | None
 _FRONT_MATTER_KINDS = frozenset({"front-matter", "frontmatter", "front matter", "front_matter"})
 _BACK_MATTER_KINDS = frozenset({"back-matter", "backmatter", "back matter", "back_matter"})
 _BACK_MATTER_MARKERS = ("back-matter", "back_matter", "backmatter")
+
+#: A numbered *front/back* section in an otherwise chapter-numbered folder:
+#: ``01-introduction.md``, ``03-preface-to-the-first-edition.md``. Stage 1 only
+#: writes one front-matter block (``00-front-matter.md``) and one optional back
+#: block, so a publisher's introduction or a note on the text is written as a
+#: numbered file with ``kind: chapter``. The filename is the evidence every
+#: later stage can see (a translated folder no longer carries stage 1's
+#: ``kind``), and the same rules are used by stage 6b and stage 9.
+_FRONT_NAME_RE = re.compile(
+    r"^(?:\d*[-_ ]*)?(?:predgovor|uvod|prolog|preface|foreword|introduction|"
+    r"zahvaln|acknowledg|(?:a[-_ ])?note[-_ ]on[-_ ]the[-_ ]text)\b",
+    re.IGNORECASE,
+)
+_BACK_NAME_RE = re.compile(
+    r"^(?:\d*[-_ ]*)?(?:pogovor|epilog|bele[sš]ke|beleske|notes|dodatak|appendix|"
+    r"o[-_ ]autoru|about[-_ ]the[-_ ]author|index|indeks)\b",
+    re.IGNORECASE,
+)
+
+
+def matter_kind_of_name(name: str) -> str:
+    """``front`` / ``back`` / ``body`` from a chapter *filename* alone.
+
+    This is the shared name rule: the chapter window, the matter stage and the
+    postprocessing stage must agree on whether a numbered file is a real chapter
+    or a publisher's section. ``00-*`` is stage 1's front matter, the back
+    markers are stage 1's optional back block, and a numbered preface,
+    introduction or note on the text is front matter even though the slicer
+    labels it ``kind: chapter``.
+    """
+    filename = Path(str(name or "")).name.lower()
+    if not filename:
+        return "body"
+    if filename == FRONT_MATTER_FILENAME.lower() or "front-matter" in filename:
+        return "front"
+    if filename.startswith("00-"):
+        return "front"
+    if any(marker in filename for marker in _BACK_MATTER_MARKERS):
+        return "back"
+    stem = Path(filename).stem
+    if _FRONT_NAME_RE.match(stem):
+        return "front"
+    if _BACK_NAME_RE.match(stem):
+        return "back"
+    return "body"
 
 
 def normalize_limit(value: Any) -> Limit:
@@ -84,12 +131,7 @@ def combine_limits(*values: Any) -> Limit:
 
 def is_body_chapter_name(name: str) -> bool:
     """Whether a chapter *file* is a real chapter, not front/back matter."""
-    filename = Path(str(name or "")).name.lower()
-    if not filename:
-        return False
-    if filename == FRONT_MATTER_FILENAME.lower() or filename.startswith("00-"):
-        return False
-    return not any(marker in filename for marker in _BACK_MATTER_MARKERS)
+    return bool(str(name or "").strip()) and matter_kind_of_name(name) == "body"
 
 
 def is_body_chapter(chapter: Chapter) -> bool:

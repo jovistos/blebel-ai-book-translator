@@ -9,6 +9,8 @@ from typing import Any
 
 from book_translator.core.errors import ConfigError
 from book_translator.documents.chunks import ChunkInput
+from book_translator.documents.images import has_images
+from book_translator.stages.matter.images import recreate_matter_images_in_chunk
 from book_translator.stages.matter.inspect import MatterBook, MatterSection
 
 from .artifacts import _add_usage, _write_prompt_files
@@ -39,12 +41,15 @@ class MatterChunkRun:
     first_in_section: dict[str, str]
     previous_files: dict[str, dict[str, Any]]
     usage_tokens: dict[str, int]
+    image_model: Any | None = None
+    recreate_images: bool = True
 
 
 def run_chunks(run: MatterChunkRun) -> tuple[list[MatterChunkResult], list[str], dict[str, int]]:
     records: list[MatterChunkResult] = []
     errors: list[str] = []
     completed = 0
+    image_cache: dict[str, Any] = {}
     for position, chunk in enumerate(run.inputs):
         section = run.section_by_name.get(chunk.chapter_filename)
         if section is None:  # pragma: no cover - guarded by the filter above
@@ -154,6 +159,42 @@ def run_chunks(run: MatterChunkRun) -> tuple[list[MatterChunkResult], list[str],
                 or "the localization was not verified"
             )
             errors.append(f"{chunk.filename}: {record.error}")
+        else:
+            # Multimodal image recreation phase: inspect and recreate images with text
+            if (
+                run.recreate_images
+                and not record.omitted
+                and has_images(record.translation)
+            ):
+                chunk_p = Path(chunk.path) if hasattr(chunk, "path") and chunk.path else None
+                title_hint = str(run.plan.get("translated_title") or getattr(run.book, "book_title", "") or "")
+                author_hint = str(getattr(run.book, "book_author", "") or "")
+                credit_hint = str(run.plan.get("translation_credit") or "")
+                updated_text, img_records = recreate_matter_images_in_chunk(
+                    record.translation,
+                    chunk_path=chunk_p,
+                    out_dir=run.out_dir,
+                    model=run.image_model,
+                    source_language=run.source_lang,
+                    target_language=run.target_lang,
+                    book_title=title_hint,
+                    book_author=author_hint,
+                    translation_credit=credit_hint,
+                    matter_context=record.translation,
+                    dry_run=run.dry_run,
+                    cache=image_cache,
+                )
+                if updated_text != record.translation:
+                    record.translation = updated_text
+                    record.translation_chars = len(updated_text)
+                    if not run.dry_run and run.save and record.output_path:
+                        with contextlib.suppress(OSError):
+                            Path(record.output_path).write_text(updated_text, encoding="utf-8")
+                if img_records:
+                    record.images = [r.to_dict() for r in img_records]
+                    for r in img_records:
+                        if r.recreated:
+                            record.log.append(f"matter image recreated: {r.source_path} -> {r.target_path}")
         if not run.dry_run and run.save and run.write_prompts:
             with contextlib.suppress(OSError):
                 _write_prompt_files(

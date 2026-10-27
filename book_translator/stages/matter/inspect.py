@@ -345,6 +345,28 @@ def _source_file(chapters_path: Path, manifest: dict[str, Any]) -> str:
     return ""
 
 
+def _original_source_filename(chapters_path: Path, source_file: str) -> str:
+    """The original document filename (e.g. EPUB) if converted through 00-markdown."""
+    if source_file:
+        p = Path(source_file)
+        if p.name.endswith(".md") and (p.parent.name == "00-markdown" or (chapters_path.parent / "00-markdown").is_dir()):
+            convert_manifest = (
+                p.parent / "_convert_manifest.json"
+                if p.parent.name == "00-markdown"
+                else chapters_path.parent / "00-markdown" / "_convert_manifest.json"
+            )
+            if convert_manifest.is_file():
+                try:
+                    import json
+                    cdata = json.loads(convert_manifest.read_text(encoding="utf-8"))
+                    orig = cdata.get("source") or cdata.get("source_file") or cdata.get("source_path")
+                    if orig:
+                        return Path(orig).name
+                except Exception:
+                    pass
+    return ""
+
+
 def build_matter_book(
     chapters_path: str | Path,
     chunks_path: str | Path | None = None,
@@ -360,8 +382,9 @@ def build_matter_book(
     body = body_chapter_titles(base)
     manifest = load_split_manifest(base)
     source_file = _source_file(base, manifest)
+    orig_name = _original_source_filename(base, source_file)
     metadata = parse_book_metadata(
-        source_file or base.parent.name.replace("-", " ")
+        orig_name or source_file or base.parent.name.replace("-", " ")
     )
     title = str(book_title or "").strip() or metadata.title
     author = str(book_author or "").strip() or metadata.author

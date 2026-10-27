@@ -200,6 +200,51 @@ def test_a_chapter_window_counts_body_chapters_not_front_matter(tmp_path: Path):
     assert chapter_window_limit_for_path(chapters, None, 2) == 2
 
 
+def test_numbered_publisher_sections_do_not_consume_the_window(tmp_path: Path):
+    """A numbered introduction/preface/note is front matter, not chapter one.
+
+    Stage 1 can only mark one front-matter block, so an Alice-like edition
+    writes its introduction and note on the text as ``01-`` and ``02-`` files
+    with ``kind: chapter``. If the window counted them as chapters, the first
+    real chapter would be excluded and stage 9 would receive no body chapter.
+    """
+    from book_translator.documents.window import (
+        body_chapter_names,
+        chapter_window_limit_for_path,
+        is_body_chapter_name,
+    )
+    from book_translator.stages.postprocess.inspect import matter_kind
+
+    names = [
+        "00-front-matter.md",
+        "01-introduction.md",
+        "02-a-note-on-the-text.md",
+        "03-preface-to-the-first-edition.md",
+        "04-chapter-1-down-the-rabbit-hole.md",
+        "05-chapter-2-the-pool-of-tears.md",
+        "99-back-matter.md",
+    ]
+    chapters = tmp_path / "book" / "01-chapters"
+    chapters.mkdir(parents=True)
+    for name in names:
+        (chapters / name).write_text(f"{name} text.\n", encoding="utf-8")
+
+    assert body_chapter_names(names) == [
+        "04-chapter-1-down-the-rabbit-hole.md",
+        "05-chapter-2-the-pool-of-tears.md",
+    ]
+    assert is_body_chapter_name("01-introduction.md") is False
+    assert is_body_chapter_name("02-a-note-on-the-text.md") is False
+    assert is_body_chapter_name("03-preface-to-the-first-edition.md") is False
+    # The whole front block plus chapter 1 makes up the window's file prefix.
+    assert chapter_window_limit_for_path(chapters, 1) == 5
+    assert chapter_window_limit_for_path(chapters, 2) == 6
+    # The same name rule drives stage 9's matter classifier.
+    assert matter_kind("01-introduction.md", 1) == "front"
+    assert matter_kind("02-a-note-on-the-text.md", 2) == "front"
+    assert matter_kind("04-chapter-1-down-the-rabbit-hole.md", 4) == "body"
+
+
 def test_assembly_first_chapters_keeps_front_and_back_matter(tmp_path: Path):
     book = tmp_path / "book"
     chapters = book / "01-chapters"

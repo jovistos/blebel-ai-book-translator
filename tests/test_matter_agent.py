@@ -178,6 +178,48 @@ def test_an_omitted_first_front_chunk_keeps_the_title_page(tmp_path: Path):
     assert "BleBel" in result["text"]
 
 
+def test_a_cover_picture_stays_above_the_title_page(tmp_path: Path):
+    chapters, chunks = _book(tmp_path)
+    book = discover_matter_sections(chapters, chunks)
+    front = next(section for section in book if section.kind == "front")
+    validation = validate_matter_plan(book, _plan())
+    source = FRONT + "\n![Cover](cover.png)\n"
+
+    # The model wrote the title page first and the cover under it: the cover
+    # still opens the book, and the picture is never dropped.
+    result = validate_matter_translation(
+        source_text=source,
+        section_kind="front",
+        section_filename=front.filename,
+        section_title=front.title,
+        plan=validation["plan"],
+        translation=(
+            "# The Book\n\n*Prevod: BleBel*\n\n![Cover](cover.png)\n\n"
+            "## Contents\n\nText.\n"
+        ),
+        is_first_front_chunk=True,
+    )
+
+    assert result["ok"], result["issues"]
+    assert result["text"].startswith("![Cover](cover.png)\n\n# Knjiga\n")
+    assert "*Prevod: BleBel*" in result["text"]
+
+    # A model that already puts the cover first keeps it: the heading is added
+    # under the picture instead of replacing it.
+    result = validate_matter_translation(
+        source_text=source,
+        section_kind="front",
+        section_filename=front.filename,
+        section_title=front.title,
+        plan=validation["plan"],
+        translation="![Cover](cover.png)\n\n# The Book\n\n*Prevod: BleBel*\n",
+        is_first_front_chunk=True,
+    )
+
+    assert result["ok"], result["issues"]
+    assert result["text"].startswith("![Cover](cover.png)\n\n# Knjiga\n")
+
+
 def test_a_back_matter_section_gets_the_plan_title(tmp_path: Path):
     chapters, chunks = _book(tmp_path)
     book = discover_matter_sections(chapters, chunks)

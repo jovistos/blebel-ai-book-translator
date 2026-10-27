@@ -82,6 +82,25 @@ def test_missing_evidence_is_warned_about_not_fatal() -> None:
     assert len(meta.warnings) == 3
 
 
+def test_the_filename_parser_handles_digital_release_formats() -> None:
+    source = (
+        "[Modern Library Classics - Modern Library Classics] The Complete Stories of "
+        "Robert Louis Stevenson_ Strange Case of Dr. Jekyll and Mr. Hyde and Ninet..."
+        "{Robert Louis Stevenson}(2011, Random House Publishing Group){2950170} libgen.li.epub"
+    )
+    meta = matter_metadata.parse_book_metadata(source)
+
+    assert meta.author == "Robert Louis Stevenson"
+    assert meta.title == (
+        "The Complete Stories of Robert Louis Stevenson: Strange Case of Dr. Jekyll and Mr. Hyde and Ninet"
+    )
+
+    clean_source = "The Hobbit{J. R. R. Tolkien}(1937) libgen.rs.epub"
+    meta2 = matter_metadata.parse_book_metadata(clean_source)
+    assert meta2.author == "J. R. R. Tolkien"
+    assert meta2.title == "The Hobbit"
+
+
 def test_the_record_serialises_every_field() -> None:
     meta = Canonical(title="T", author="A", warnings=["w"])
 

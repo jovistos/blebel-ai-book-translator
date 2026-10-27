@@ -28,6 +28,7 @@ built, not when the package is imported, so a split-only install keeps working.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import unicodedata
 from dataclasses import dataclass
@@ -173,6 +174,10 @@ def load_glossary(path: str | Path) -> list[LexiconEntry]:
         raise ToolError(
             f"glossary not found: {file} — run `glossary` first to build it"
         )
+    with contextlib.suppress(Exception):
+        from book_translator.stages.glossary.artifacts import sync_glossary_from_csv
+
+        sync_glossary_from_csv(file.parent)
     try:
         payload = json.loads(file.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:

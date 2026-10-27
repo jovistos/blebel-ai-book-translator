@@ -39,6 +39,18 @@ def embed_images(
             warnings.append(f"{name}: remote picture left as a link: {src}")
             return tag
         path = Path(src) if Path(src).is_absolute() else base_dir / src
+        if not path.is_file():
+            filename = Path(src).name
+            for candidate_dir in (
+                base_dir.parent / MARKDOWN_DIRNAME / IMAGES_DIRNAME,
+                base_dir.parent / "07-translations" / IMAGES_DIRNAME,
+                base_dir.parent / IMAGES_DIRNAME,
+                base_dir / IMAGES_DIRNAME,
+            ):
+                option = candidate_dir / filename
+                if option.is_file():
+                    path = option
+                    break
         key = str(path.resolve()) if path.exists() else str(path)
         asset = assets.get(key)
         if asset is None:
@@ -100,7 +112,13 @@ def resolve_cover(cover: str | Path, source: Path) -> Path:
     if candidate.is_file():
         return candidate
     pictures = source.parent / MARKDOWN_DIRNAME / IMAGES_DIRNAME
-    for option in (pictures / candidate.name, pictures / str(cover)):
+    trans_pictures = source.parent / "07-translations" / IMAGES_DIRNAME
+    for option in (
+        pictures / candidate.name,
+        pictures / str(cover),
+        trans_pictures / candidate.name,
+        trans_pictures / str(cover),
+    ):
         if option.is_file():
             return option
     raise ToolError(

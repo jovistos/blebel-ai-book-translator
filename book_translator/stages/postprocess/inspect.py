@@ -21,7 +21,6 @@ from typing import Any
 
 from book_translator.core.constants import (
     DEFAULT_MAX_HEADERS,
-    FRONT_MATTER_FILENAME,
     MATTER_DIRNAME,
     MATTER_MANIFEST_FILENAME,
     MAX_POSTPROCESS_CONTEXT_LINES,
@@ -34,6 +33,7 @@ from book_translator.core.constants import (
     MAX_TITLE_SCAN_LINES,
 )
 from book_translator.documents.chapters import is_toc_filename
+from book_translator.documents.images import has_images
 from book_translator.documents.io import load_lines
 from book_translator.documents.markdown import (
     header_of,
@@ -44,7 +44,7 @@ from book_translator.documents.markdown import (
     page_number_of,
 )
 from book_translator.documents.text import excerpt
-from book_translator.documents.window import is_body_chapter_name
+from book_translator.documents.window import is_body_chapter_name, matter_kind_of_name
 from book_translator.stages.preprocess.inspect import classify_header, inspect_chapter
 
 #: Words that open a chapter/section label. Multilingual on purpose, like the
@@ -202,34 +202,19 @@ def matter_kind(filename: str, index: int = 0, title: str = "") -> str:
     A translated chapter folder no longer carries stage 1's ``kind`` field, so a
     preface named ``01-predgovor.md`` looks like chapter 1 by filename. Its own
     title (``PREDGOVOR``) is the evidence that it is front matter, and the same
-    applies to ``Pogovor``/``Beleške``/``O autoru`` at the back.
+    applies to ``Pogovor``/``Beleške``/``O autoru`` at the back. The filename
+    rule is shared with the chapter window (:func:`matter_kind_of_name`), so a
+    body-chapter count and this classifier cannot disagree about the same file.
     """
-    name = Path(str(filename or "")).name.lower()
-    if name == FRONT_MATTER_FILENAME.lower() or "front-matter" in name or name.startswith("00-"):
-        return "front"
-    if "back-matter" in name or "backmatter" in name:
-        return "back"
-    stem = Path(name).stem
-    if re.match(
-        r"^\d*[-_ ]*(predgovor|uvod|prolog|preface|foreword|introduction|"
-        r"zahvaln|acknowledg)",
-        stem,
-        re.IGNORECASE,
-    ):
-        return "front"
-    if re.match(
-        r"^\d*[-_ ]*(pogovor|epilog|bele[sš]ke|beleske|notes|dodatak|appendix|"
-        r"o[-_ ]autoru|about[-_ ]the[-_ ]author|index|indeks)",
-        stem,
-        re.IGNORECASE,
-    ):
-        return "back"
+    kind = matter_kind_of_name(filename)
+    if kind != "body":
+        return kind
     clean = (title or "").strip()
     if clean and FRONT_TITLE_RE.match(clean):
         return "front"
     if clean and BACK_TITLE_RE.match(clean):
         return "back"
-    if not is_body_chapter_name(name) and index == 0:
+    if not is_body_chapter_name(filename) and index == 0:
         return "front"
     return "body"
 
@@ -273,6 +258,10 @@ def _is_short_title_shape(text: str) -> bool:
     """A short, non-sentence line that could stand alone as a heading."""
     clean = (text or "").strip()
     if not clean or len(clean) > MAX_POSTPROCESS_TITLE_CHARS:
+        return False
+    # A picture is not a title, even when its alt text is short: a cover that
+    # opens the front matter must not become the book title.
+    if has_images(clean):
         return False
     if is_page_number_line(clean) or _word_count(clean) > 16:
         return False

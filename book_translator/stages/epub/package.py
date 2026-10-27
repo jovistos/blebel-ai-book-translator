@@ -203,9 +203,9 @@ def _cover_document(metadata: BookMetadata, cover: ImageAsset) -> str:
         title=metadata.title,
         body=body,
         language=metadata.language,
-        extra_head="<style>html,body{margin:0;padding:0;height:100%}"
+        extra_head="<style>html,body{margin:0;padding:0;height:100%;overflow:hidden}"
         ".cover{height:100%;text-align:center}"
-        ".cover img{max-width:100%;max-height:100%}</style>",
+        ".cover img{display:block;margin:0 auto;max-width:100%;max-height:100vh;object-fit:contain}</style>",
     )
 
 

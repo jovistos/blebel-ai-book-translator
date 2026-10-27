@@ -38,12 +38,13 @@ class MatterChunkResult:
     skipped: bool = False
     reused: bool = False
     error: str | None = None
+    images: list[dict[str, Any]] = field(default_factory=list)
     log: list[str] = field(default_factory=list)
     #: The localized text. Kept out of the manifest (the file is the artifact).
     translation: str = field(default="", repr=False, compare=False)
 
     def record(self) -> dict[str, Any]:
-        return {
+        rec = {
             "filename": self.filename,
             "section_filename": self.section_filename,
             "section_kind": self.section_kind,
@@ -64,6 +65,9 @@ class MatterChunkResult:
             "reused": self.reused,
             "error": self.error,
         }
+        if self.images:
+            rec["images"] = list(self.images)
+        return rec
 
     def to_dict(self) -> dict[str, Any]:
         return {**self.record(), "log": list(self.log)}
@@ -105,12 +109,16 @@ class MatterResult:
     timing: dict[str, float] = field(default_factory=dict)
     sections: list[dict[str, Any]] = field(default_factory=list)
     chunks: list[dict[str, Any]] = field(default_factory=list)
+    images: list[dict[str, Any]] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     manifest_path: str | None = None
     trace_path: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        if not self.images:
+            d.pop("images", None)
+        return d
 
 
 # --------------------------------------------------------------------------- #

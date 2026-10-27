@@ -80,6 +80,7 @@ def build_matter_result(
         },
         sections=[section.to_dict() for section in sections],
         chunks=[record.record() for record in records],
+        images=[img for record in records for img in getattr(record, "images", [])],
         errors=errors,
     )
 

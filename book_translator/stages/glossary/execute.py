@@ -30,7 +30,9 @@ from .artifacts import (
     _skipped_record,
     _timing,
     resolve_sentences_dir,
+    sync_glossary_from_csv,
     write_glossary,
+    write_glossary_csv,
     write_glossary_manifest,
     write_glossary_markdown,
     write_glossary_trace,
@@ -289,6 +291,7 @@ def execute_glossary(
         partial = build_result()
         with contextlib.suppress(OSError):  # a snapshot must never end the run
             write_glossary(out_dir, partial, book)
+            write_glossary_csv(out_dir, partial, book)
             write_glossary_markdown(out_dir, partial, book)
             write_glossary_manifest(out_dir, partial, list(records))
 
@@ -362,6 +365,7 @@ def execute_glossary(
         )
     if save and not dry_run:
         result.glossary_path = str(write_glossary(out_dir, result, book))
+        write_glossary_csv(out_dir, result, book)
         result.markdown_path = str(write_glossary_markdown(out_dir, result, book))
         result.manifest_path = str(write_glossary_manifest(out_dir, result, records))
         result.trace_path = str(write_glossary_trace(out_dir, result, records))

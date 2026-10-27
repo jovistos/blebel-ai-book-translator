@@ -133,9 +133,18 @@ def run_epub(
 
     documents: list[SpineDocument] = []
     chars = 0
+    cover_filename = Path(cover_asset.source).name if cover_asset and cover_asset.source else ""
     for path in files:
         text = path.read_text(encoding="utf-8")
         chars += len(text)
+        if cover_filename:
+            from book_translator.documents.images import image_refs
+            from book_translator.stages.matter.images import parse_image_src
+
+            for ref in image_refs(text):
+                ref_src = parse_image_src(ref)
+                if ref_src and Path(ref_src).name == cover_filename:
+                    text = text.replace(ref, "", 1)
         rendered = render_markdown(text, source=path.name)
         warnings.extend(rendered.warnings)
         record = records.get(path.name) or {}

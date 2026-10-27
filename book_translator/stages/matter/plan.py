@@ -12,8 +12,9 @@ rules stand between the model and the translated edition:
 
 The formatting helpers are deliberately small. They guarantee the two things a
 book cannot get wrong — the localized title and the translator credit appear on
-the first front-matter chunk, with clean Markdown spacing — while leaving the
-agent's wording and layout alone.
+the first front-matter chunk, with clean Markdown spacing, and above them a cover
+picture stays the first block of the book — while leaving the agent's wording and
+layout alone.
 """
 
 from __future__ import annotations
@@ -27,11 +28,14 @@ from book_translator.core.constants import (
     MATTER_TRANSLATOR_NAME,
     MIN_MATTER_LENGTH_RATIO,
 )
-from book_translator.documents.images import image_refs
+from book_translator.documents.images import image_refs, is_image_line
+from book_translator.stages.matter.images import is_translated_image_match
 from book_translator.stages.translation.translator import clean_translation
 
 #: A heading line, with its level.
 _HEADING_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
+#: A horizontal rule, which may separate the blocks of a title page.
+_RULE_RE = re.compile(r"^\s{0,3}(?:-{3,}|\*{3,}|_{3,})\s*$")
 #: A short line ending in a full stop is prose, not a title to promote.
 _SENTENCE_END_RE = re.compile(r"[.…]\s*$")
 #: The credit must contain this; only the surrounding sentence is localized.
@@ -170,10 +174,65 @@ def _insert_credit(lines: list[str], credit: str) -> list[str]:
     return lines[:insert_at] + block + lines[insert_at:]
 
 
+def _cover_and_body(lines: list[str]) -> tuple[list[str], list[str]]:
+    """Split the cover picture from the opening title page, cover first.
+
+    The translated edition opens with its cover. A model sometimes writes the
+    title page first and the cover picture directly below it; lifting the picture
+    keeps the cover first without dropping or rewriting it. Only the opening
+    title block is inspected — a picture that follows prose is content, not the
+    cover, and stays where the model put it.
+    """
+    first = next((index for index, line in enumerate(lines) if line.strip()), None)
+    if first is None:
+        return [], lines
+    if is_image_line(lines[first]):
+        picture: int | None = first
+    else:
+        picture = next(
+            (index for index in range(first + 1, len(lines)) if is_image_line(lines[index])),
+            None,
+        )
+    if picture is None:
+        return [], lines
+    opening = [line for line in lines[first:picture] if line.strip()]
+    # A picture under prose is an illustration, not the cover. Above the picture
+    # there is either the model's title page (which carries the credit) or the
+    # source cover caption; both belong below the cover in the translated book.
+    title_page = bool(opening) and all(
+        _HEADING_RE.match(line)
+        or _CREDIT_NAME in line
+        or _RULE_RE.match(line.strip())
+        or (len(line.strip()) <= 160 and not _SENTENCE_END_RE.search(line))
+        for line in opening
+    )
+    caption = (
+        len(opening) == 1
+        and len(opening[0].strip()) <= 160
+        and not _SENTENCE_END_RE.search(opening[0])
+    )
+    if opening and not (
+        title_page and (any(_CREDIT_NAME in line for line in opening) or caption)
+    ):
+        return [], lines
+    cover = [lines[picture]]
+    end = picture + 1
+    while end < len(lines) and (not lines[end].strip() or is_image_line(lines[end])):
+        if is_image_line(lines[end]):
+            cover.append(lines[end])
+        end += 1
+    return cover, lines[:picture] + lines[end:]
+
+
 def _ensure_front_title(text: str, plan: dict[str, Any]) -> str:
-    """The first front-matter chunk opens with the localized title and credit."""
+    """The first front-matter chunk opens with the cover, then title and credit.
+
+    The localized title and the translator credit are guaranteed on the first
+    front-matter chunk, but they never push the cover picture down: the cover
+    stays the first block of the translated book.
+    """
     title, credit = _title_and_credit(plan)
-    lines = text.split("\n") if text else []
+    cover, lines = _cover_and_body(text.split("\n") if text else [])
     first = next((index for index, line in enumerate(lines) if line.strip()), None)
     if title:
         heading = f"# {title}"
@@ -207,7 +266,11 @@ def _ensure_front_title(text: str, plan: dict[str, Any]) -> str:
         lines.insert(credit_index + 2, f"*{edition_note.strip('*').strip()}*")
         if credit_index + 3 < len(lines) and lines[credit_index + 3].strip():
             lines.insert(credit_index + 3, "")
-    return clean_markdown("\n".join(lines))
+    body = clean_markdown("\n".join(lines))
+    if cover:
+        joined = "\n\n".join(cover)
+        return clean_markdown(f"{joined}\n\n{body}" if body else joined)
+    return body
 
 
 def _ensure_back_title(text: str, title: str) -> str:
@@ -501,10 +564,18 @@ def validate_matter_translation(
             if reference in remaining_images:
                 remaining_images.remove(reference)
             else:
-                issues.append(
-                    "the localization dropped an image reference; copy every image "
-                    f"exactly as it is ({reference[:80]!r})"
-                )
+                matched_candidate = None
+                for candidate in remaining_images:
+                    if is_translated_image_match(reference, candidate):
+                        matched_candidate = candidate
+                        break
+                if matched_candidate is not None:
+                    remaining_images.remove(matched_candidate)
+                else:
+                    issues.append(
+                        "the localization dropped an image reference; copy every image "
+                        f"exactly as it is ({reference[:80]!r})"
+                    )
         if remaining_images:
             warnings.append(
                 f"the localization added {len(remaining_images)} image reference(s) that "

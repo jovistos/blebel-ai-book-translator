@@ -16,6 +16,7 @@ from book_translator.core.artifacts import (
     write_trace,
 )
 from book_translator.core.constants import (
+    GLOSSARY_CSV_FILENAME,
     GLOSSARY_FILENAME,
     GLOSSARY_MANIFEST_FILENAME,
     GLOSSARY_MARKDOWN_FILENAME,
@@ -322,6 +323,164 @@ def write_glossary(out_dir: Path, result: GlossaryResult, book: GlossaryBook) ->
     return write_json(Path(out_dir) / GLOSSARY_FILENAME, glossary_payload(result, book))
 
 
+def write_glossary_csv(out_dir: Path, result: GlossaryResult, book: GlossaryBook) -> Path:
+    """The spreadsheet view: term, category, translation, chapter_filename.
+
+    Meant to be inspected or edited by hand; user changes to translations
+    can be synced back into the pipeline dictionary.
+    """
+    import csv
+
+    target = Path(out_dir) / GLOSSARY_CSV_FILENAME
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["term", "category", "translation", "chapter_filename"])
+        for entry in book:
+            writer.writerow([entry.term, entry.category, entry.translation, entry.chapter_filename])
+    return target
+
+
+def sync_glossary_from_csv(glossary_dir_or_file: Path | str) -> tuple[int, int]:
+    """Sync manual edits from glossary.csv into glossary.json and glossary.md.
+
+    Returns (updated_count, added_count).
+    """
+    import csv
+
+    from .models import entry_key
+
+    path = Path(glossary_dir_or_file)
+    out_dir = path if path.is_dir() else path.parent
+    csv_file = out_dir / GLOSSARY_CSV_FILENAME
+    json_file = out_dir / GLOSSARY_FILENAME
+    md_file = out_dir / GLOSSARY_MARKDOWN_FILENAME
+
+    if not csv_file.is_file():
+        return 0, 0
+
+    csv_rows: list[dict[str, str]] = []
+    try:
+        with csv_file.open("r", encoding="utf-8-sig") as f:
+            reader = csv.DictReader(f)
+            for r in reader:
+                cleaned = {
+                    str(k).strip().lower(): str(v).strip()
+                    for k, v in r.items()
+                    if k is not None and v is not None
+                }
+                if cleaned.get("term") and cleaned.get("translation"):
+                    csv_rows.append(cleaned)
+    except Exception:
+        return 0, 0
+
+    if not csv_rows and not json_file.is_file():
+        return 0, 0
+
+    data: dict[str, Any] = {}
+    if json_file.is_file():
+        try:
+            data = read_json(json_file, default={})
+        except Exception:
+            data = {}
+
+    raw_entries = data.get("entries") if isinstance(data, dict) else []
+    if raw_entries is None or not isinstance(raw_entries, list):
+        raw_entries = []
+
+    entries_by_key: dict[str, dict[str, Any]] = {}
+    for entry in raw_entries:
+        if isinstance(entry, dict) and entry.get("term"):
+            k = entry_key(str(entry["term"]))
+            if k:
+                entries_by_key[k] = entry
+
+    updated_count = 0
+    added_count = 0
+
+    for row in csv_rows:
+        term = row["term"]
+        trans = row["translation"]
+        cat = row.get("category", "") or "terminology"
+        ch_file = row.get("chapter_filename", "")
+        k = entry_key(term)
+        if not k:
+            continue
+        if k in entries_by_key:
+            entry = entries_by_key[k]
+            changed = False
+            if entry.get("translation") != trans:
+                entry["translation"] = trans
+                changed = True
+            if cat and entry.get("category") != cat:
+                entry["category"] = cat
+                changed = True
+            if changed:
+                updated_count += 1
+        else:
+            new_entry = {
+                "term": term,
+                "category": cat,
+                "translation": trans,
+                "chapter_index": 0,
+                "chapter_filename": ch_file,
+                "also_returned_in": [],
+            }
+            raw_entries.append(new_entry)
+            entries_by_key[k] = new_entry
+            added_count += 1
+
+    if updated_count > 0 or added_count > 0 or not json_file.is_file():
+        data["entries"] = raw_entries
+        data["entry_count"] = len(raw_entries)
+        cats: dict[str, int] = {}
+        for e in raw_entries:
+            c = str(e.get("category") or "terminology")
+            cats[c] = cats.get(c, 0) + 1
+        data["categories"] = dict(sorted(cats.items()))
+        write_json(json_file, data)
+
+        book = GlossaryBook()
+        for e in raw_entries:
+            book.lock(GlossaryTerm.from_dict(e))
+
+        lines = [
+            f"# Glossary — {data.get('book_title') or 'the book'}",
+            "",
+            f"{data.get('source_language', 'en')} → {data.get('target_language', 'sr')} · "
+            f"{len(book)} entr{'y' if len(book) == 1 else 'ies'} · "
+            f"built by {data.get('provider') or '—'}/{data.get('model') or '—'} from "
+            f"{data.get('chapter_count', 0)} chapter(s)",
+            "",
+        ]
+        tokens = data.get("tokens") or {}
+        if tokens:
+            lines.extend(
+                [
+                    f"Tokens: {tokens.get('total_tokens', 0):,} total "
+                    f"({tokens.get('input_tokens', 0):,} in, "
+                    f"{tokens.get('output_tokens', 0):,} out)",
+                    "",
+                ]
+            )
+        by_category: dict[str, list[GlossaryTerm]] = {}
+        for entry in book:
+            by_category.setdefault(entry.category, []).append(entry)
+        for category, entries in by_category.items():
+            lines.append(f"## {category}")
+            lines.append("")
+            lines.append("| Term | Translation | First seen |")
+            lines.append("| --- | --- | --- |")
+            for entry in entries:
+                t = entry.term.replace("|", "\\|")
+                tr = entry.translation.replace("|", "\\|")
+                lines.append(f"| {t} | {tr} | {entry.chapter_filename} |")
+            lines.append("")
+        write_text(md_file, "\n".join(lines))
+
+    return updated_count, added_count
+
+
 def write_glossary_markdown(out_dir: Path, result: GlossaryResult, book: GlossaryBook) -> Path:
     """The human-readable view: a table per category, in the order categories fill.
 
@@ -440,6 +599,8 @@ __all__ = [
     "glossary_payload",
     "resolve_sentences_dir",
     "write_glossary",
+    "write_glossary_csv",
+    "sync_glossary_from_csv",
     "write_glossary_manifest",
     "write_glossary_markdown",
     "write_glossary_trace",

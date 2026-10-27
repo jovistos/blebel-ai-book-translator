@@ -10,7 +10,7 @@
 #                    - split        (Stage 1: Chapter boundary agent)
 #                    - preprocess   (Stage 2: Header/damage cleaning agent)
 #                    - dictionary   (Stage 4: Glossary creation agent)
-#                    - matter       (Stage 6b: Front/back matter agent)
+#                    - matter       (Stage 6b: Front/back matter agent & multimodal image translation)
 #                    - translate    (Stage 7: Body translation agent)
 #                    - postprocess  (Stage 9: Heading consistency agent)
 #
@@ -105,9 +105,32 @@ model = "deepseek-flash"
 # model = "deepseek-v4-pro"
 
 # Stage 6b — Matter Agent:
-# Translates and formats front/back matter (book title, copyright, acknowledgments).
+# Translates and formats front/back matter (book title, copyright, acknowledgments)
+# and performs multimodal matter image recreation (e.g. covers, title plates).
+#
+# IMPORTANT: A MULTIMODAL MODEL IS REQUIRED FOR THE MATTER IMAGE STEP!
+# If front or back matter contains images with text (such as original book covers,
+# illustrated frontispieces, or publisher title plates), the pipeline performs
+# end-to-end multimodal image translation and recreation. The model reads the visual
+# artwork and recreates the full image from scratch with the localized title, author,
+# and BleBel credit seamlessly rendered in the native style and typography.
+#
+# This step requires a multimodal vision + image-generation model (e.g. Gemini
+# with "gemini-nano-banana-2.1", requiring GEMINI_API_KEY in .env).
+# If a text-only model like DeepSeek is configured below for matter text localization,
+# the matter stage will automatically resolve a multimodal model via Gemini if
+# GEMINI_API_KEY is present. You can also configure Gemini directly for this stage:
 [llm.matter]
 model = "deepseek-flash"
+# To use Gemini directly for the entire matter stage:
+# provider = "gemini"
+# model = "gemini-nano-banana-2.1"
+
+# Multimodal Matter Image Agent:
+# Dedicated default image recreation model for front/back matter images & covers.
+[llm.matter_image]
+provider = "gemini"
+model = "gemini-nano-banana-2.1"
 
 # Stage 7 — Translate Agent:
 # Translates each chunk of chapter text using the locked glossary terms.

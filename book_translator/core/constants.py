@@ -250,6 +250,7 @@ REDUCED_TRACE_FILENAME = "_reduced_trace.json"
 #: Default file names of the stage-4 artifacts, written next to ``03-reduced-unique/``.
 GLOSSARY_DIRNAME = "04-glossary"
 GLOSSARY_FILENAME = "glossary.json"
+GLOSSARY_CSV_FILENAME = "glossary.csv"
 GLOSSARY_MARKDOWN_FILENAME = "glossary.md"
 GLOSSARY_MANIFEST_FILENAME = "_glossary_manifest.json"
 GLOSSARY_TRACE_FILENAME = "_glossary_trace.json"

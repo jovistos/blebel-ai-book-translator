@@ -358,8 +358,8 @@ def install_preprocess(monkeypatch, *, ok: bool = True, writes: dict[str, str] |
 
 #: Two damaged chapter files, so the scan phase has something to report.
 DAMAGED = {
-    "01-predgovor.md": "## 18\n\nPrvi deo teksta.\n",
-    "02-uvod.md": "## UVOD\n\nmišić ,\n",
+    "01-prvo-poglavlje.md": "## 18\n\nPrvi deo teksta.\n",
+    "02-drugo-poglavlje.md": "## UVOD\n\nmišić ,\n",
 }
 
 
@@ -432,7 +432,7 @@ def test_every_phase_runs_in_order_and_the_log_keeps_the_detail(
     script, tmp_path, monkeypatch, capsys, run
 ):
     install_split(monkeypatch, writes=DAMAGED)
-    install_dictionary(monkeypatch, writes={"01-predgovor.md": "Prvi deo teksta.\n"})
+    install_dictionary(monkeypatch, writes={"01-prvo-poglavlje.md": "Prvi deo teksta.\n"})
     preprocess_calls = install_preprocess(monkeypatch)
 
     # Stage 2 is on by default; the explicit flag keeps this test pinned to the
@@ -453,7 +453,7 @@ def test_every_phase_runs_in_order_and_the_log_keeps_the_detail(
     positions = [captured.out.index(marker) for marker in markers]
     assert positions == sorted(positions)
     assert "page_number_header" in captured.out  # the scan reported real damage
-    assert "ok   01-predgovor.md" in captured.out  # live per-chapter progress
+    assert "ok   01-prvo-poglavlje.md" in captured.out  # live per-chapter progress
     assert "DONE" in captured.out
     # Debug detail stays off the console…
     assert "heuristic candidates:" not in captured.out
@@ -521,16 +521,16 @@ def test_skip_if_present_reuses_chapters_without_a_provider(
     # of the flag, and it is what makes the phase decide without a provider.
     chapters = resolve_output_dir(SAMPLE, None, output_root=tmp_path / "out")
     chapters.mkdir(parents=True)
-    (chapters / "01-predgovor.md").write_text("## 18\n\nPrvi deo teksta.\n", encoding="utf-8")
-    (chapters / "02-uvod.md").write_text("## UVOD\n\nmišić ,\n", encoding="utf-8")
+    (chapters / "01-prvo-poglavlje.md").write_text("## 18\n\nPrvi deo teksta.\n", encoding="utf-8")
+    (chapters / "02-drugo-poglavlje.md").write_text("## UVOD\n\nmišić ,\n", encoding="utf-8")
     (chapters / "_manifest.json").write_text(
         json.dumps(
             {
                 "source_file": str(SAMPLE),
                 "strategy": "preset_map",
                 "files": [
-                    {"filename": "01-predgovor.md", "start_line": 1, "end_line": 3},
-                    {"filename": "02-uvod.md", "start_line": 5, "end_line": 7},
+                    {"filename": "01-prvo-poglavlje.md", "start_line": 1, "end_line": 3},
+                    {"filename": "02-drugo-poglavlje.md", "start_line": 5, "end_line": 7},
                 ],
             },
             ensure_ascii=False,
@@ -590,7 +590,7 @@ def test_map_replays_a_supplied_map_without_a_model(script, tmp_path, monkeypatc
     source = tmp_path / "book.md"
     source.write_bytes(PLAIN.read_bytes())
     mapping = [
-        {"line_number": 12, "filename": "01-predgovor.md"},
+        {"line_number": 12, "filename": "01-prvo-poglavlje.md"},
         {"line_number": 18, "filename": "02-dolazak.md"},
         {
             "line_number": 20,
@@ -735,12 +735,12 @@ def test_the_cleaned_text_is_what_stages_three_to_five_read(
     """Stage 2 is not a dead end: the dictionary, glossary and chunker read it."""
     install_split(monkeypatch, writes=DAMAGED)
     dictionary_calls = install_dictionary(
-        monkeypatch, writes={"01-predgovor.md": "Prvi deo teksta.\n"}
+        monkeypatch, writes={"01-prvo-poglavlje.md": "Prvi deo teksta.\n"}
     )
     glossary_calls = install_glossary(monkeypatch)
     cleaned = {
-        "01-predgovor.md": "Prvi deo teksta.\n",
-        "02-uvod.md": "mišić.\n",
+        "01-prvo-poglavlje.md": "Prvi deo teksta.\n",
+        "02-drugo-poglavlje.md": "mišić.\n",
     }
     install_preprocess(monkeypatch, writes=cleaned)
 
@@ -769,7 +769,7 @@ def test_the_cleaned_text_is_what_stages_three_to_five_read(
     # --text-in pins every text stage back to the raw chapters.
     raw_out = tmp_path / "raw"
     raw_calls = install_dictionary(
-        monkeypatch, writes={"01-predgovor.md": "Prvi deo teksta.\n"}
+        monkeypatch, writes={"01-prvo-poglavlje.md": "Prvi deo teksta.\n"}
     )
     install_preprocess(monkeypatch, writes=cleaned)
     code = run(
@@ -792,9 +792,9 @@ def test_the_cleaned_text_is_what_stages_three_to_five_read(
     # A window the cleaned folder does not cover falls back to the raw text.
     partial = tmp_path / "partial"
     partial_calls = install_dictionary(
-        monkeypatch, writes={"01-predgovor.md": "Prvi deo teksta.\n"}
+        monkeypatch, writes={"01-prvo-poglavlje.md": "Prvi deo teksta.\n"}
     )
-    install_preprocess(monkeypatch, writes={"01-predgovor.md": "Prvi deo teksta.\n"})
+    install_preprocess(monkeypatch, writes={"01-prvo-poglavlje.md": "Prvi deo teksta.\n"})
     code = run(
         str(SAMPLE),
         "--output-root",
@@ -973,7 +973,7 @@ def test_the_dictionary_phase_builds_the_glossary_by_default(
 ):
     install_split(monkeypatch, writes=DAMAGED)
     install_dictionary(
-        monkeypatch, writes={"01-predgovor.md": "Prvi deo teksta.\n"}, glossary=False
+        monkeypatch, writes={"01-prvo-poglavlje.md": "Prvi deo teksta.\n"}, glossary=False
     )
     glossary_calls = install_glossary(monkeypatch)
 
@@ -999,7 +999,7 @@ def test_the_dictionary_phase_builds_the_glossary_by_default(
     # ...and --no-glossary keeps the phase deterministic (no model, no key).
     install_dictionary(
         monkeypatch,
-        writes={"01-predgovor.md": "Prvi deo teksta.\n"},
+        writes={"01-prvo-poglavlje.md": "Prvi deo teksta.\n"},
         glossary=False,
     )
     no_gloss_calls = install_glossary(monkeypatch)
@@ -1024,7 +1024,7 @@ def test_a_glossary_dry_run_runs_without_writing(
     script, tmp_path, monkeypatch, capsys, run
 ):
     install_split(monkeypatch, writes=DAMAGED)
-    install_dictionary(monkeypatch, writes={"01-predgovor.md": "Prvi deo teksta.\n"})
+    install_dictionary(monkeypatch, writes={"01-prvo-poglavlje.md": "Prvi deo teksta.\n"})
     glossary_calls = install_glossary(monkeypatch)
 
     code = run(
@@ -1048,7 +1048,7 @@ def test_a_glossary_dry_run_runs_without_writing(
 @requires_sample
 def test_a_failed_glossary_chapter_stops_the_run(script, tmp_path, monkeypatch, capsys, run):
     install_split(monkeypatch, writes=DAMAGED)
-    install_dictionary(monkeypatch, writes={"01-predgovor.md": "Prvi deo teksta.\n"})
+    install_dictionary(monkeypatch, writes={"01-prvo-poglavlje.md": "Prvi deo teksta.\n"})
     install_glossary(monkeypatch, ok=False)
 
     code = run(
@@ -1508,14 +1508,14 @@ def test_first_chapters_limits_every_stage_after_split(
     assert seen["dictionary"][0]["limit"] == 1
     assert seen["glossary"][0]["limit"] == 1
     assert seen["chunk"][0]["limit"] == 1
-    assert seen["chunk_glossary"][0]["chapter_files"] == ["01-predgovor.md"]
-    assert seen["translate"][0]["chapter_files"] == ["01-predgovor.md"]
+    assert seen["chunk_glossary"][0]["chapter_files"] == ["01-prvo-poglavlje.md"]
+    assert seen["translate"][0]["chapter_files"] == ["01-prvo-poglavlje.md"]
     assert seen["translate"][0]["limit"] is None
     assert seen["assembly"][0]["first_chapters"] == 1
 
     translated = out / SAMPLE.stem / "08-translated-chapters"
-    assert (translated / "01-predgovor.md").is_file()
-    assert not (translated / "02-uvod.md").exists()
+    assert (translated / "01-prvo-poglavlje.md").is_file()
+    assert not (translated / "02-drugo-poglavlje.md").exists()
 
 
 @requires_sample
@@ -1566,8 +1566,8 @@ def test_increasing_the_chapter_window_resumes_with_skip_if_present(
     )
     assert first == 0
     assert seen["dictionary"][-1]["limit"] == 1
-    assert seen["chunk_glossary"][-1]["chapter_files"] == ["01-predgovor.md"]
-    assert seen["translate"][-1]["chapter_files"] == ["01-predgovor.md"]
+    assert seen["chunk_glossary"][-1]["chapter_files"] == ["01-prvo-poglavlje.md"]
+    assert seen["translate"][-1]["chapter_files"] == ["01-prvo-poglavlje.md"]
     assert seen["translate"][-1]["limit"] is None
     assert seen["assembly"][-1]["first_chapters"] == 1
 
@@ -1589,16 +1589,16 @@ def test_increasing_the_chapter_window_resumes_with_skip_if_present(
     assert seen["chunk"][-1]["limit"] == 2
     assert seen["chunk"][-1]["skip_if_present"] is True
     assert seen["chunk_glossary"][-1]["chapter_files"] == [
-        "01-predgovor.md",
-        "02-uvod.md",
+        "01-prvo-poglavlje.md",
+        "02-drugo-poglavlje.md",
     ]
     assert seen["chunk_glossary"][-1]["skip_if_present"] is True
     assert seen["translate"][-1]["chapter_files"] == [
-        "01-predgovor.md",
-        "02-uvod.md",
+        "01-prvo-poglavlje.md",
+        "02-drugo-poglavlje.md",
     ]
     assert seen["translate"][-1]["limit"] is None
     assert seen["translate"][-1]["resume"] is True
     assert seen["assembly"][-1]["first_chapters"] == 2
     assert seen["assembly"][-1]["skip_if_present"] is True
-    assert (out / SAMPLE.stem / "08-translated-chapters" / "02-uvod.md").is_file()
+    assert (out / SAMPLE.stem / "08-translated-chapters" / "02-drugo-poglavlje.md").is_file()

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from book_translator.core.constants import (
@@ -334,6 +335,16 @@ class GlossaryResult:
     markdown_path: str | None = None
     manifest_path: str | None = None
     trace_path: str | None = None
+
+    @property
+    def csv_path(self) -> str | None:
+        if self.glossary_path:
+            from book_translator.core.constants import GLOSSARY_CSV_FILENAME
+
+            p = Path(self.glossary_path).with_name(GLOSSARY_CSV_FILENAME)
+            if p.exists():
+                return str(p)
+        return None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
