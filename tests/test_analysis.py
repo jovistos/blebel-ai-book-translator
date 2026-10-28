@@ -61,6 +61,26 @@ def test_detect_toc_block_stops_at_body_repeat(plain):
     assert (block["start_line"], block["end_line"]) == (5, 11)
 
 
+def test_detect_toc_block_does_not_cut_on_similar_entries_or_urls():
+    """TOC entries with similar text or identical URL prefixes must not trigger body repeat."""
+    lines = [
+        "## Sadržaj\n",
+        "\n",
+        "- Poglavlje 1: Prvi koraci\n",
+        "- Poglavlje 2: Prvi znaci\n",
+        "- [Komentari i pitanja](/tmp/docling_epub_abc/part1.html)\n",
+        "- [Za dalje čitanje](/tmp/docling_epub_abc/part2.html)\n",
+        "\n",
+        "## Pravo Poglavlje\n",
+        "Tekst poglavlja...\n",
+    ]
+    block = detect_toc_block(lines)
+    assert block["found"] is True
+    # Heading is line 1, TOC block spans lines 2 to 6 (inclusive)
+    assert block["start_line"] == 2
+    assert block["end_line"] == 6
+
+
 # --------------------------------------------------------------------------- #
 # Title location
 # --------------------------------------------------------------------------- #

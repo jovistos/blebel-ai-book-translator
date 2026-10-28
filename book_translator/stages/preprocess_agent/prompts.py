@@ -125,6 +125,17 @@ NUDGE_NO_PROPOSAL = (
     "chapter needs no changes."
 )
 
+FINAL_TURN_NUDGE = """FINAL TURN — this turn must end with `report_chapter_cleaning`.
+
+You have used every exploratory turn. Do not call another inspection tool \
+(`inspect_line_window`, `inspect_chapter_damage`, `audit_chapter_opening`), and do not call \
+`validate_chapter_cleaning` either: there is no turn left to act on its answer. When this turn \
+ends without calling `report_chapter_cleaning`, the run gives up on this chapter and writes nothing.
+
+Call `report_chapter_cleaning` NOW with the best complete list of operations and text fixes \
+your evidence supports. This overrides the protocol's validate-first step: submission is the only \
+useful call left. Include only line numbers and fixes you are confident in; when unsure, `keep`."""
+
 SCOUT_REPORT_TEMPLATE = """CHAPTER REPORT (deterministic recon, no LLM)
 chapter           : {filename}
 lines             : {line_count}

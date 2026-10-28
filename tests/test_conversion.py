@@ -205,7 +205,9 @@ _PNG = base64.b64decode(
 )
 
 
-def _tiny_epub(path: Path, *, with_image: bool = True) -> Path:
+def _tiny_epub(
+    path: Path, *, with_image: bool = True, body_html: str | None = None
+) -> Path:
     """A two-file EPUB: one chapter, optionally one picture."""
     opf = """<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="bookid">
@@ -223,11 +225,14 @@ def _tiny_epub(path: Path, *, with_image: bool = True) -> Path:
 </package>
 """
     image_tag = '<img src="images/rabbit.png" alt="Rabbit"/>' if with_image else ""
-    chapter = f"""<html xmlns="http://www.w3.org/1999/xhtml"><body>
-<h1>Chapter One</h1>
+    if body_html is None:
+        body_html = f"""<h1>Chapter One</h1>
 <p>Alice looked at the picture and smiled.</p>
 {image_tag}
 <p>Then she ran away.</p>
+"""
+    chapter = f"""<html xmlns="http://www.w3.org/1999/xhtml"><body>
+{body_html}
 </body></html>
 """
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -268,6 +273,64 @@ def test_a_real_epub_extracts_its_images_and_links_them(tmp_path):
     assert (markdown_dir / reference).is_file()
     (tmp_path / "book" / "01-chapters").mkdir()
     assert (tmp_path / "book" / "01-chapters" / reference).is_file()
+
+
+def test_epub_presentation_tags_are_stripped_before_docling(tmp_path):
+    """Small caps wrapped in spans/big must not become separate words.
+
+    docling ends a text run at every inline-element boundary and joins the runs
+    with a space, turning ``C<span>ONTENTS</span>`` into ``C ONTENTS`` and
+    ``<big>S</big>TRANGE`` into ``S TRANGE``; the broken word then survives
+    translation. Stage 0 converts from a copy whose presentation tags are gone,
+    keeping every character of the text.
+    """
+    source = _tiny_epub(
+        tmp_path / "spans.epub",
+        body_html=(
+            '<h1>C<span><span class="smallcaps">ONTENTS</span></span></h1>'
+            "<p>B<span>IOGRAPHICAL</span> N<span>OTE</span></p>"
+            "<p><big>S</big>TRANGE <small>C</small>ASE</p>"
+        ),
+    )
+
+    flat = conversion_runner._strip_epub_presentation_tags(source, tmp_path)
+
+    with zipfile.ZipFile(source) as original, zipfile.ZipFile(flat) as rewritten:
+        assert rewritten.namelist()[0] == "mimetype"
+        assert rewritten.read("mimetype") == b"application/epub+zip"
+        chapter = rewritten.read("OEBPS/chapter1.xhtml").decode("utf-8")
+        assert "<span" not in chapter.lower()
+        assert "<big" not in chapter.lower()
+        assert "<small" not in chapter.lower()
+        assert "CONTENTS" in chapter
+        assert "BIOGRAPHICAL NOTE" in chapter
+        assert "STRANGE CASE" in chapter
+        # The source is untouched and also the non-text entries are copied as-is.
+        assert "<span" in original.read("OEBPS/chapter1.xhtml").decode("utf-8")
+        assert rewritten.read("OEBPS/images/rabbit.png") == original.read(
+            "OEBPS/images/rabbit.png"
+        )
+
+
+def test_a_small_caps_heading_is_converted_as_one_word(tmp_path):
+    pytest.importorskip("docling")
+    source = _tiny_epub(
+        tmp_path / "spans.epub",
+        body_html=(
+            '<h1>C<span><span class="smallcaps">ONTENTS</span></span></h1>'
+            "<p><big>S</big>TRANGE CASE</p>"
+            "<p>Alice looked at the picture and smiled.</p>"
+        ),
+    )
+    markdown_dir = tmp_path / "book" / "00-markdown"
+
+    result = run_conversion(source, markdown_dir, images=False)
+
+    markdown = Path(result.markdown_path).read_text(encoding="utf-8")
+    assert "CONTENTS" in markdown
+    assert "C ONTENTS" not in markdown
+    assert "STRANGE CASE" in markdown
+    assert "S TRANGE" not in markdown
 
 
 def test_image_extraction_can_be_switched_off(tmp_path):
@@ -487,3 +550,48 @@ def test_split_converts_a_non_markdown_source_before_slicing(tmp_path, monkeypat
     assert code == 0
     assert Path(seen["source"]).suffix == ".md"
     assert Path(seen["source"]).read_text(encoding="utf-8") == source.read_text(encoding="utf-8")
+
+
+def test_extract_epub_cover_from_opf_metadata(tmp_path: Path):
+    """An EPUB whose cover is declared in OPF metadata is extracted as cover.<ext>."""
+    from book_translator.stages.conversion.runner import _extract_epub_cover
+
+    epub_file = tmp_path / "book.epub"
+    cover_bytes = b"\xff\xd8\xff\xe0\x00\x10JFIFfakecover"
+    opf_content = """<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Test</dc:title>
+    <meta name="cover" content="cov-id"/>
+  </metadata>
+  <manifest>
+    <item id="cov-id" href="images/real_cover.jpg" media-type="image/jpeg"/>
+    <item id="body" href="text.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>
+    <itemref idref="body"/>
+  </spine>
+</package>"""
+
+    container_xml = """<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>"""
+
+    with zipfile.ZipFile(epub_file, "w") as z:
+        z.writestr("mimetype", b"application/epub+zip")
+        z.writestr("META-INF/container.xml", container_xml)
+        z.writestr("OEBPS/content.opf", opf_content)
+        z.writestr("OEBPS/images/real_cover.jpg", cover_bytes)
+
+    dest_dir = tmp_path / "images"
+    extracted = _extract_epub_cover(epub_file, dest_dir)
+    assert extracted is not None
+    assert extracted.name == "cover.jpg"
+    assert extracted.read_bytes() == cover_bytes
+
+    # If cover already exists in dest_dir, _extract_epub_cover skips
+    extracted_again = _extract_epub_cover(epub_file, dest_dir)
+    assert extracted_again is None

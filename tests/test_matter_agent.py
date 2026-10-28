@@ -220,6 +220,32 @@ def test_a_cover_picture_stays_above_the_title_page(tmp_path: Path):
     assert result["text"].startswith("![Cover](cover.png)\n\n# Knjiga\n")
 
 
+def test_inline_logos_and_images_stay_below_the_title_page(tmp_path: Path):
+    """An inline imprint logo or illustration below title/author must not be lifted."""
+    chapters, chunks = _book(tmp_path)
+    book = discover_matter_sections(chapters, chunks)
+    front = next(section for section in book if section.kind == "front")
+    validation = validate_matter_plan(book, _plan())
+    source = FRONT + "\n![Logo](imprint.png)\n"
+
+    result = validate_matter_translation(
+        source_text=source,
+        section_kind="front",
+        section_filename=front.filename,
+        section_title=front.title,
+        plan=validation["plan"],
+        translation=(
+            "# The Book\n\n*Prevod: BleBel*\n\n![Logo](imprint.png)\n\n"
+            "## Contents\n\nText.\n"
+        ),
+        is_first_front_chunk=True,
+    )
+
+    assert result["ok"], result["issues"]
+    # The title comes first, then translator credit and edition note, then the logo stays below:
+    assert result["text"].startswith("# Knjiga\n\n*Prevod: BleBel*\n\n*Prevod sa engleskog jezika*\n\n![Logo](imprint.png)\n")
+
+
 def test_a_back_matter_section_gets_the_plan_title(tmp_path: Path):
     chapters, chunks = _book(tmp_path)
     book = discover_matter_sections(chapters, chunks)
@@ -490,3 +516,41 @@ def test_a_dry_run_does_not_synthesize_front_or_back_matter(tmp_path: Path):
     assert result.synthetic_sections == []
     assert {path.name for path in folder.iterdir()} == before
     assert {path.name for path in chunks.iterdir()} == chunk_before
+
+
+def test_report_matter_localization_large_text_not_truncated():
+    import json
+    from book_translator.stages.matter.inspect import MatterSection
+    from book_translator.toolkit.context import ToolContext
+    from book_translator.toolkit.matter.tools import report_matter_localization
+    from book_translator.stage_graph.nodes import absorb_plan
+
+    source = "# NOTES\n\n" + ("This is a note entry. " * 2000)
+    translation = "# NAPOMENE\n\n" + ("Ovo je unos napomene. " * 2000)
+    section = MatterSection(
+        filename="34-notes.md",
+        path=Path("/tmp/34-notes.md"),
+        kind="back",
+        title="NOTES",
+        chars=len(source),
+        lines=100,
+        chunk_filenames=["00034-34-notes-0000.md"],
+    )
+    ctx = ToolContext(
+        chapters_path="",
+        chunks_path="",
+        chunk={"filename": "00034-34-notes-0000.md", "text": source},
+        section=section,
+        plan={"translated_title": "Naslov"},
+        is_first_front_chunk=False,
+        is_first_section_chunk=True,
+    )
+    result = report_matter_localization.invoke(
+        {"translation": translation, "ctx": ctx}
+    )
+    assert len(result) > 24000
+    assert "[tool output truncated" not in result
+    payload = json.loads(result)
+    assert payload["accepted"] is True
+    assert len(payload["text"]) > 24000
+

@@ -7,6 +7,7 @@ import sys
 from typing import Any
 
 from book_translator.core.constants import (
+    DEFAULT_PREPROCESS_ATTEMPTS,
     MAX_FEEDBACK_LOOPS,
 )
 from book_translator.core.errors import ConfigError
@@ -46,7 +47,7 @@ def add_parser(sub: Any) -> None:
     p_pre.add_argument(
         "--max-attempts",
         type=int,
-        default=MAX_FEEDBACK_LOOPS,
+        default=DEFAULT_PREPROCESS_ATTEMPTS,
         help="max LLM turns per chapter before giving up on it",
     )
     p_pre.add_argument(

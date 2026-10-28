@@ -21,6 +21,34 @@ from book_translator.documents.text import excerpt, norm, similarity
 from .patterns import DOT_LEADER_RE, DOT_LEADER_SCAN_RE, TOC_WORDS
 
 
+def _clean_toc_title(raw: str) -> str:
+    """Extract clean title text without list markers, dot leaders or links."""
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    link_m = re.match(r"^\[([^\]]+)\]\([^)]*\)\s*$", text)
+    if link_m:
+        text = link_m.group(1).strip()
+    text = re.sub(r"^\s*(?:[-*•]|\d{1,3}[.)])\s+", "", text)
+    m = DOT_LEADER_RE.match(text)
+    if m:
+        text = m.group(1).strip()
+    else:
+        text = re.sub(r"(?:\s*[.\-•_]{2,}\s*|\s{3,})\d{1,4}\s*$", "", text)
+    return text.strip(" .\t#*")
+
+
+def _is_explicit_toc_entry(raw: str) -> bool:
+    clean = raw.strip()
+    if DOT_LEADER_RE.match(clean):
+        return True
+    if re.match(r"^\s*(?:[-*•]|\d{1,3}[.)])\s+", raw):
+        return True
+    if re.match(r"^\[.+\]\(", clean):
+        return True
+    return False
+
+
 def detect_toc_block(
     lines: list[str],
     scan_lines: int = TOC_SCAN_LINES,
@@ -82,16 +110,26 @@ def detect_toc_block(
     # Second pass: in a book with no '#' markup, the TOC ends where a title
     # re-appears in the body. Detect that repeat and cut the block before it.
     if end >= start:
-        titles = [
-            re.sub(r"\s+", " ", lines[i].strip())
-            for i in range(start, end + 1)
-            if 3 < len(lines[i].strip()) <= MAX_TITLE_LINE_CHARS
-        ]
+        titles: list[tuple[int, str]] = []
+        for i in range(start, end + 1):
+            c = _clean_toc_title(lines[i])
+            if 2 < len(c) <= MAX_TITLE_LINE_CHARS:
+                titles.append((i, c))
+
         for i in range(start + 2, end + 1):
-            clean = re.sub(r"\s+", " ", lines[i].strip())
-            if len(clean) > MAX_TITLE_LINE_CHARS:
+            raw = lines[i]
+            clean = raw.strip()
+            if not clean or len(clean) > MAX_TITLE_LINE_CHARS:
                 continue
-            if any(similarity(clean, t) >= 0.85 for t in titles if t != clean):
+            # A line with dot leaders, bullet markers or markdown links is an in-TOC
+            # entry, not a body chapter title repeating an earlier entry.
+            if _is_explicit_toc_entry(raw):
+                continue
+            c = _clean_toc_title(raw)
+            if not c:
+                continue
+            earlier_titles = [t for idx, t in titles if idx < i]
+            if any(similarity(c, t) >= 0.85 for t in earlier_titles):
                 end = i - 1
                 break
 

@@ -211,10 +211,14 @@ def _cover_and_body(lines: list[str]) -> tuple[list[str], list[str]]:
         and len(opening[0].strip()) <= 160
         and not _SENTENCE_END_RE.search(opening[0])
     )
-    if opening and not (
-        title_page and (any(_CREDIT_NAME in line for line in opening) or caption)
-    ):
-        return [], lines
+    if opening:
+        # A picture appearing after the title is only lifted above it if it
+        # explicitly identifies as a cover picture (by filename or alt text).
+        # Normal publisher logos, imprints, or illustrations stay where they are.
+        if "cover" not in lines[picture].lower():
+            return [], lines
+        if not (title_page and (any(_CREDIT_NAME in line for line in opening) or caption)):
+            return [], lines
     cover = [lines[picture]]
     end = picture + 1
     while end < len(lines) and (not lines[end].strip() or is_image_line(lines[end])):

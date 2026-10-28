@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import re
 import unicodedata
@@ -22,17 +23,17 @@ DIACRITICS = str.maketrans(
 )
 
 
-def jdump(payload: Any, limit: int = MAX_TOOL_CHARS) -> str:
+def jdump(payload: Any, limit: int | None = MAX_TOOL_CHARS) -> str:
     """Serialise a tool result and enforce the context guardrail."""
     text = json.dumps(payload, ensure_ascii=False, indent=1, default=str)
-    if len(text) > limit:
+    if limit is not None and limit > 0 and len(text) > limit:
         text = text[:limit] + f"\n... [tool output truncated at {limit} chars]"
     return text
 
 
 def norm(text: str) -> str:
     """Normalise a string for fuzzy comparison (diacritics/punctuation folded)."""
-    text = (text or "").translate(DIACRITICS).lower()
+    text = html.unescape(text or "").translate(DIACRITICS).lower()
     text = re.sub(r"[\u2018\u2019\u201c\u201d\"'`´]", "", text)
     text = re.sub(r"[^a-z0-9]+", " ", text)
     return re.sub(r"\s+", " ", text).strip()

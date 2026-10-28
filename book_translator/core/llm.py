@@ -199,6 +199,60 @@ def structured_unsupported(exc: BaseException) -> bool:
 # --------------------------------------------------------------------------- #
 # building a client
 # --------------------------------------------------------------------------- #
+def _patch_langchain_openai_reasoning() -> None:
+    """Ensure LangChain preserves and passes back `reasoning_content` in multi-turn conversations.
+
+    DeepSeek (and other reasoning models with thinking mode) require that any
+    `reasoning_content` returned by the model in an assistant message be passed
+    back verbatim in subsequent turns. Furthermore, any assistant message with
+    tool calls must include `reasoning_content` (even if empty). Upstream
+    `langchain_openai` strips this field during serialization, causing HTTP 400
+    Bad Request errors.
+    """
+    try:
+        import langchain_openai.chat_models.base as base
+
+        if getattr(base, "_reasoning_patched", False):
+            return
+
+        orig_dict_to_msg = base._convert_dict_to_message
+        orig_msg_to_dict = base._convert_message_to_dict
+
+        def patched_dict_to_msg(_dict: Any) -> Any:
+            msg = orig_dict_to_msg(_dict)
+            if isinstance(_dict, dict):
+                reasoning = _dict.get("reasoning_content")
+                if reasoning is None:
+                    reasoning = _dict.get("reasoning")
+                if reasoning is not None and hasattr(msg, "additional_kwargs"):
+                    msg.additional_kwargs["reasoning_content"] = str(reasoning)
+            return msg
+
+        def patched_msg_to_dict(message: Any, api: Any = "chat/completions") -> Any:
+            d = orig_msg_to_dict(message, api=api)
+            if d.get("role") == "assistant":
+                reasoning = None
+                if hasattr(message, "additional_kwargs"):
+                    reasoning = message.additional_kwargs.get("reasoning_content")
+                    if reasoning is None:
+                        reasoning = message.additional_kwargs.get("reasoning")
+                if reasoning is None and hasattr(message, "response_metadata"):
+                    reasoning = message.response_metadata.get("reasoning_content")
+                    if reasoning is None:
+                        reasoning = message.response_metadata.get("reasoning")
+                if reasoning is not None:
+                    d["reasoning_content"] = str(reasoning)
+                elif "tool_calls" in d or getattr(message, "tool_calls", None):
+                    d["reasoning_content"] = ""
+            return d
+
+        base._convert_dict_to_message = patched_dict_to_msg
+        base._convert_message_to_dict = patched_msg_to_dict
+        base._reasoning_patched = True
+    except Exception:
+        pass
+
+
 def build_chat_model(settings: Any, *, max_tokens: int | None = None) -> Any:
     """Build the chat model behind every structured stage.
 
@@ -209,6 +263,8 @@ def build_chat_model(settings: Any, *, max_tokens: int | None = None) -> Any:
     builds the identical client instead of keeping its own copy of the kwargs.
     """
     from langchain_openai import ChatOpenAI
+
+    _patch_langchain_openai_reasoning()
 
     try:
         kwargs: dict[str, Any] = {

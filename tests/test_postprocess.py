@@ -33,6 +33,7 @@ from book_translator.stages.postprocess.plan import (
 from book_translator.stages.postprocess.toc import (
     apply_toc,
     build_toc_entries,
+    detect_toc,
     verify_toc,
 )
 from book_translator.stages.postprocess_agent import run_postprocess
@@ -352,6 +353,59 @@ def test_existing_toc_is_updated_in_place(tmp_path: Path):
     assert "Poglavlje 1" in text
     assert "Stari naslov" not in text
     assert verify_toc(tmp_path, plan, entries)["ok"]
+
+
+def test_toc_lists_a_chapter_titled_like_the_table_of_contents(tmp_path: Path):
+    """A book may contain its own Contents section; the TOC still lists it.
+
+    The written TOC's heading is "Sadržaj" and one of its entries is the
+    translated chapter also titled "Sadržaj". The entry line looked like a
+    repeated heading, was dropped by the parser, and the TOC then failed its
+    own verification although it was correct on disk.
+    """
+    (tmp_path / "00-front-matter.md").write_text("# Naslov knjige\n", encoding="utf-8")
+    (tmp_path / "01-robert-louis-stevenson.md").write_text(
+        "# Biografska zabeleška\n\nAutor.\n", encoding="utf-8"
+    )
+    (tmp_path / "02-c-ontents.md").write_text(
+        "# Sadržaj\n\n- Korice\n- Poglavlje 1\n", encoding="utf-8"
+    )
+    book = scan_book_structure(tmp_path)
+    assert book["toc"]["exists"] is False
+    plan = {
+        "naming": {"mode": "keep", "label": ""},
+        "toc": {"action": "create", "heading": "Sadržaj", "style": "bullets"},
+    }
+    validation = validate_book_plan(tmp_path, plan, book=book)
+    entries = build_toc_entries(book, plan, titles=validation["canonical_titles"])
+    assert [entry["title"] for entry in entries] == ["Biografska zabeleška", "Sadržaj"]
+
+    applied = apply_toc(tmp_path, plan, entries)
+    verification = verify_toc(tmp_path, plan, entries)
+
+    assert applied["ok"]
+    assert verification["ok"], verification["problems"]
+    toc_text = (tmp_path / "00-table-of-contents.md").read_text(encoding="utf-8")
+    assert "- Sadržaj" in toc_text
+
+
+def test_toc_ignores_a_repeated_bare_contents_line(tmp_path: Path):
+    """Only an explicit entry survives the TOC-word filter; a stray heading does not."""
+    (tmp_path / "00-table-of-contents.md").write_text(
+        "# Sadržaj\n\n1. Prvo poglavlje\n\nSadržaj\n\n2. Drugo poglavlje\n",
+        encoding="utf-8",
+    )
+    structures = [
+        {"filename": "01-prvo.md", "title": "Prvo poglavlje", "matter": "body"},
+        {"filename": "02-drugo.md", "title": "Drugo poglavlje", "matter": "body"},
+    ]
+
+    toc = detect_toc(tmp_path, structures)
+
+    assert [entry["title"] for entry in toc["entries"]] == [
+        "Prvo poglavlje",
+        "Drugo poglavlje",
+    ]
 
 
 def test_matter_inspection_is_bounded_and_reports_toc(tmp_path: Path):
@@ -977,3 +1031,21 @@ def test_first_plain_title_wins_over_a_later_section_header(tmp_path: Path):
     assert structure.title_line == 1
     assert structure.title_is_heading is False
     assert structure.headings[0]["text"] == "Ovo je podnaslov"
+
+
+def test_apply_toc_preserves_full_toc_on_windowed_subset(tmp_path: Path):
+    """A windowed run (e.g. 1 body chapter) must not truncate an existing full TOC."""
+    fm = tmp_path / "00-front-matter.md"
+    fm.write_text(
+        "# Naslov\n\n## Sadržaj\n\n- Poglavlje 1\n- Poglavlje 2\n- Poglavlje 3\n\nTekst...",
+        encoding="utf-8",
+    )
+    ch1 = tmp_path / "01-chapter-1.md"
+    ch1.write_text("# Poglavlje 1\n\nTekst poglavlja 1...", encoding="utf-8")
+
+    entries = [{"title": "Poglavlje 1", "filename": "01-chapter-1.md", "matter": "body"}]
+    plan = {"toc": {"action": "update", "heading": "Sadržaj"}}
+    res = apply_toc(tmp_path, plan, entries)
+    assert res["ok"] is True
+    assert res["action"] == "keep"
+    assert "- Poglavlje 3" in fm.read_text(encoding="utf-8")

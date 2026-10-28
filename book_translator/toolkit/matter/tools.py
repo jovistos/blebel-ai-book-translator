@@ -188,7 +188,7 @@ def read_matter_chunk(
         "Exact source text of one matter chunk. Do not summarize it; localize all "
         "of it, except text the book plan says to omit."
     )
-    return jdump(report)
+    return jdump(report, limit=None)
 
 
 @matter_stage
@@ -313,7 +313,7 @@ def validate_matter_localization(
         is_first_front_chunk=bool(ctx.is_first_front_chunk),
         is_first_section_chunk=bool(ctx.is_first_section_chunk),
     )
-    return jdump(validation)
+    return jdump(validation, limit=None)
 
 
 @matter_stage
@@ -361,7 +361,7 @@ def report_matter_localization(
         is_first_section_chunk=bool(ctx.is_first_section_chunk),
     )
     if not validation.get("ok"):
-        return jdump({"accepted": False, "validation": validation})
+        return jdump({"accepted": False, "validation": validation}, limit=None)
     return jdump(
         {
             "accepted": True,
@@ -375,7 +375,8 @@ def report_matter_localization(
             or str((ctx.plan or {}).get("translated_title") or ""),
             "text": validation["text"],
             "warnings": validation.get("warnings") or [],
-        }
+        },
+        limit=None,
     )
 
 

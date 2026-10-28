@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from book_translator.core.constants import (
+    DEFAULT_PREPROCESS_ATTEMPTS,
     DEFAULT_RECURSION_LIMIT,
     MAX_FEEDBACK_LOOPS,
     PREPROCESS_MANIFEST_FILENAME,
@@ -54,7 +55,7 @@ def run_preprocess(
     chapters_path: str,
     output_dir: str | None = None,
     settings: LLMSettings | None = None,
-    max_attempts: int = MAX_FEEDBACK_LOOPS,
+    max_attempts: int = DEFAULT_PREPROCESS_ATTEMPTS,
     dry_run: bool = False,
     recursion_limit: int = DEFAULT_RECURSION_LIMIT,
     workers: int = 1,

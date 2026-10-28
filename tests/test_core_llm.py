@@ -254,3 +254,42 @@ def test_token_usage_adds_and_reports_known():
     }
     assert total.known is True
     assert TokenUsage(calls=1).known is False
+
+
+def test_reasoning_content_preserved_for_multi_turn():
+    from langchain_core.messages import AIMessage
+    import langchain_openai.chat_models.base as base
+
+    settings = SimpleNamespace(
+        model="deepseek-flash",
+        base_url="https://api.deepseek.com/v1",
+        api_key="key",
+    )
+    build_chat_model(settings)
+
+    raw_response = {
+        "role": "assistant",
+        "content": "localized text",
+        "reasoning_content": "chain of thought",
+    }
+    msg = base._convert_dict_to_message(raw_response)
+    assert isinstance(msg, AIMessage)
+    assert msg.additional_kwargs.get("reasoning_content") == "chain of thought"
+
+    outgoing = base._convert_message_to_dict(msg)
+    assert outgoing.get("reasoning_content") == "chain of thought"
+
+    # Empty reasoning string is preserved, not treated as None
+    raw_empty = {"role": "assistant", "content": "text", "reasoning_content": ""}
+    msg_empty = base._convert_dict_to_message(raw_empty)
+    assert msg_empty.additional_kwargs.get("reasoning_content") == ""
+    assert base._convert_message_to_dict(msg_empty).get("reasoning_content") == ""
+
+    # Tool calls without explicit reasoning default to empty string for DeepSeek compliance
+    msg_tool = AIMessage(
+        content="",
+        tool_calls=[{"name": "test", "args": {}, "id": "1", "type": "tool_call"}],
+    )
+    assert base._convert_message_to_dict(msg_tool).get("reasoning_content") == ""
+
+

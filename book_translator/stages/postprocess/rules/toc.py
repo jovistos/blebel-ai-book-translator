@@ -70,7 +70,7 @@ def check_toc_state(draft: BookPlanDraft, entries: list[dict[str, Any]]) -> None
     if action == "keep":
         if not toc.get("exists"):
             draft.fail("no table of contents exists; use toc.action='create'")
-        elif not toc_matches_entries(toc, entries):
+        elif not toc_matches_entries(toc, entries, allow_extra=True):
             draft.fail(
                 "the existing table of contents does not match the chapter titles; use "
                 "toc.action='update'"

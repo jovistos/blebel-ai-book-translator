@@ -124,7 +124,7 @@ model = "deepseek-flash"
 model = "deepseek-flash"
 # To use Gemini directly for the entire matter stage:
 # provider = "gemini"
-# model = "gemini-nano-banana-2.1"
+# model = "gemini-3.1-flash-lite-image"
 
 # Multimodal Matter Image Agent:
 # Dedicated default image recreation model for front/back matter images & covers.

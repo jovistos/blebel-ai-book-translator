@@ -41,6 +41,7 @@ from ..core.constants import (
     DEFAULT_KEEP_ENTITY_TYPES,
     DEFAULT_MIN_CHAPTERS,
     DEFAULT_MIN_SENTENCE_WORDS,
+    DEFAULT_PREPROCESS_ATTEMPTS,
     DEFAULT_RECURSION_LIMIT,
     DEFAULT_SOURCE_LANGUAGE,
     DEFAULT_TARGET_LANGUAGE,
@@ -280,6 +281,7 @@ class StageOptions:
     # split
     front_matter_lines: int = DEFAULT_FRONT_MATTER_LINES
     max_attempts: int = MAX_FEEDBACK_LOOPS
+    preprocess_attempts: int = DEFAULT_PREPROCESS_ATTEMPTS
     min_chapters: int = DEFAULT_MIN_CHAPTERS
     split_include_front_matter: bool = True
     recursion_limit: int = DEFAULT_RECURSION_LIMIT
@@ -386,6 +388,15 @@ class StageOptions:
                 _get(ns, "front_matter_lines", DEFAULT_FRONT_MATTER_LINES)
             ),
             max_attempts=int(_get(ns, "max_attempts", MAX_FEEDBACK_LOOPS)),
+            preprocess_attempts=int(
+                _get(ns, "preprocess_attempts", None)
+                or (
+                    _get(ns, "max_attempts", None)
+                    if _get(ns, "max_attempts", None) is not None
+                    and int(_get(ns, "max_attempts")) != MAX_FEEDBACK_LOOPS
+                    else DEFAULT_PREPROCESS_ATTEMPTS
+                )
+            ),
             min_chapters=int(_get(ns, "min_chapters", DEFAULT_MIN_CHAPTERS)),
             split_include_front_matter=not bool(_get(ns, "no_front_matter", False)),
             recursion_limit=int(
@@ -575,7 +586,7 @@ class StageOptions:
         positional = (paths.chapters_dir, paths.preprocessed_dir)
         kwargs = {
             "settings": runtime.settings,
-            "max_attempts": self.max_attempts,
+            "max_attempts": self.preprocess_attempts,
             "dry_run": self.dry_run,
             "recursion_limit": self.recursion_limit,
             "workers": self.workers,
@@ -730,7 +741,7 @@ class StageOptions:
             orig_img = parent / "00-markdown" / "images"
             for d in (trans_img, orig_img):
                 if d.is_dir():
-                    for pat in ("*cover*_translated.*", "image_000000*_translated.*", "*cover*.*", "image_000000*.*"):
+                    for pat in ("*cover*_translated.*", "*cover*.*"):
                         matches = sorted(d.glob(pat))
                         if matches:
                             cover = str(matches[0])

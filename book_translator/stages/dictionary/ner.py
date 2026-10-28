@@ -297,6 +297,9 @@ class StanzaBackend:
             "use_gpu": bool(use_gpu),
             "verbose": bool(verbose),
             "logging_level": "WARNING",
+            # The models are already on disk; a load must not become an update
+            # check that writes into the (possibly read-only) cache.
+            "download_method": "REUSE_RESOURCES",
         }
         try:
             return self._stanza.Pipeline(**kwargs)

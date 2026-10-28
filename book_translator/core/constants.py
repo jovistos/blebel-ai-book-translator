@@ -186,6 +186,8 @@ MAX_PLAUSIBLE_CAPTION_CHARS = 200
 
 #: Maximum LLM turns before the graph gives up on the model.
 MAX_FEEDBACK_LOOPS = 6
+#: Default attempts for the chapter-preprocessing agent (stage 2).
+DEFAULT_PREPROCESS_ATTEMPTS = 8
 #: Headers included verbatim in the scout report (the rest are summarised).
 MAX_HEADERS_IN_REPORT = 180
 #: Default LangGraph recursion limit for a split run.

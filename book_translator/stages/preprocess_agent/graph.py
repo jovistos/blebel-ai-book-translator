@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from book_translator.core.constants import MAX_FEEDBACK_LOOPS
+from book_translator.core.constants import DEFAULT_PREPROCESS_ATTEMPTS
 from book_translator.core.settings import LLMSettings, resolve_settings
 from book_translator.stage_graph import StageSpec, TailStep, build_stage_graph
 from book_translator.stages.agent.tools.registry import PREPROCESS_WRITE_TOOLS
@@ -31,7 +31,7 @@ from .nodes import (
     make_verify_node,
 )
 from .policy import PLAN_TOOL, extract_cleaning_plan
-from .prompts import NUDGE_NO_PROPOSAL
+from .prompts import FINAL_TURN_NUDGE, NUDGE_NO_PROPOSAL
 from .state import PreprocessState
 
 #: One chapter's cleaning run.
@@ -40,10 +40,7 @@ PREPROCESS = StageSpec(
     recon=("collect", make_collect_node),
     validate=make_validate_node,
     plan_key="operations",
-    # NB: this stage inherited stage 1's budget rather than declaring its own.
-    # Kept as-is so the refactor changes no behaviour; giving it a
-    # DEFAULT_PREPROCESS_ATTEMPTS constant of its own is a separate decision.
-    attempts_default=MAX_FEEDBACK_LOOPS,
+    attempts_default=DEFAULT_PREPROCESS_ATTEMPTS,
     tool_table=PREPROCESS_TOOL_BY_NAME,
     write_tools=PREPROCESS_WRITE_TOOLS,
     plan_tool=PLAN_TOOL,
@@ -53,6 +50,8 @@ PREPROCESS = StageSpec(
     refuse_duplicate_plan=True,
     duplicate_plan_message="a plan for this chapter has already been accepted",
     nudge_no_plan=NUDGE_NO_PROPOSAL,
+    nudge_final_turn=FINAL_TURN_NUDGE,
+    final_turn_policy="no_plan",
     give_up_error="no valid cleaning plan after the allowed number of attempts",
     give_up_log="give_up: no valid plan",
     tail=(TailStep("apply", make_apply_node), TailStep("verify", make_verify_node)),

@@ -69,25 +69,35 @@ def _entry_title(raw: str) -> str:
 
 
 def _parse_entries(lines: list[str], start: int, end: int) -> list[dict[str, Any]]:
-    """Parse TOC entry lines in ``[start, end)`` (0-based)."""
+    """Parse TOC entry lines in ``[start, end)`` (0-based).
+
+    A line that only repeats the block's heading (``Sadržaj``) is skipped, which
+    matters for a contents page that continues on a second page. An *explicit*
+    entry line — a bullet, a number or a link — is never skipped: a book can
+    legitimately contain a chapter titled ``Contents``/``Sadržaj``, and the
+    generated TOC must list it in reading order like any other chapter.
+    """
     entries: list[dict[str, Any]] = []
     for index in range(max(0, start), min(len(lines), end)):
         raw = lines[index]
-        if not raw.strip():
+        stripped = raw.strip()
+        if not stripped:
             continue
         head = header_of(raw)
         if head is not None:
             title = _entry_title(head[1])
             page = None
+            explicit = False
         else:
             title = _entry_title(raw)
             page = None
-            match = _TRAILING_PAGE_RE.search(raw.strip())
+            match = _TRAILING_PAGE_RE.search(stripped)
             if match:
                 page = int(match.group(1))
+            explicit = bool(_LIST_MARKER_RE.match(raw) or _MD_LINK_RE.match(stripped))
         if not title or len(title) < 2:
             continue
-        if norm(title) in _TOC_WORDS:
+        if norm(title) in _TOC_WORDS and not explicit:
             continue
         entries.append({"line_number": index + 1, "title": title, "page": page})
         if len(entries) >= MAX_TOC_ENTRIES:
@@ -309,9 +319,21 @@ def toc_consistency(
     }
 
 
-def toc_matches_entries(toc: dict[str, Any], expected: list[dict[str, Any]]) -> bool:
-    """True when the detected TOC lists exactly the expected titles in order."""
-    return bool(toc_consistency(toc, expected)["ok"])
+def toc_matches_entries(
+    toc: dict[str, Any],
+    expected: list[dict[str, Any]],
+    *,
+    allow_extra: bool = False,
+) -> bool:
+    """True when the detected TOC lists the expected titles in order."""
+    consistency = toc_consistency(toc, expected)
+    if allow_extra:
+        return (
+            bool(toc.get("exists"))
+            and not consistency.get("missing")
+            and bool(consistency.get("order_ok"))
+        )
+    return bool(consistency["ok"])
 
 
 def render_toc(
@@ -371,7 +393,7 @@ def apply_toc(
         for index, path in enumerate(structure)
     ]
     toc = detect_toc(folder, structures)
-    if action == "keep" and toc_matches_entries(toc, entries):
+    if action == "keep" and toc_matches_entries(toc, entries, allow_extra=True):
         return {
             "ok": True,
             "action": "keep",
@@ -379,6 +401,23 @@ def apply_toc(
             "location": toc.get("location"),
             "filename": toc.get("filename"),
             "entry_count": len(entries),
+            "dry_run": dry_run,
+        }
+
+    # Do not truncate an existing full TOC when the stage is processing a windowed
+    # subset of the chapters (e.g. --first-chapters 1).
+    if (
+        toc.get("exists")
+        and len(entries) < len(toc.get("entries") or [])
+        and toc_matches_entries(toc, entries, allow_extra=True)
+    ):
+        return {
+            "ok": True,
+            "action": "keep",
+            "changed": False,
+            "location": toc.get("location"),
+            "filename": toc.get("filename"),
+            "entry_count": len(toc.get("entries") or []),
             "dry_run": dry_run,
         }
 
@@ -472,7 +511,11 @@ def verify_toc(
         problems.append(
             "the table of contents is missing: " + ", ".join(consistency["missing"][:5])
         )
-    if consistency.get("stale"):
+    allow_extra = (
+        bool((plan.get("toc") or {}).get("action") == "keep")
+        or (bool(toc.get("exists")) and len(entries) < len(toc.get("entries") or []))
+    )
+    if consistency.get("stale") and not allow_extra:
         problems.append(
             "the table of contents has stale entries: "
             + ", ".join(consistency["stale"][:5])

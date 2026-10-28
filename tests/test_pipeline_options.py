@@ -316,6 +316,23 @@ def test_preprocess_call_drops_manifest_and_prompts_on_a_dry_run(runtime):
     assert call.kwargs["workers"] == 1
 
 
+def test_preprocess_call_resolves_attempts_default_and_override(runtime):
+    # base_ns has max_attempts=4, which overrides default attempts
+    options = PipelineOptions.from_namespace(base_ns())
+    call = options.stage.call("preprocess", runtime)
+    assert call.kwargs["max_attempts"] == 4
+
+    # when max_attempts is the default 6 (or omitted), it uses DEFAULT_PREPROCESS_ATTEMPTS (8)
+    options = PipelineOptions.from_namespace(base_ns(max_attempts=6))
+    call = options.stage.call("preprocess", runtime)
+    assert call.kwargs["max_attempts"] == 8
+
+    # an explicit override on max_attempts propagates
+    options = PipelineOptions.from_namespace(base_ns(max_attempts=12))
+    call = options.stage.call("preprocess", runtime)
+    assert call.kwargs["max_attempts"] == 12
+
+
 def test_chunk_call_uses_the_chunk_input(options, runtime):
     call = options.stage.call("chunk", runtime)
     assert call.positional == (runtime.sources.chunk_input, runtime.paths.chunks_dir)
@@ -457,3 +474,20 @@ def test_pipeline_translate_flags_are_normalized(runtime):
     assert call.kwargs["context_chars"] == 45
     assert call.kwargs["glossary_scope"] == "book"
     assert call.kwargs["max_attempts"] == 2
+
+
+def test_epub_cover_auto_discovery_ignores_image_000000_and_finds_cover(runtime):
+    orig_img = Path(runtime.sources.postprocess).parent / "00-markdown" / "images"
+    orig_img.mkdir(parents=True)
+    (orig_img / "image_000000_logo.png").write_bytes(b"logo")
+
+    # When only image_000000 is present, cover is None (not misidentified as cover)
+    ns = base_ns()
+    options = PipelineOptions.from_namespace(ns)
+    call = options.stage.call("epub", runtime)
+    assert call.kwargs["cover"] is None
+
+    # When cover.jpg is present, it is picked
+    (orig_img / "cover.jpg").write_bytes(b"cover")
+    call2 = options.stage.call("epub", runtime)
+    assert call2.kwargs["cover"] == str(orig_img / "cover.jpg")

@@ -28,6 +28,11 @@ reuses the output while that hash still matches; ``force`` re-converts anyway.
 
 from __future__ import annotations
 
+import posixpath
+import re
+import tempfile
+import xml.etree.ElementTree as ET
+import zipfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -54,6 +59,33 @@ TEXT_SUFFIXES = (".txt",)
 DOCLING_SUFFIXES = (".pdf", ".epub")
 
 _READ_CHUNK = 1024 * 1024
+
+#: Files inside an EPUB that hold text (the OPF/NCX are packaging, not text).
+_EPUB_TEXT_SUFFIXES = (".html", ".htm", ".xhtml")
+#: Inline wrappers that carry presentation only (size, underline, CSS class).
+#: docling ends a text run at every inline-element boundary and joins the runs
+#: with a space, so small caps marked as ``C<span>ONTENTS</span>`` or
+#: ``<big>S</big>TRANGE`` convert to ``C ONTENTS`` / ``S TRANGE``, and the broken
+#: word then survives translation. None of these tags is represented in the
+#: Markdown output (docling maps ``b``/``strong``/``i``/``em``), so removing them
+#: keeps every character while letting docling read whole words. ``sup``/``sub``
+#: are left alone: a note marker such as ``<sup>2</sup>accidented`` is a separate
+#: token, not a word fragment.
+_PRESENTATION_OPEN_RE = re.compile(
+    rb"<(?:span|big|small|font|u|mark)\b[^>]*>", re.IGNORECASE
+)
+_PRESENTATION_CLOSE_RE = re.compile(
+    rb"</(?:span|big|small|font|u|mark)\s*>", re.IGNORECASE
+)
+#: Hyperlinks pointing to local temporary files created during conversion.
+_TEMP_LINK_RE = re.compile(
+    r"(?<!!)\[([^\]\n]+)\]\((?:file://)?(?:/tmp/|[A-Za-z]:[/\\]temp[/\\]|[^)]*docling_epub_[^)]*)[^)]*\)"
+)
+
+
+def _strip_temp_links(markdown: str) -> str:
+    """Unlink dead hyperlinks pointing to local temporary files created during conversion."""
+    return _TEMP_LINK_RE.sub(r"\1", markdown)
 
 
 @dataclass
@@ -398,7 +430,10 @@ def _convert_with_docling(
     When ``image_dir`` is given the document's pictures are exported there and the
     Markdown references them with ``image_prefix``. EPUB images are fetched from
     the archive; PDF pictures are cropped by the same layout model that already
-    locates the text.
+    locates the text. An EPUB is converted from a temporary copy whose purely
+    presentational inline tags are stripped (see
+    :func:`_strip_epub_presentation_tags`), so a word marked up as small caps is
+    not broken into separate fragments.
     """
     try:
         from docling.datamodel.base_models import InputFormat
@@ -443,20 +478,64 @@ def _convert_with_docling(
         converter = DocumentConverter()
 
     try:
-        converted = converter.convert(str(path))
-        if image_dir is None:
-            return converted.document.export_to_markdown()
-        from docling_core.types.doc import ImageRefMode
+        with tempfile.TemporaryDirectory(prefix="book-translator-epub-") as workdir:
+            source = (
+                _strip_epub_presentation_tags(path, Path(workdir))
+                if kind == "epub"
+                else path
+            )
+            converted = converter.convert(str(source))
+            if image_dir is None:
+                markdown = converted.document.export_to_markdown()
+            else:
+                from docling_core.types.doc import ImageRefMode
 
-        image_dir.mkdir(parents=True, exist_ok=True)
-        markdown = converted.document.export_to_markdown(
-            image_mode=ImageRefMode.REFERENCED,
-            image_dir=image_dir,
-            image_uri_prefix=image_prefix,
-        )
-        return _dedupe_images(markdown, image_dir, image_prefix)
+                image_dir.mkdir(parents=True, exist_ok=True)
+                markdown = converted.document.export_to_markdown(
+                    image_mode=ImageRefMode.REFERENCED,
+                    image_dir=image_dir,
+                    image_uri_prefix=image_prefix,
+                )
+                markdown = _dedupe_images(markdown, image_dir, image_prefix)
+                if kind == "epub":
+                    _extract_epub_cover(path, image_dir)
+        return _strip_temp_links(markdown)
     except Exception as exc:
         raise ToolError(f"docling could not convert {path.name}: {exc}") from exc
+
+
+def _strip_epub_presentation_tags(epub: Path, workdir: Path) -> Path:
+    """Write a copy of ``epub`` with presentational inline tags removed.
+
+    EPUB producers mark small caps by wrapping part of a word in a tag:
+    ``C<span>ONTENTS</span>``, ``<big>S</big>TRANGE``, ``U<span>NCOLLECTED</span>``.
+    docling treats every inline-element boundary as a word boundary and exports
+    ``C ONTENTS`` / ``S TRANGE``, which stage 7 then translates as fragments.
+    None of these tags is represented in the Markdown output, so stripping them
+    leaves the text byte-identical while giving the converter whole words. The
+    rest of the archive — images, OPF, spine — is copied unchanged, including
+    the stored (uncompressed) ``mimetype`` entry EPUB requires first.
+    """
+    target = workdir / "flattened.epub"
+    with zipfile.ZipFile(epub) as source, zipfile.ZipFile(
+        target, "w", zipfile.ZIP_DEFLATED
+    ) as output:
+        for info in source.infolist():
+            data = source.read(info.filename)
+            if info.filename.lower().endswith(_EPUB_TEXT_SUFFIXES):
+                data = _PRESENTATION_CLOSE_RE.sub(
+                    b"", _PRESENTATION_OPEN_RE.sub(b"", data)
+                )
+            output.writestr(
+                info,
+                data,
+                compress_type=(
+                    zipfile.ZIP_STORED
+                    if info.filename == "mimetype"
+                    else zipfile.ZIP_DEFLATED
+                ),
+            )
+    return target
 
 
 def _dedupe_images(markdown: str, image_dir: Path, image_prefix: str) -> str:
@@ -479,6 +558,84 @@ def _dedupe_images(markdown: str, image_dir: Path, image_prefix: str) -> str:
         markdown = markdown.replace(f"{image_prefix}{path.name}", f"{image_prefix}{keeper}")
         path.unlink()
     return markdown
+
+
+def _extract_epub_cover(epub_path: Path, dest_dir: Path) -> Path | None:
+    """Extract the declared cover image from an EPUB container if not already extracted."""
+    if not epub_path.is_file():
+        return None
+    if any(dest_dir.glob("*cover*.*")):
+        return None
+    try:
+        with zipfile.ZipFile(epub_path, "r") as z:
+            try:
+                container = z.read("META-INF/container.xml")
+                root = ET.fromstring(container)
+                opf_path = root.find(".//{*}rootfile").attrib["full-path"]
+                opf_data = z.read(opf_path)
+                opf = ET.fromstring(opf_data)
+            except Exception:
+                return None
+
+            opf_dir = Path(opf_path).parent
+            manifest_items: dict[str, tuple[str, list[str], str]] = {}
+            cover_href = None
+
+            for item in opf.findall(".//{*}manifest/{*}item"):
+                item_id = item.attrib.get("id")
+                href = item.attrib.get("href")
+                props = item.attrib.get("properties", "").split()
+                media = item.attrib.get("media-type", "")
+                if item_id and href:
+                    manifest_items[item_id] = (href, props, media)
+                if "cover-image" in props:
+                    cover_href = href
+                    break
+
+            if not cover_href:
+                for meta in opf.findall(".//{*}metadata/{*}meta"):
+                    if meta.attrib.get("name") == "cover":
+                        cover_id = meta.attrib.get("content")
+                        if cover_id in manifest_items:
+                            cover_href = manifest_items[cover_id][0]
+                            break
+
+            if not cover_href:
+                for ref in opf.findall(".//{*}guide/{*}reference"):
+                    ref_type = ref.attrib.get("type", "").lower()
+                    href = ref.attrib.get("href", "")
+                    if "cover" in ref_type and href:
+                        clean_href = href.split("#")[0]
+                        for item_id, (m_href, m_props, m_media) in manifest_items.items():
+                            if m_href == clean_href and m_media.startswith("image/"):
+                                cover_href = clean_href
+                                break
+                    if cover_href:
+                        break
+
+            if not cover_href:
+                for item_id, (href, props, media) in manifest_items.items():
+                    if "cover" in item_id.lower() and media.startswith("image/"):
+                        cover_href = href
+                        break
+
+            if not cover_href:
+                return None
+
+            zip_cover_path = (opf_dir / cover_href).as_posix() if opf_dir != Path(".") else cover_href
+            zip_cover_path = posixpath.normpath(zip_cover_path)
+
+            if zip_cover_path not in z.namelist():
+                return None
+
+            data = z.read(zip_cover_path)
+            ext = Path(zip_cover_path).suffix or ".jpg"
+            dest_file = dest_dir / f"cover{ext}"
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest_file.write_bytes(data)
+            return dest_file
+    except Exception:
+        return None
 
 
 # --------------------------------------------------------------------------- #
