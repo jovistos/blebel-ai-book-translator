@@ -1046,7 +1046,7 @@ def test_cli_dictionary_reports_a_missing_tagger_as_a_dependency_error(
 
     chapters = make_chapters(tmp_path)
     _stub_cli_dictionary(
-        monkeypatch, error=MissingDependencyError("pip install -r requirements-dictionary.txt")
+        monkeypatch, error=MissingDependencyError("pip install -r requirements.txt")
     )
 
     code = cli.main(["dictionary", "--out", str(chapters)])
@@ -1054,7 +1054,7 @@ def test_cli_dictionary_reports_a_missing_tagger_as_a_dependency_error(
 
     assert code == 2
     assert "missing dependency" in err
-    assert "requirements-dictionary.txt" in err
+    assert "requirements.txt" in err
 
 
 def test_cli_dictionary_refuses_a_folder_without_chapters(tmp_path, capsys):

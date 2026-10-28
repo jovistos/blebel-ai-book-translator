@@ -46,7 +46,7 @@ from book_translator.core.errors import MissingDependencyError, ToolError
 
 _RAPIDFUZZ_HINT = (
     "the chunk-glossary stage needs rapidfuzz: pip install rapidfuzz "
-    "(already in requirements-book-translator.txt)"
+    "(already in requirements.txt)"
 )
 
 #: Punctuation that can cling to an NER mention (``Džordž,`` / ``"London"``) but

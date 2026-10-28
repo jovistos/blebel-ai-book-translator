@@ -482,7 +482,7 @@ def print_next_steps(driver: PipelineDriver, console: Console, state: PhaseState
         )
     elif state.chunk_missing:
         console.info(
-            "  next: install the chunker (pip install -r requirements-chunk.txt) "
+            "  next: install the chunker (pip install -r requirements.txt) "
             "and re-run --start-at chunk"
         )
     elif state.chunked:
@@ -514,7 +514,7 @@ def print_next_steps(driver: PipelineDriver, console: Console, state: PhaseState
     if state.tagger_missing:
         console.info(
             "  note: install stage 3's tagger (pip install -r "
-            "requirements-dictionary.txt) and re-run --start-at dictionary"
+            "requirements.txt) and re-run --start-at dictionary"
         )
     if not driver.preprocess_enabled:
         console.info(

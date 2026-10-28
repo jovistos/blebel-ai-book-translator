@@ -24,7 +24,7 @@ The funnel, cheapest test first:
 
 The tagger is chosen by language: CLASSLA for South Slavic, stanza for English
 (:mod:`book_translator.stages.dictionary.ner`). Both are **optional, lazily imported**
-dependencies — see ``requirements-dictionary.txt``. Neither builds the
+dependencies — see ``requirements.txt``. Neither builds the
 dictionary: CLASSLA's four traditional entity types cannot recognise a fictional
 concept, so it only filters; :mod:`book_translator.stages.glossary` (stage 4) does the
 mining.

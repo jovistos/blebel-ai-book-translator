@@ -17,19 +17,11 @@ cd BleBelTranslateBook
 python3 -m venv .venv_splitter
 source .venv_splitter/bin/activate
 
-# Install with development extras (includes testing, linting, typing, chunking, and EPUB libraries)
-pip install -e ".[dev]"
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-### Installation Extras
-
-| Extra | Purpose | Key Dependencies |
-| :--- | :--- | :--- |
-| `dev` | Full development and offline testing suite | `pytest`, `ruff`, `mypy`, `build`, `chonkie`, `tiktoken`, `rapidfuzz`, `markdown-it-py` |
-| `convert` | EPUB / PDF source conversion | `docling` |
-| `dictionary` | Sentence reduction and NER filtering | `classla`, `stanza`, `lingua-language-detector` |
-| `chunk` | Reversible chapter chunking and fuzzy matching | `chonkie`, `tiktoken`, `rapidfuzz` |
-| `epub` | EPUB 3 document packaging | `markdown-it-py` |
+All required runtime and development dependencies (testing, linting, typing, conversion, dictionary NER, chunking, and EPUB packaging) are pinned and included in `requirements.txt`.
 
 ---
 

@@ -1,11 +1,12 @@
 cd /home/jovis/Documents/WORK/BleBelTranslateBook
 source .venv_splitter/bin/activate
 
-# Install the package itself (the extras are convert/dictionary/chunk/epub/dev):
-#   pip install -e ".[dev]"              # development: tests, lint, types
-#   pip install -e ".[convert]"          # EPUB/PDF input, or "book-translator[convert]"
-# The installed entry points are `book-translator` and `book-translator-pipeline`;
-# `python -m book_translator` remains the module fallback.
+# Install dependencies:
+#   pip install -r requirements.txt
+# Run via scripts or module directly:
+#   python scripts/run_pipeline.py ...
+#   python scripts/run_wizard.py
+#   python -m book_translator ...
 
 # Whole pipeline: `python -m book_translator pipeline ...` is the same parser and
 # driver as `python scripts/run_pipeline.py ...` (the script is a wrapper).

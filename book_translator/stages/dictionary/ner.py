@@ -47,11 +47,11 @@ from book_translator.core.errors import MissingDependencyError, ToolError
 
 _CLASSLA_HINT = (
     "the Serbian/Croatian/Slovenian/Bulgarian tagger needs CLASSLA: "
-    "pip install -r requirements-dictionary.txt  (or: pip install classla)"
+    "pip install -r requirements.txt  (or: pip install classla)"
 )
 _STANZA_HINT = (
     "the English tagger needs stanza: "
-    "pip install -r requirements-dictionary.txt  (or: pip install stanza)"
+    "pip install -r requirements.txt  (or: pip install stanza)"
 )
 
 #: Entity types both backends emit, upper-cased, with any IOB prefix stripped.

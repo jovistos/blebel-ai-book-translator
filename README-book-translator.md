@@ -1928,106 +1928,36 @@ the same kind of stage: a deterministic package build whose whole vocabulary is
 
 ## Install
 
-Python 3.11+ is required. The package metadata lives in
-[pyproject.toml](pyproject.toml); the optional stages are installed as extras:
+Python 3.11+ is required. Setup and installation:
 
 ```bash
-python -m venv .venv && . .venv/bin/activate
-
-pip install -e ".[dev]"                 # development checkout: tests, lint, types
-pip install "book-translator[convert]"    # EPUB / text-based PDF input
-pip install "book-translator[dictionary]" # the NER tagger for stages 3 and 6
-pip install "book-translator[chunk]"      # chonkie + tiktoken + rapidfuzz
-pip install "book-translator[epub]"       # markdown-it-py for stage 11
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-| Extra | Unlocks |
-|---|---|
-| `convert` | Stage 0: EPUB / text-based PDF → Markdown through docling |
-| `dictionary` | Stage 3 and the NER half of stage 6: CLASSLA, stanza, lingua |
-| `chunk` | Stage 5 chunking and stage 6 fuzzy retrieval: chonkie, tiktoken, rapidfuzz |
-| `epub` | Stage 11: markdown-it-py |
-| `dev` | The offline test suite, ruff, mypy and the build tooling |
+All dependencies across the pipeline (docling for conversion, CLASSLA and stanza for NER tagging, chonkie and rapidfuzz for chunking, markdown-it-py for EPUB packaging, and test/dev tools) are pinned and included in `requirements.txt`.
 
-Every optional import is lazy, so a split-only install keeps working without any
-of them. `dev` includes the chunk and EPUB dependencies so
-`pip install -e ".[dev]"` runs the whole suite; `convert` and `dictionary` stay
-out because docling/torch and the taggers are heavy and their tests use stubs.
-
-The installed console scripts and the module form are equivalent:
+Run the pipeline or wizard directly using the scripts or module:
 
 ```bash
-book-translator --help
-book-translator pipeline BOOK.md
-book-translator-pipeline BOOK.md        # same driver, no `pipeline` subcommand
-python -m book_translator --help
+python scripts/run_pipeline.py BOOK.md
+# or: python scripts/run_wizard.py
+# or: python -m book_translator pipeline BOOK.md
+# or: python -m book_translator --help
 ```
-
-The historical `requirements-*.txt` files still work; they are thin shims that
-install the matching extra (`requirements-book-translator.txt` → `.[chunk]`,
-`requirements-dev.txt` → `.[dev]`, `requirements-dictionary.txt` →
-`.[dictionary]`).
 
 Then copy [.env.example](.env.example) to `.env` and fill in the key(s); which
 model each stage uses is set in [book_translator.toml](book_translator.toml) (see
 [Configuration](#configuration)).
 
-Stage 0 (`convert`) needs docling only when the source is an EPUB or a PDF; a
-TXT or Markdown source needs no dependency at all. docling pulls its own layout
-models (and torch), so it is deliberately optional and imported lazily:
+Stage requirements are bundled in [requirements.txt](requirements.txt):
+* Stage 0 (`convert`): uses `docling` (with `pypdfium2` fallback) when source is EPUB/PDF; TXT and Markdown sources need no extra parsing.
+* Stages 5 & 6 (`chunk`): uses `chonkie`, `tiktoken`, and `rapidfuzz`.
+* Stage 3 & 6 (`dictionary`): uses `classla` (2.2.3 with PyTorch CUDA) and `stanza`.
+* Stage 11 (`epub`): uses `markdown-it-py`.
+* Native TOC extraction (PDF/EPUB): `PyMuPDF`, `ebooklib`, and `beautifulsoup4` are included.
 
-```bash
-pip install -e ".[convert]"           # or: pip install "book-translator[convert]"
-```
-
-The PDF text-layer preflight uses `pypdfium2`, which docling already installs;
-without docling it can also fall back to PyMuPDF. An image-based PDF is rejected
-with an actionable message — OCR is never attempted.
-
-Stages 5 and 6 need the chunk extra: `chonkie` cuts the chapters, `tiktoken`
-makes the default `cl100k_base` token count exact, and `rapidfuzz` retrieves the
-glossary terms:
-
-```bash
-pip install -e ".[chunk]"
-```
-
-Stage 6's NER half and stage 3 need the dictionary extra:
-
-```bash
-pip install -e ".[dictionary]"
-```
-
-Both are imported lazily. Without `tiktoken` the chunk length is still enforced,
-but measured with the documented local approximation (and the manifest says so);
-without `chonkie` the whole-pipeline script reports the phase as skipped and
-`book-translator chunk` exits with the exact `pip install` line. The tagger is only
-needed for stage 6 phase 1, and `--language` / `--gpu` / `--cpu` behave exactly
-as they do for `dictionary`.
-
-Stage 11 (`epub`) renders the Markdown to XHTML with `markdown-it-py` and writes
-the EPUB 3 container with the standard library — no pandoc, calibre or ebooklib:
-
-```bash
-pip install -e ".[epub]"
-```
-
-A run that stops at `10-translated-book.md` needs none of it.
-
-Optional, only for `extract_native_toc` with PDF/EPUB sources:
-`pip install PyMuPDF ebooklib beautifulsoup4`.
-
-⚠️ **`classla` pins `torch<=2.6` on Python < 3.14**, so a plain
-`pip install -e ".[dictionary]"` next to a newer torch will downgrade it and pull
-~2 GB of CUDA wheels. If torch is already installed to your liking, keep it:
-
-```bash
-pip install numpy requests tqdm "protobuf==4.21.2" obeliks reldi-tokeniser lxml
-pip install --no-deps classla==2.2.3
-```
-
-That combination (torch 2.14 + classla 2.2.3) is verified working here — CLASSLA loads its Serbian
-models and tags correctly, so the pin is stricter than it needs to be.
+All dependencies and their compatible versions (including `torch 2.14.1+cu126` and `classla 2.2.3`) are already pinned and configured in `requirements.txt` with the appropriate index URL.
 
 The three packages are imported lazily, so the splitter and the preprocessor keep working without
 them; a `dictionary` run without them fails with the exact `pip install` line, and the whole-pipeline

@@ -20,7 +20,7 @@ upstream project can sit next to the book translator without ever being mistaken
 2. **Never edit vendored code here.** If a change matters, make it in the upstream project
    (inside its own repository) and pull it back down.
 3. **This project must never import from `external/`.** `book_translator` is self-contained; its
-   dependencies are declared in `requirements-book-translator.txt`, not borrowed from a vendored
+   dependencies are declared in `requirements.txt`, not borrowed from a vendored
    copy.
 
 ## Restoring the folder on a fresh clone

@@ -17,11 +17,7 @@ import pytest
 from _fixtures import ROOT
 
 PYPROJECT = ROOT / "pyproject.toml"
-REQUIREMENTS = {
-    "chunk": ROOT / "requirements-book-translator.txt",
-    "dev": ROOT / "requirements-dev.txt",
-    "dictionary": ROOT / "requirements-dictionary.txt",
-}
+REQUIREMENTS_TXT = ROOT / "requirements.txt"
 
 
 def _metadata() -> dict[str, Any]:
@@ -78,14 +74,13 @@ def test_the_epub_stylesheet_is_declared_as_package_data() -> None:
     assert (ROOT / "book_translator" / "stages" / "epub" / "assets" / "style.css").is_file()
 
 
-@pytest.mark.parametrize(("extra", "path"), REQUIREMENTS.items())
-def test_requirements_files_are_thin_shims_for_extras(extra: str, path: Path) -> None:
-    lines = _requirement_lines(path)
-
-    assert lines == [f"-e .[{extra}]"], (
-        f"{path.name} must install the {extra!r} extra so it cannot drift from "
-        "pyproject.toml"
-    )
+def test_requirements_file_exists_and_contains_pinned_packages() -> None:
+    assert REQUIREMENTS_TXT.is_file(), "requirements.txt must exist"
+    lines = _requirement_lines(REQUIREMENTS_TXT)
+    packages = [line for line in lines if not line.startswith("--")]
+    assert len(packages) > 50
+    package_names = {item.split("==")[0].lower() for item in packages}
+    assert {"langchain-core", "langgraph", "pydantic", "torch"} <= package_names
 
 
 def test_the_sdist_manifest_keeps_the_documented_files() -> None:

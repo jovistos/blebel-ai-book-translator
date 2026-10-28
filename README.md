@@ -130,8 +130,8 @@ cd BleBelTranslateBook
 python3 -m venv .venv_splitter
 source .venv_splitter/bin/activate
 
-# Install package with all extras (convert, dictionary, chunk, epub, dev)
-pip install -e ".[dev,convert]"
+# Install dependencies
+pip install -r requirements.txt
 ```
 
 ### 2. Configure Credentials
