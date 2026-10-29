@@ -34,7 +34,7 @@ Front and back matter frequently feature images containing source-language typog
 ### Artifacts Written
 * `data/output/<book>/08-translations/00000-00-front-matter-*.md`
 * `data/output/<book>/08-translations/images/*_translated.*` (Recreated matter images)
-* `data/output/<book>/07-matter/matter_plan.json`
+* `data/output/<book>/07-matter/book-plan.json`
 * `data/output/<book>/07-matter/_matter_manifest.json` (Includes per-chunk `images` metadata)
 * `data/output/<book>/07-matter/_matter_trace.json` (Includes per-chunk `images` transformation logs)
 * `data/output/<book>/07-matter-prompts/*` (Complete agent prompt logs for review)
@@ -61,8 +61,8 @@ Front and back matter frequently feature images containing source-language typog
 
 ### Artifacts Written
 * `data/output/<book>/08-translations/<chunk>.md`
-* `data/output/<book>/08-translation-prompts/<chunk>.json`
-* `data/output/<book>/08-translation-prompts/<chunk>.prompt.md`
+* `data/output/<book>/08-translation-prompts/<chunk>.md.json`
+* `data/output/<book>/08-translation-prompts/<chunk>.md.prompt.md`
 * `data/output/<book>/08-translations/_translation_manifest.json`
 
 ---
@@ -80,7 +80,7 @@ Front and back matter frequently feature images containing source-language typog
 ### Artifacts Written
 * `data/output/<book>/09-translated-chapters/00-front-matter.md`
 * `data/output/<book>/09-translated-chapters/01-*.md`, `02-*.md`, ...
-* `data/output/<book>/09-translated-chapters/_assembly_manifest.json`
+* `data/output/<book>/09-translated-chapters/_translated_chapters_manifest.json`
 
 ---
 
@@ -133,7 +133,7 @@ At the end of Stage 10, the automated openings audit scans the first lines of ev
 * **Markdown-to-XHTML:** Converted using `markdown-it-py` with clean typographical formatting.
 * **Navigation Document:** Automatically generates an EPUB 3 `nav.xhtml` Table of Contents from chapter headings.
 * **Image Embedding:** Copies illustrations from `01-markdown/images/` directly into the EPUB container under `OEBPS/images/`, updating image references.
-* **Embedded Stylesheet:** Injects typography and layout styles from [style.css](file:///home/jovis/Documents/WORK/BleBelTranslateBook/book_translator/stages/epub/assets/style.css).
+* **Embedded Stylesheet:** Injects typography and layout styles from [style.css](../../book_translator/stages/epub/assets/style.css).
 * **Deterministic Packaging:** Pins archive entry timestamps to the latest chapter modification time, guaranteeing bit-for-bit reproducible EPUB builds.
 
 ### Artifacts Written

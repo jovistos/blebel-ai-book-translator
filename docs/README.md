@@ -15,13 +15,13 @@ docs/
 │   ├── overview.md                            <- Core philosophy, design invariants & execution flow
 │   └── langgraph-agents.md                    <- The 4 LangGraph agents (Split, Preprocess, Matter, Postprocess)
 ├── pipeline/
-│   ├── stages-0-to-5.md                       <- Ingestion, splitting, preprocessing, dictionary, glossary, chunking
-│   └── stages-6-to-11.md                      <- Chunk glossary, matter, translation, assembly, postprocessing, EPUB
+│   ├── stages-1-to-6.md                       <- Ingestion, splitting, preprocessing, dictionary, glossary, chunking
+│   └── stages-7-to-12.md                      <- Matter, translation, assembly, postprocessing, bind, EPUB
 ├── configuration/
 │   └── models-and-providers.md                <- TOML config, providers (DeepSeek, LM Studio, OpenAI, Gemini, Claude), env vars
 ├── cli/
 │   └── reference.md                           <- book-translator & pipeline CLI reference, subcommands, wizard, scripts
-├── data-layout-and-contracts.md               <- Directory conventions (00 to 11), manifests, traces, schemas
+├── data-layout-and-contracts.md               <- Directory conventions (01 to 12), manifests, traces, schemas
 └── development/
     └── contributing-and-testing.md            <- Setup, 800+ test suite, snapshot testing, ruff, mypy, packaging
 ```
@@ -44,8 +44,8 @@ docs/
 
 ### 3. I Want to Modify Code or Add Features (Developer / Contributor)
 1. Read [Contributing & Testing](development/contributing-and-testing.md) for environment setup, offline test harness, snapshot testing, and linters.
-2. Review the public API surface in [book_translator/__init__.py](file:///home/jovis/Documents/WORK/BleBelTranslateBook/book_translator/__init__.py).
-3. Review the pipeline orchestrator in [book_translator/pipeline/driver.py](file:///home/jovis/Documents/WORK/BleBelTranslateBook/book_translator/pipeline/driver.py).
+2. Review the public API surface in [book_translator/__init__.py](../book_translator/__init__.py).
+3. Review the pipeline orchestrator in [book_translator/pipeline/driver.py](../book_translator/pipeline/driver.py).
 
 ---
 

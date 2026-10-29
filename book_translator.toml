@@ -7,12 +7,13 @@
 # Sections:
 #   [llm]            Default settings for all stages
 #   [llm.<stage>]    Granular settings for specific pipeline stages:
-#                    - split        (Stage 1: Chapter boundary agent)
-#                    - preprocess   (Stage 2: Header/damage cleaning agent)
+#                    - split        (Stage 2: Chapter boundary agent)
+#                    - preprocess   (Stage 3: Header/damage cleaning agent)
 #                    - dictionary   (Stage 4: Glossary creation agent)
-#                    - matter       (Stage 6b: Front/back matter agent & multimodal image translation)
-#                    - translate    (Stage 7: Body translation agent)
-#                    - postprocess  (Stage 9: Heading consistency agent)
+#                    - matter       (Stage 7: Front/back matter agent)
+#                    - matter_image (Stage 7: Multimodal matter image & cover recreation)
+#                    - translate    (Stage 8: Body translation agent)
+#                    - postprocess  (Stage 10: Heading consistency agent)
 #
 # -----------------------------------------------------------------------------
 # Supported Providers:
@@ -87,7 +88,7 @@ max_retries = 3
 # Granular Per-Agent Settings
 # =============================================================================
 
-# Stage 1 — Split Agent:
+# Stage 2 — Split Agent:
 # Determines where each chapter begins without reading the body prose.
 [llm.split]
 model = "deepseek-flash"
@@ -95,7 +96,7 @@ model = "deepseek-flash"
 # provider = "gemini"
 # model = "gemini-3.8-flash"
 
-# Stage 2 — Preprocess Agent:
+# Stage 3 — Preprocess Agent:
 # Inspects chapter headers, strips page numbers, and fixes conversion artifacts.
 [llm.preprocess]
 model = "deepseek-flash"
@@ -107,7 +108,7 @@ model = "deepseek-flash"
 # For higher nuance on complex books, consider a stronger model:
 # model = "deepseek-v4-pro"
 
-# Stage 6b — Matter Agent:
+# Stage 7 — Matter Agent:
 # Translates and formats front/back matter (book title, copyright, acknowledgments)
 # and performs multimodal matter image recreation (e.g. covers, title plates).
 #
@@ -130,7 +131,7 @@ model = "deepseek-flash"
 # provider = "gemini"
 # model = "gemini-3.1-flash-image"
 
-# Multimodal Matter Image Agent:
+# Stage 7 — Multimodal Matter Image Agent:
 # Dedicated default image recreation model for front/back matter images & covers.
 # (Requires an image-capable model: gemini-nano-banana-2.1 / gemini-3.1-flash-image;
 # text models like gemini-3.8-flash cannot generate images)
@@ -138,23 +139,23 @@ model = "deepseek-flash"
 provider = "gemini"
 model = "gemini-nano-banana-2.1"
 
-# Stage 7 — Translate Agent:
+# Stage 8 — Translate Agent:
 # Translates each chunk of chapter text using the locked glossary terms.
 [llm.translate]
 model = "deepseek-flash"
 
-# --- Common Setup: Local LM Studio for Stage 7 Translation ---
-# Run fast cloud models for stages 1-6b and translate locally for free:
+# --- Common Setup: Local LM Studio for Stage 8 Translation ---
+# Run fast cloud models for stages 2-7 and translate locally for free:
 # provider = "lmstudio"
 # base_url = "http://127.0.0.1:1234/v1"
 # (No `model` line needed: LM Studio will use whichever model you have loaded!)
 
-# --- Alternative: High-Quality Claude for Stage 7 Translation ---
+# --- Alternative: High-Quality Claude for Stage 8 Translation ---
 # provider = "claude"
-# model = "anthropic/claude-3.7-sonnet"
+# model = "anthropic/claude-sonnet-5-5"
 # base_url = "https://openrouter.ai/api/v1"
 
-# Stage 9 — Postprocess Agent:
+# Stage 10 — Postprocess Agent:
 # Reconciles translated chapter titles and formats the table of contents.
 [llm.postprocess]
 model = "deepseek-flash"

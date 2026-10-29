@@ -44,7 +44,7 @@ names; only new writes use the numbered layout.
 | --- | --- | --- | --- |
 | 1. **Convert** | `book_translator.stages.conversion` | *What does this EPUB/PDF/TXT say as plain Markdown — and what do its pictures look like?* | `data/output/<book>/01-markdown/` + `01-markdown/images/` |
 | 2. **Split** | `book_translator.stages.agent` | *Where does each chapter start?* | `data/output/<book>/02-chapters/` |
-| 3. **Preprocess** | `book_translator.stages.preprocess_agent` | *What in this chapter is not part of the book's text?* | `data/output/<book>/03-preprocessed/` (the text stages 3–5 read by default) |
+| 3. **Preprocess** | `book_translator.stages.preprocess_agent` | *What in this chapter is not part of the book's text?* | `data/output/<book>/03-preprocessed/` (the text stages 4–5 read by default) |
 | 4. **Dictionary** | `book_translator.stages.dictionary` | *Which sentences carry a proper noun worth keeping consistent?* | `data/output/<book>/04-reduced/` + `04-reduced-unique/` |
 | 4. **Glossary** | `book_translator.stages.glossary` | *How must each of those nouns be written in the target language, once and for all?* | `data/output/<book>/04-glossary/` |
 | 5. **Chunk** | `book_translator.stages.chunking` | *Where can the chapter be cut without breaking a paragraph or a sentence — and how do we put it back?* | `data/output/<book>/05-chunks/` |
@@ -83,7 +83,7 @@ there too, and stage 12 copies the pictures it references into the EPUB itself.
 The manifest records `images` and `image_refs`; a conversion whose `images/`
 folder has been deleted is not reused.
 
-Stage 1 turns one long Markdown book into a folder of chapter files
+Stage 2 turns one long Markdown book into a folder of chapter files
 **without ever reading the book's body**. The LLM only ever *routes*: it looks at
 line numbers and short title strings produced by deterministic tools, decides
 where the chapters start, and submits a plan. Two bounded windows are the only
@@ -94,7 +94,7 @@ table of contents of its own. A plain Python node then copies the source lines
 verbatim into one file per chapter, and a verifier proves that the chapter files
 concatenate back to the original **byte for byte**.
 
-Stage 2 repairs each chapter file, **one chapter at a time, sequentially**. It
+Stage 3 repairs each chapter file, **one chapter at a time, sequentially**. It
 starts from the chapter's **headers**, never from its prose: page numbers that
 became headings, figure captions marked up as headings, headings the PDF
 conversion split across two lines, words a page number was printed inside, and
@@ -103,7 +103,7 @@ the words on both sides). The agent describes its edits in a fixed vocabulary; a
 deterministic validator checks every entry against the real file, and a per-line
 provenance map proves afterwards that only the declared lines changed.
 
-Stage 3 reduces each chapter, **one chapter at a time, first to last**, to the raw
+Stage 4 (step 1: dictionary) reduces each chapter, **one chapter at a time, first to last**, to the raw
 sentences that are worth mining for a translation glossary: split into sentences,
 drop the ones with no capital past the first word, drop the ones under four words,
 then keep only the sentences a tagger found a `PER`/`LOC`/`ORG`/`MISC` mention in.
@@ -116,7 +116,7 @@ by detected language (CLASSLA for Serbian/Croatian/Slovenian/Bulgarian, stanza f
 English) and is used **only as a gatekeeper** — it cannot recognise an invented
 term like *Mithril*, so it never builds the dictionary itself.
 
-Stage 4 is the LLM pass stage 3 was built for. It walks the body chapters
+Stage 4 (step 2: glossary) is the LLM pass the dictionary funnel was built for. It walks the body chapters
 **first to last**, skips the front matter and the back matter, and grows one
 dictionary for the whole book: for every person, place, organisation, artifact and
 recurring term of art it reads out of a chapter, it locks in a single rendering in
@@ -139,14 +139,14 @@ the boundary kind on each side; `reconstruct_chapter()` and `reconstruct_book()`
 are the read side of that record.
 
 Stage 6 joins stages 4 and 5, and its order is the contract. It runs NER over
-**every** chunk first — the same CLASSLA/stanza backends stage 3 uses, but here
+**every** chunk first — the same CLASSLA/stanza backends stage 4 uses, but here
 they *find* terms instead of gating sentences — and collects, per chunk, the
 distinct `PER`/`LOC`/`ORG`/`MISC` terms it contains. Only when the last chunk has
 been tagged does the second phase begin: every collected term is scored against
 `glossary.json` with `rapidfuzz`, and the best candidate is accepted when it
 reaches the threshold (95 % by default, and a flag). The accepted terms are
 written next to the chunk, under the chunk's own name:
-`05-chunks/00011-04-chapter-i-down-the-rabbit-hole-0000.md` → `06-chunk-glossary/00011-04-chapter-i-down-the-rabbit-hole-0000.md.json`.
+`05-chunks/00011-04-chapter-1-0000.md` → `06-chunk-glossary/00011-04-chapter-1-0000.md.json`.
 The file carries the chunk's identity (global order, chapter, character and line
 spans) and a `matched_terms` list of `term` / `translation` / `category` rows, so a
 translation call can be sent with exactly the renderings that chunk must obey.
@@ -198,8 +198,8 @@ English into Serbian is the default pair, `--limit N` translates a prefix, and
 `--resume` skips chunks an earlier run already finished.
 
 This is the implementation of the toolset described in the original design notes for
-splitting Markdown books without LLMs, built for the sample book
-[data/input/Aleksandar_Loven_-_Ljubav_seks_i_vase_srce.md](data/input/Aleksandar_Loven_-_Ljubav_seks_i_vase_srce.md)
+splitting Markdown books without LLMs, built for a sample book
+`data/input/<book>.md`
 whose PDF→Markdown conversion mangled the headings (78 `##` headers of which most are page
 numbers and figure captions, `GIAVA 5` instead of `GLAVA 5`, chapter titles split onto the line
 *below* `## GLAVA 2`, and an unfinished word like `ZDRAVO SRCE`). Fixing exactly that kind of
@@ -212,11 +212,11 @@ Nothing that is a *document* lives next to the code any more:
 ```
 data/
 ├── input/                                    # sources — read-only, gitignored
-│   └── Alice's Adventures in Wonderland & Through the Looking-Glass and What Alice Found There.epub
+│   └── <book>.epub
 └── output/                                   # every generated artifact — gitignored
-    └── Alice-s-Adventures-in-Wonderland-Through-the-Looking-Glass-and-What-Alice-Found-There/
+    └── <book-stem>/
         ├── 01-markdown/                         # stage 1 output — only for EPUB/PDF/TXT
-        │   ├── Alice-s-Adventures-in-Wonderland-Through-the-Looking-Glass-and-What-Alice-Found-There.md
+        │   ├── <book>.md
         │   ├── images/                         # pictures extracted from the EPUB/PDF
         │   │   └── image_000000_<hash>.png     # referenced as ../01-markdown/images/…
         │   └── _convert_manifest.json          # source hash, method, PDF text-layer evidence,
@@ -225,10 +225,10 @@ data/
         │   ├── 00-front-matter.md
         │   ├── 01-introduction.md
         │   ├── 02-a-note-on-the-text.md
-        │   ├── 03-preface-to-the-eighty-sixth-thousand.md
-        │   ├── 04-chapter-i-down-the-rabbit-hole.md
+        │   ├── 03-preface.md
+        │   ├── 04-chapter-1.md
         │   ├── …
-        │   ├── 31-christmas-greetings-from-a-fairy-to-a-child.md
+        │   ├── 31-epilogue.md
         │   ├── 99-back-matter.md
         │   ├── _manifest.json                # filenames, line ranges, bytes, SHA-256
         │   └── _agent_trace.json             # the plan, validation report, token usage
@@ -236,7 +236,7 @@ data/
         │   ├── 00-front-matter.md               # (the text stages 4-5 read by default)
         │   ├── 01-introduction.md
         │   ├── …
-        │   ├── 04-chapter-i-down-the-rabbit-hole.md
+        │   ├── 04-chapter-1.md
         │   ├── …
         │   ├── _preprocess_manifest.json     # per chapter: operations, fixes, provenance
         │   └── _preprocess_trace.json        # the full per-chapter audit trail
@@ -244,7 +244,7 @@ data/
         │   ├── 00-front-matter.md
         │   ├── 01-introduction.md
         │   ├── …
-        │   ├── 04-chapter-i-down-the-rabbit-hole.md
+        │   ├── 04-chapter-1.md
         │   ├── …
         │   ├── _reduced_manifest.json        # per chapter: kept/dropped, entities, nouns
         │   └── _reduced_trace.json           # + examples of what each filter dropped
@@ -252,7 +252,7 @@ data/
         │   ├── 00-front-matter.md
         │   ├── 01-introduction.md
         │   ├── …
-        │   ├── 04-chapter-i-down-the-rabbit-hole.md
+        │   ├── 04-chapter-1.md
         │   └── (same filenames; no manifest of its own — see 04-reduced/)
         ├── 04-glossary/                         # stage 4 output — one book-wide dictionary
         │   ├── glossary.json                 # term / category / locked translation
@@ -264,13 +264,13 @@ data/
         │   ├── 00001-00-front-matter-0001.md
         │   ├── 00003-01-introduction-0000.md
         │   ├── …
-        │   ├── 00011-04-chapter-i-down-the-rabbit-hole-0000.md
+        │   ├── 00011-04-chapter-1-0000.md
         │   ├── …
         │   ├── 00015-99-back-matter-0000.md
         │   ├── _chunk_manifest.json          # per chunk: chapter, order, spans, tokens, boundary
         │   └── _chunk_trace.json             # + per-chapter logs and the verification report
         ├── 06-chunk-glossary/                   # stage 6 output — one file per chunk
-        │   ├── 00011-04-chapter-i-down-the-rabbit-hole-0000.md.json  # named after the chunk it describes
+        │   ├── 00011-04-chapter-1-0000.md.json  # named after the chunk it describes
         │   ├── …
         │   ├── _chunk_glossary_manifest.json # per chunk: NER counts, matched terms
         │   └── _chunk_glossary_trace.json    # + every term, candidate and log
@@ -285,22 +285,22 @@ data/
         │   └── 00000-00-front-matter-0000.md.prompt.md
         ├── 08-translations/                     # stage 8 output — the translated chunks
         │   ├── 00000-00-front-matter-0000.md # stage 7 (localized matter; same names)
-        │   ├── 00011-04-chapter-i-down-the-rabbit-hole-0000.md
+        │   ├── 00011-04-chapter-1-0000.md
         │   ├── …
         │   ├── images/                       # recreated matter images (multimodal localized art)
         │   │   └── image_000000_<hash>_translated.png
         │   ├── _translation_manifest.json    # per chunk: chars, tokens, attempts, hash
         │   └── _translation_trace.json       # + terms, logs and the run's totals
         ├── 08-translation-prompts/              # stage 8 debug — the whole input per call
-        │   ├── 00011-04-chapter-i-down-the-rabbit-hole-0000.md.json        # system+user prompt, messages,
-        │   │                                                               # glossary, source chunk, answer
-        │   └── 00011-04-chapter-i-down-the-rabbit-hole-0000.md.prompt.md   # the same prompt, human-readable
+        │   ├── 00011-04-chapter-1-0000.md.json        # system+user prompt, messages,
+        │   │                                          # glossary, source chunk, answer
+        │   └── 00011-04-chapter-1-0000.md.prompt.md   # the same prompt, human-readable
         ├── 09-translated-chapters/              # stage 9 output — one file per chapter
         │   ├── 00-front-matter.md            # same names as 02-chapters/, never over them
         │   ├── 01-introduction.md
         │   ├── 02-a-note-on-the-text.md
-        │   ├── 03-preface-to-the-eighty-sixth-thousand.md
-        │   ├── 04-chapter-i-down-the-rabbit-hole.md
+        │   ├── 03-preface.md
+        │   ├── 04-chapter-1.md
         │   ├── …
         │   ├── 99-back-matter.md
         │   ├── _translated_chapters_manifest.json  # per chapter: chunks, chars, hash, state
@@ -310,8 +310,8 @@ data/
         │   ├── 00-table-of-contents.md       # only when a new TOC had to be created
         │   ├── 01-introduction.md
         │   ├── 02-a-note-on-the-text.md
-        │   ├── 03-preface-to-the-eighty-sixth-thousand.md
-        │   ├── 04-chapter-i-down-the-rabbit-hole.md
+        │   ├── 03-preface.md
+        │   ├── 04-chapter-1.md
         │   ├── …
         │   ├── 99-back-matter.md
         │   ├── _postprocess_manifest.json    # plan, per-chapter decisions, TOC, hashes
@@ -375,22 +375,22 @@ place — [book_translator/paths.py](book_translator/paths.py) — and can be ov
 ## Result on the sample book
 
 ```
-$ python -m book_translator split Aleksandar_Loven_-_Ljubav_seks_i_vase_srce.md
+$ python -m book_translator split mybook.md
 strategy        : markdown_headers
 llm calls       : 3  tokens: 33768
 chapters        : 15
 byte-for-byte   : True
 lines           : 640/640
-output dir      : …/data/output/Aleksandar_Loven_-_Ljubav_seks_i_vase_srce/chapters
+output dir      : …/data/output/<book>/02-chapters
 ```
 
 The output folder contains `00-front-matter.md` plus 15 sections (`01-predgovor.md` …
 `15-beleske.md`). Their concatenation hashes identically to the source file
 (`2cfa45bd…aa29a`), so not a single character was rewritten — including the typos inherited
 from the PDF conversion (`## GIAVA 5 …` is preserved verbatim inside
-[08-glava-5-strah-od-ljubavi.md](data/output/Aleksandar_Loven_-_Ljubav_seks_i_vase_srce/02-chapters/08-glava-5-strah-od-ljubavi.md)).
+`08-glava-5.md`).
 
-Stage 2 then cleans those files, one at a time:
+Stage 3 then cleans those files, one at a time:
 
 ```
 $ python -m book_translator preprocess
@@ -398,12 +398,12 @@ chapters        : 16/16 clean
 llm calls       : 59  tokens: 499894
 damage found    : page_number_header=26, page_number_in_word=9, space_before_punctuation=29,
                   caption_as_header=10, long_prose_header=4, single_char_header=1
-output dir      : …/data/output/Aleksandar_Loven_-_Ljubav_seks_i_vase_srce/preprocessed
+output dir      : …/data/output/<book>/03-preprocessed
 files:
-  ok  04-glava-1-ljubav-je-u-srcu-zivota.md   lines    58 -> 55   ops=7  fixes=3
-  ok  05-glava-2-seks-i-srce.md               lines    34 -> 32   ops=4  fixes=3
+  ok  04-glava-1.md   lines    58 -> 55   ops=7  fixes=3
+  ok  05-glava-2.md   lines    34 -> 32   ops=4  fixes=3
   …
-  ok  14-glava-10-zdravo-srce-osoba-koja-voli.md  lines 83 -> 76  ops=14 fixes=8
+  ok  14-glava-10.md  lines    83 -> 76   ops=14 fixes=8
 OK — every chapter cleaned and verified.
 ```
 
@@ -413,7 +413,7 @@ fixes applied, 640 → 610 lines**, every chapter verified, and the character au
 heading (`## GLAVA 2 SEKS I SRCE` instead of `## GLAVA 2` + `## SEKS I SRCE`), the 26 page
 numbers are gone, and `… psi182 ljutnje` became `… psiljutnje`.
 
-Stage 3 then reduces each chapter to the sentences worth mining, reduces those again
+Stage 4 (step 1: dictionary) then reduces each chapter to the sentences worth mining, reduces those again
 to first mentions, and reports what each step removed and what the tagger cost:
 
 ```
@@ -428,8 +428,8 @@ entities        : LOC=70, MISC=167, ORG=215, PER=400
 ner time        : 3.55 s for 640 sentence(s)  (5.6 ms each, 180/s)
 model load      : 2.11 s (classla, cpu)
 total time      : 5.75 s  (chapters 3.61 s)
-output dir      : …/data/output/Aleksandar_Loven_-_Ljubav_seks_i_vase_srce/reduced
-unique dir      : …/data/output/Aleksandar_Loven_-_Ljubav_seks_i_vase_srce/reduced-unique
+output dir      : …/data/output/<book>/04-reduced
+unique dir      : …/data/output/<book>/04-reduced-unique
 OK — reduced chapters written.
 OK — first-mention chapters written.
 ```
@@ -437,7 +437,7 @@ OK — first-mention chapters written.
 Per chapter both numbers are printed as the run goes:
 
 ```
-  [5/16] 04-glava-1-ljubav-je-u-srcu-zivota.md   394 sentences -> 24    kept -> 22    unique  ner  181 ms
+  [5/16] 04-glava-1.md   394 sentences -> 24    kept -> 22    unique  ner  181 ms
 ```
 
 The two filters that need no tagger do most of the work — of 4 271 sentences only
@@ -452,28 +452,28 @@ drops **191 of the 473** sentences (**40 %**) and 39 % of the bytes, because the
 mentions `Džordž` in 26 of the 473 kept sentences, `Toni` in 13 and `Meri` in 9 — the
 first of each is the one the dictionary needs. Chapter by chapter the effect is very
 uneven — `15-beleske.md` loses only 5 of 57 (a bibliography introduces a new name in
-almost every entry) while `07-glava-4-gubitak-ljubavi-i-gubitak-nade.md` loses 13 of 24
+almost every entry) while `07-glava-4.md` loses 13 of 24
 (one patient's story, told over and over). That difference is exactly what the two
 folders let you see before the LLM pass runs.
 
 What survives is dictionary material: over the sample book the top `PER` mentions are
-`Džordž`, `Pol`, `Džim`, `Dženi`, `Fridman`, `Toni`, `Moris`, `Alexandar Lowen`, and
+`Džordž`, `Pol`, `Džim`, `Dženi`, `Fridman`, `Toni`, `Moris`, and
 the `LOC`/`ORG` lists carry `Seli`, `Beograd`, `London`, `New York`,
-`Psychosomatic Medicine`, `The Healing Heart`. Two kinds of noise get through and are
+`Psychosomatic Medicine`. Two kinds of noise get through and are
 worth knowing about before the LLM pass reads these files: **Markdown headings**
-(`GLAVA 1 LJUBAV JE U SRCU ŽIVOTA` is all caps, so CLASSLA tags it `ORG` and it
+(`GLAVA 1 ...` is all caps, so CLASSLA tags it `ORG` and it
 survives as a line) and **fragments** (single letters like `A` reaching the gate as
 `MISC`, mostly from citations). The first-mention filter leaves both alone — it can
 only drop a sentence whose nouns were *all* met before.
 
 Stage 4 then turns that list into the dictionary — one call per body chapter, the
 front matter skipped, the dictionary carried forward. Because the default pair is
-`en → sr` and the sample book above is Serbian, the run below is the English novel in
+`en → sr` and the sample book above is Serbian, the run below is an English novel in
 `data/input/` (`--limit 2` stops it after chapter 1, which is what a first, priced run
 looks like):
 
 ```
-$ python -m book_translator glossary --out data/output/Dont-You-Forget-About-Me---Alexandra-Potter/chapters --limit 2
+$ python -m book_translator glossary --out data/output/<book>/02-chapters --limit 2
 language=en -> sr  model=deepseek/deepseek-flash  method=auto  attempts<=3
 skip        : front matter, back matter
   [1/1] 01-chapter-1.md                                33 new    0 locked   0 conflict     8,784 tok  1 call(s)
@@ -507,7 +507,7 @@ by Pydantic.
 
 ## How it works
 
-**Stage 1 — split** (`book_translator.stages.agent`):
+**Stage 2 — split** (`book_translator.stages.agent`):
 
 ```
 START
@@ -558,43 +558,40 @@ Strategy fallback, in the order the agent is told to try:
 
 ### When the book cannot identify its own chapters
 
-The first book this route was written for,
-[data/input/Irvin_D._Jalom_-_Gledanje_u_sunce.md](data/input/Irvin_D._Jalom_-_Gledanje_u_sunce.md)
-(Irvin D. Yalom, *Staring at the Sun*, Serbian translation) has **no table of contents at all**
-and 115 `##` headers of which nine are the real chapter/section openings. The others are a
+When a converted book (`data/input/<book>.md`)
+has **no table of contents at all**
+and 115 `##` headers of which nine are the real chapter/section openings, the others may be a
 second title page, the translator's blurb, running heads and scanner watermarks (`## zdls/bojana888`,
-`## CW &amp; BU`, `## .`). Worse, the conversion dropped the *number* from three of the seven
+`## CW &amp; BU`, `## .`). Worse, the conversion may drop the *number* from three of the seven
 chapter headings, so the file reads `## 1 SMRTNA RANA`, `## 2 PREPOZNAVANJE STRAHA OD SMRTI`,
-`## ISKUSTVO KOJE OTVARA OČI`, `## 4 MOĆ IDEJA`, … — chapters 3, 5 and 6 are there, but nothing
+`## ISKUSTVO KOJE OČI OTVARA`, `## 4 MOĆ IDEJA`, … — chapters 3, 5 and 6 are there, but nothing
 inside the file says so.
 
 The deterministic scout cannot tell either: it scores those headers `strong`, because they *do*
-look like titles. `web_search("Staring at the Sun Irvin Yalom table of contents")` followed by
-`fetch_web_page` on the publisher's or Google Books' contents page returns the seven English
-titles (`The Mortal Wound`, `Recognizing Death Anxiety`, `The Awakening Experience`, `The Power
-of Ideas`, `Overcoming Death Terror Through Connection`, `Death Awareness: A Memoir`,
-`Addressing Death Anxiety: Advice for Therapists`), which is exactly the spine — the unnumbered
-Serbian titles are the missing chapters 3, 5 and 6.
+look like titles. `web_search` followed by
+`fetch_web_page` on the publisher's or Google Books' contents page returns the seven published
+titles, which is the spine — the unnumbered
+titles are the missing chapters 3, 5 and 6.
 
 ```
-$ python -m book_translator split Irvin_D._Jalom_-_Gledanje_u_sunce.md
+$ python -m book_translator split mybook.md
 strategy        : toc_titles
 llm calls       : 6  tokens: 136624
 chapters        : 9
 byte-for-byte   : True
 lines           : 1950/1950
 files:
-  00-front-matter.md                                       lines     1-22
-  01-predgovor-i-zahvalnost.md                             lines    23-86
-  02-1-smrtna-rana.md                                      lines    87-142
-  03-2-prepoznavanje-straha-od-smrti.md                    lines   143-266
-  04-iskustvo-koje-otvara-oci.md                           lines   267-630     <- chapter 3, number lost
-  05-4-moc-ideja.md                                        lines   631-927
-  06-prevazilazenje-straha-od-smrti-kroz-povezanost.md     lines   928-1147    <- chapter 5, number lost
-  07-svest-o-smrti-memoari.md                              lines  1148-1489    <- chapter 6, number lost
-  08-7-pristup-strahu-od-smrti-saveti-terapeutima.md       lines  1490-1927
-  09-pogovor.md                                            lines  1928-1947
-  10-back-matter.md            (back-matter)               lines  1948-1950    <- ## O AUTORU
+  00-front-matter.md                            lines     1-22
+  01-preface.md                                 lines    23-86
+  02-chapter-1.md                               lines    87-142
+  03-chapter-2.md                               lines   143-266
+  04-chapter-3.md                               lines   267-630     <- chapter 3, number lost
+  05-chapter-4.md                               lines   631-927
+  06-chapter-5.md                               lines   928-1147    <- chapter 5, number lost
+  07-chapter-6.md                               lines  1148-1489    <- chapter 6, number lost
+  08-chapter-7.md                               lines  1490-1927
+  09-afterword.md                               lines  1928-1947
+  10-back-matter.md            (back-matter)    lines  1948-1950    <- ## O AUTORU
 OK — every source line is accounted for.
 ```
 
@@ -605,7 +602,7 @@ excerpts — never a chapter's text.
 
 ### When the heading itself is gone
 
-The Yalom case still had a line to point at: an unnumbered title. A worse conversion drops the
+The case above still had a line to point at: an unnumbered title. A worse conversion drops the
 chapter heading *entirely* — no `##`, no empty header, no double blank line, no page number. The
 chapter then starts on a plain paragraph, and a header-only map silently merges it into the
 chapter before it. That is the case the second role exists for:
@@ -634,17 +631,16 @@ many chapters do. `find_lines_matching` reports the flags that make a candidate 
 (`standalone` + `title_like` for the old shape, `prose_start_issue: null` for this one), so the
 model can filter instead of guess.
 
-[data/input/Kenneth_M._Cameron_-_Zima_u_hotelu_smrti.md](data/input/Kenneth_M._Cameron_-_Zima_u_hotelu_smrti.md)
-(Kenneth M. Cameron, *Winter at Death's Hotel*) is the book this was built for: **15 chapters, of
-which 8 headings were dropped** — only `## 1.`, `## 3.`, `## 4.` and `## 10.`–`## 13.` survive.
-The agent could not do it (it exhausted its turns and wrote nothing: every candidate it could
-point at was a heading, and the headings it needed are not in the file), so the recovered map is
+When a book has **15 chapters, of
+which 8 headings were dropped** — only `## 1.`, `## 3.`, `## 4.` and `## 10.`–`## 13.` survive —
+and the agent exhausts its turns (because every candidate it could
+point at was a heading, and the headings it needed are not in the file), the recovered map is
 kept as a first-class input and replayed with
 [`--map`](#replaying-a-map-without-the-model):
 
 ```bash
-python -m book_translator split Kenneth_M._Cameron_-_Zima_u_hotelu_smrti.md \
-    --map data/output/Kenneth_M._Cameron_-_Zima_u_hotelu_smrti/02-chapters/_recovered_map.json
+python -m book_translator split mybook.md \
+    --map data/output/<book>/02-chapters/_recovered_map.json
 strategy        : preset_map
 llm calls       : 0  tokens: 0
 chapters        : 16
@@ -684,7 +680,7 @@ leaves behind is plausible: at most 1 000 lines and at most a quarter of the boo
 then plans it with `kind: "back-matter"`, so it gets its own `NN-back-matter.md`, stays out of
 the chapter count, and still takes part in the byte-for-byte verification like every other file.
 
-**Stage 2 — preprocess** (`book_translator.stages.preprocess_agent`), run once **per chapter**:
+**Stage 3 — preprocess** (`book_translator.stages.preprocess_agent`), run once **per chapter**:
 
 ```
 START
@@ -714,15 +710,15 @@ function of `(chapter_path, output_dir)`, the graph is built once, and results
 are collected before the book-level manifest is written.
 
 The folder it writes is not a dead end: the pipeline treats `03-preprocessed/` as
-the chapter text for stages 3–5, so the dictionary, the glossary and the chunks
-all read the repaired lines. The folder keeps the stage-1 filenames and order, and
+the chapter text for stages 4–5, so the dictionary, the glossary and the chunks
+all read the repaired lines. The folder keeps the stage-2 filenames and order, and
 `_preprocess_manifest.json` carries the same per-chapter fields as `_manifest.json`
 (title, source line range, lines, bytes, hashes), which is why
 `load_split_manifest`/`discover_chapters` can read either folder. `--no-preprocess`
 keeps both the cleaning and that switch off; `--text-in 02-chapters/` keeps the
 cleaning but sends the later stages back to the raw text.
 
-### What stage 2 actually repairs
+### What stage 3 actually repairs
 
 | Damage in the sample book | Detection | Repair |
 | --- | --- | --- |
@@ -792,13 +788,13 @@ immediately. A title that is only a number, a title that is only `Poglavlje` and
 chapter that opens on prose are **reported, never deleted** — a title is a naming
 decision (stage 10's book plan), not a line edit.
 
-The pass keeps stage 2's semantics: a removed line leaves an empty line, so the
+The pass keeps stage 3's semantics: a removed line leaves an empty line, so the
 stage's line numbers stay valid. `PreprocessResult.openings` (also in
 `_preprocess_manifest.json` and `_preprocess_trace.json`) records what was checked,
 what was clean, what was removed and what still needs a human. `--dry-run` reports
 the same findings and writes nothing.
 
-### Stage 3 — dictionary (`book_translator.stages.dictionary`), run once **per chapter**
+### Stage 4 (step 1) — dictionary (`book_translator.stages.dictionary`), run once **per chapter**
 
 No LLM, no agent, no toolset: a fixed funnel, cheapest test first, so the
 expensive step only ever sees a fraction of the text.
@@ -833,8 +829,8 @@ first-mention filter       keep the sentence only if at least one of its nouns h
 
 On the sample book the two free filters alone leave **15 %** of the sentences for the
 tagger — 640 of 4 271 — which is what makes the NER pass cheap (3.3 s on CPU for the
-whole book). Earlier measurements on the two bigger Serbian novels:
-870 of 4 002 for *Gledanje u sunce*, 2 938 of 14 180 for *Zima u hotelu smrti*.
+whole book). Earlier measurements on two bigger Serbian novels:
+870 of 4 002 on a 4 000-sentence book, and 2 938 of 14 180 on a 14 000-sentence book.
 
 The last step costs nothing on top of that: it reuses the entity mentions the gate
 already found, so `04-reduced-unique/` comes out of the same pass and the same tagger
@@ -864,8 +860,8 @@ keeps is a whole raw sentence, which is what a later LLM pass needs to decide wh
 the recurring nouns actually are.
 
 Two shapes survive the gate that are not dictionary evidence, visible in the sample
-book's own output: Markdown **headings** (all caps, so CLASSLA reads `GLAVA 1 LJUBAV JE
-U SRCU ŽIVOTA` as an organisation) and citation **fragments** (single letters such as
+book's own output: Markdown **headings** (all caps, so CLASSLA reads `GLAVA 1 ...`
+as an organisation) and citation **fragments** (single letters such as
 `A` tagged `MISC`). Both are cheap to filter as a next step, and both are visible in
 the reduced files rather than hidden, which is the point of writing them out. The
 first-mention filter does not remove them — a heading is a "new noun" the first time
@@ -876,9 +872,9 @@ The stage stops there, on purpose: two reductions first, so the funnel can be
 compared folder by folder and inspected sentence by sentence before stage 4 — the
 dictionary step that consumes it — runs over the result.
 
-### Stage 4 — glossary (`book_translator.stages.glossary`), run once **per chapter, in order**
+### Stage 4 (step 2) — glossary (`book_translator.stages.glossary`), run once **per chapter, in order**
 
-This is the LLM pass stage 3 was built for. One call per chapter, first to last,
+This is the LLM pass stage 4's dictionary funnel was built for. One call per chapter, first to last,
 each call handed the dictionary the earlier chapters produced:
 
 ```
@@ -905,7 +901,7 @@ dictionary so far (chapters 1..n)
 **Front matter and back matter are skipped by default.** A copyright page, a
 printed table of contents and an "about the author" note are full of names — a
 publisher, a city, an acknowledgement — that must not be locked into the book's
-terminology. Stage 1's manifest already records each file's `kind`, so the
+terminology. Stage 2's manifest already records each file's `kind`, so the
 decision is *read* (`front-matter` / `chapter` / `back-matter`) rather than
 guessed; a filename fallback (`00-front-matter.md`, `*-back-matter.md`) covers a
 folder whose manifest is missing. `--include-front-matter` /
@@ -1089,10 +1085,10 @@ actually mention?* Stage 6 answers it, and it refuses to answer it one chunk at 
 time.
 
 ```
-05-chunks/00011-04-chapter-i-down-the-rabbit-hole-0000.md ─┐
-05-chunks/00012-04-chapter-i-down-the-rabbit-hole-0001.md ─┤  PHASE 1 — NER over every chunk
-…                                                          ├─ stage 3's CLASSLA/stanza tagger
-05-chunks/00014-04-chapter-i-down-the-rabbit-hole-0003.md ─┘  → per-chunk distinct PER/LOC/ORG/MISC terms
+05-chunks/00011-04-chapter-1-0000.md ─┐
+05-chunks/00012-04-chapter-1-0001.md ─┤  PHASE 1 — NER over every chunk
+…                                     ├─ stage 4's CLASSLA/stanza tagger
+05-chunks/00014-04-chapter-1-0003.md ─┘  → per-chunk distinct PER/LOC/ORG/MISC terms
                                       (no glossary lookup yet)
                                               │
                                               ▼  only after the last chunk is tagged
@@ -1101,8 +1097,8 @@ time.
                                       glossary.json; ≥ threshold wins
                                               │
                                               ▼
-06-chunk-glossary/00011-04-chapter-i-down-the-rabbit-hole-0000.md.json
-06-chunk-glossary/00012-04-chapter-i-down-the-rabbit-hole-0001.md.json
+06-chunk-glossary/00011-04-chapter-1-0000.md.json
+06-chunk-glossary/00012-04-chapter-1-0001.md.json
 …
 06-chunk-glossary/_chunk_glossary_manifest.json
 06-chunk-glossary/_chunk_glossary_trace.json
@@ -1115,11 +1111,11 @@ recording the order of the injected tagger and matcher. The run reports the two
 phases separately (`phases[].name` is `ner` then `match`), with their own seconds
 and counts.
 
-**The tagger is stage 3's.** `book_translator.stages.dictionary.ner` builds the backend for
+**The tagger is stage 4's.** `book_translator.stages.dictionary.ner` builds the backend for
 the detected language — CLASSLA for Serbian/Croatian/Slovenian/Bulgarian, stanza
 for English — and stage 6 calls the same `entities()` method over each chunk's
 full text. The language is detected from a sample of the chunks (the same
-`lingua-py` sampler and ekavian/ijekavian tie-breaker as stage 3), or pinned with
+`lingua-py` sampler and ekavian/ijekavian tie-breaker as stage 4), or pinned with
 `--language sr`; `--gpu N` / `--cpu` select the device exactly as they do for the
 dictionary stage. The tagger is used to **find** terms here, not to gate
 sentences, so dates and other noise can be dropped with `--drop-temporal-only` and
@@ -1205,7 +1201,7 @@ unmatched with `Catherine` as its closest candidate (55.56), which is exactly th
 noise `--min-term-chars` and `--drop-temporal-only` exist to trim if a book needs
 it.
 
-### Stage 8 — front/back matter localization (`book_translator.stages.matter_agent`), no dictionary
+### Stage 7 — front/back matter localization (`book_translator.stages.matter_agent`), no dictionary
 
 Front matter is not a chapter, and back matter is not an epilogue. They are the
 parts of a *published edition*: the title page, the translator credit, the
@@ -1217,7 +1213,7 @@ must be reused, and much of the original imprint (ISBN, CIP/legal deposit,
 printing history, original publisher's permissions) should be omitted, not
 translated.
 
-Stage 8 is a separate LangGraph agent that runs **after chunking and before
+Stage 7 is a separate LangGraph agent that runs **after chunking and before
 translation**. Before it inventories the matter, it makes sure both ends of the
 book exist: the input filename is read as `Title - Author` (or `Title by Author`),
 and `00-front-matter.md` / `99-back-matter.md` are created with matching chapter
@@ -1303,7 +1299,7 @@ the translated file exists (an omitted chunk is a legitimate empty file).
 Stage 5 cut the book into pieces a model can translate; stage 4 locked one
 rendering per entity; stage 6 attached exactly the renderings each piece mentions.
 Stage 8 is the pass those three artifacts exist for. It translates the **body**
-chunks: the front/back matter chunks are skipped by default because stage 8
+chunks: the front/back matter chunks are skipped by default because stage 7
 already localized them with a different prompt and no dictionary
 (`--include-matter` restores the old all-chunks behaviour):
 
@@ -1414,8 +1410,8 @@ python -m book_translator translate mybook --translator lmstudio  # auto-detecte
 With no `--model`, the loaded id is read from the server's `GET /v1/models`
 (a translation-tuned `en2sr` id is preferred when several models are loaded), and
 no API key is needed. `--base-url` points at another port. The choice is
-**translation-body only**: stage 8's front/back-matter localization and stages 1,
-2, 4 and 9 keep the rest of the configuration, so switching stage 8 does not move
+**translation-body only**: stage 7's front/back-matter localization and stages 2,
+3, 4 and 10 keep the rest of the configuration, so switching stage 8 does not move
 the rest of the pipeline to the local model. The same choice lives in
 [book_translator.toml](book_translator.toml) as the `[llm.translate]` table, or on one
 command line as `--llm translate.provider=lmstudio` (see
@@ -1576,7 +1572,7 @@ consistent. It is the third agent stage, and it is deliberately not a prose edit
    expected title appears once, in order.
 5. **Opening audit (final phase).** After every chapter is written — reused ones
    included — the stage walks the first lines of all of them, the same deterministic
-   pass stage 2 runs (`book_translator.stages.openings`). It removes a stray copy of the
+   pass stage 3 runs (`book_translator.stages.openings`). It removes a stray copy of the
    chapter number under the title (`# Poglavlje 2` then `2`), a duplicated title
    line and a leftover page number, collapsing the blank around the removed line,
    and reports what still needs a human (a title that is only a number, a chapter
@@ -1622,13 +1618,13 @@ chapter folder — for a finished book, that is how an already-written
 `10-postprocessed-chapters/` is repaired in place:
 
 ```bash
-python -m book_translator openings mybook                    # the most advanced folder: 09 → 08 → 02 → 01
+python -m book_translator openings mybook                    # the most advanced folder: 10 → 09 → 03 → 02
 python -m book_translator openings mybook --dry-run          # report every finding, write nothing
 python -m book_translator openings mybook --chapters-in /tmp/book/03-preprocessed --keep-blank-slot
 python -m book_translator openings --chapters-in /tmp/book/10-postprocessed-chapters --json
 ```
 
-`--keep-blank-slot` is stage 2's semantics (a removed line leaves an empty line,
+`--keep-blank-slot` is stage 3's semantics (a removed line leaves an empty line,
 so line numbers stay valid); the default is stage 10's (remove the line and collapse
 the blank). Only a line that is nothing but a stray number or a copy of the title
 is ever deleted.
@@ -1695,7 +1691,7 @@ python -m book_translator epub mybook --dry-run         # build and verify, writ
   in the result and a visible `[path]` placeholder in the book — the package is
   still written, so nothing is silently lost.
 - **Metadata is re-read, not invented.** The title, author and target language
-  stage 8 recorded in `07-matter/_matter_manifest.json` become `dc:title`,
+  stage 7 recorded in `07-matter/_matter_manifest.json` become `dc:title`,
   `dc:creator` and `dc:language`; `--title/--author/--language/--identifier/
   --description/--publisher` override any of them. The identifier is a UUID
   derived from the book folder, so a rebuild is still the same publication.
@@ -1734,13 +1730,13 @@ docling pass plus the PDF text-layer preflight described above.
 
 | Tool | Purpose |
 | --- | --- |
-| `extract_markdown_headers` | `#` headers + exact line numbers (stage 1 picks cuts from it, stage 2 inspects them) |
+| `extract_markdown_headers` | `#` headers + exact line numbers (stage 2 picks cuts from it, stage 3 inspects them) |
 | `inspect_line_window` | at most 6 clipped lines around one line number — the only way to look "at the text" |
-| `list_chapter_files` | stage 1's manifest, read back as an ordered chapter list |
+| `list_chapter_files` | stage 2's manifest, read back as an ordered chapter list |
 | `sample_corpus_text` | a bounded, strided sample of one chapter (labelled SAMPLES ONLY) |
 | `scan_corpus_damage_tool` | the counted damage profile of a whole book |
 
-### `split` — stage 1 only
+### `split` — stage 2 only
 
 | Tool | Purpose | Added |
 | --- | --- | --- |
@@ -1756,7 +1752,7 @@ docling pass plus the PDF text-layer preflight described above.
 | `propose_split_map` | The tool the agent *submits its answer* through | ✔ |
 | `validate_split_map_tool` | Dry-run scoring of a plan before anything is written | ✔ |
 
-### `matter` — stage 8, its own agent and no dictionary
+### `matter` — stage 7, its own agent and no dictionary
 
 | Tool | Purpose |
 | --- | --- |
@@ -1775,7 +1771,7 @@ The book graph binds the plan/reader/web tools; the chunk graph binds the chunk
 readers, the plan readers, the two report/validate pairs and the same web tools.
 No write tool is exposed: the graph writes the validated text.
 
-### `preprocess` — stage 2 only
+### `preprocess` — stage 3 only
 
 | Tool | Purpose |
 | --- | --- |
@@ -1800,7 +1796,7 @@ No write tool is exposed: the graph writes the validated text.
 | `fetch_web_page` | reads a publisher/library/bookstore page returned by `web_search` as text, so the contents list can be read |
 | `inspect_chapter_opening` | at most 8 clipped opening lines; the chapter-title candidate and subtitle |
 | `audit_book_openings` | every chapter's opening in one bounded call: the book-level counts and the chapters that need a look (a title that is only a number, a stray number under the title, a duplicated title line) |
-| `audit_chapter_opening` | one chapter's opening audit (≤12 clipped lines), shared with stage 2 |
+| `audit_chapter_opening` | one chapter's opening audit (≤12 clipped lines), shared with stage 3 |
 | `inspect_chapter_headings` | every heading with its line, suggested `keep`/`demote`/`promote`, risk and one-line evidence; plain ALL-CAPS heading candidates are included with `level: 0` |
 | `inspect_heading_context` | one heading plus at most two clipped non-blank lines on each side |
 | `validate_book_plan_tool` | dry-run the naming policy and TOC action against the book |
@@ -1817,7 +1813,7 @@ the chapter graph binds the chapter tools plus `extract_markdown_headers` and
 `inspect_line_window`. The book planner cannot apply a chapter, and the chapter
 editor cannot change the book's naming policy.
 
-### Stage 3 — no tools at all
+### Stage 4 (step 1: dictionary) — no tools at all
 
 `dictionary` binds no tools because it calls no model. Its whole vocabulary is
 command-line flags, and each one maps to exactly one step of the funnel:
@@ -1838,7 +1834,7 @@ command-line flags, and each one maps to exactly one step of the funnel:
 | `--limit N` | reduce only the first N chapters, while tuning the filters |
 | `--dry-run` | reduce everything, write nothing |
 
-### Stage 4 — no tools either
+### Stage 4 (step 2: glossary) — no tools either
 
 `glossary` calls a model, but not as an agent: the sequence of calls is fixed
 (one per body chapter, first to last), the answer is a schema rather than a
@@ -1858,12 +1854,12 @@ up. Its whole vocabulary is command-line flags:
 | `--max-chapter-chars N` | split a chapter larger than this into parts, carrying the dictionary across them (default: 24000) |
 | `--max-context-entries N` | cap the dictionary sent with each chapter (`0` = send all; a cap trades a little consistency for input tokens) |
 | `--resume` (alias `--skip-if-present`) | reuse the glossary and the recorded chapters, and start at the first one missing |
-| `--book-title TITLE` | the title the prompt uses (default: the source filename from stage 1) |
+| `--book-title TITLE` | the title the prompt uses (default: the source filename from stage 2) |
 | `--limit N` | process only the first N chapters, to price the run |
 | `--dry-run` | ask about every chapter, write nothing |
-| `--provider` / `--model` / `--base-url` / `--api-key` / `--temperature` | the same model flags as stages 1 and 2; the default provider is DeepSeek |
+| `--provider` / `--model` / `--base-url` / `--api-key` / `--temperature` | the same model flags as stages 2 and 3; the default provider is DeepSeek |
 
-### Stages 5, 6, 7, 8, 10 and 11 — no tools either
+### Stages 5, 6, 8, 9, 11 and 12 — no tools either
 
 `chunk` binds no tools because it calls no model at all: its input is the chapter
 text and its vocabulary is `--chunk-size`, `--chunk-tokenizer`, `--limit`,
@@ -1889,20 +1885,20 @@ the same kind of stage: a deterministic package build whose whole vocabulary is
 ## Guardrails
 
 - **No body text in the prompt.** Tools return line numbers, headers, candidate titles and
-  ≤90-character excerpts. Stage 2 adds evidence flags, damage fragments and `inspect_line_window`
+  ≤90-character excerpts. Stage 3 adds evidence flags, damage fragments and `inspect_line_window`
   (≤6 lines, ≤600 characters per call); every tool result is capped at 24 000 characters and none
-  of the stage-2 tools can return a chapter's prose. Stage 10 is stricter still: its dedicated
+  of the stage-3 tools can return a chapter's prose. Stage 10 is stricter still: its dedicated
   chapter-text tool, `inspect_chapter_opening`, returns **at most 8 clipped lines**, its
   `inspect_heading_context` returns at most two clipped lines on each side, and everything else is
   a heading record with one line of evidence; it also reuses the shared `inspect_line_window`
   (≤6 lines / ≤600 characters). `inspect_matter_blocks` caps the front and back matter at 40
-  clipped lines per block. Stage 1 has exactly two bounded prose
+  clipped lines per block. Stage 2 has exactly two bounded prose
   windows: `extract_front_matter` (the front of the book, ≤1 200 lines / 20 000 characters) and
   `inspect_book_tail` (the end of the book, ≤300 lines / 12 000 characters of window text). The
   tail report is trimmed from the oldest line until it fits the tool cap, so it is never cut
   mid-JSON, and the line it proposes is always kept in view.
 - **The network is bounded, and outside the book.** `web_search` / `fetch_web_page` are the only
-  tools that leave the machine, and only stage 1 binds them (stage 2 cannot reach them). A search
+  tools that leave the machine, and only stage 2 (plus the matter and postprocess title lookups) binds them (stage 3 cannot reach them). A search
   returns at most 12 results (`6` by default), a fetch downloads at most 2 MB, clips the page to
   ≤12 000 characters (`6 000` by default) with a 200-character floor, and every request has a
   12-second timeout. URLs must be public `http(s)`: `file:`, `localhost` and private/reserved
@@ -1920,18 +1916,18 @@ the same kind of stage: a deterministic package build whose whole vocabulary is
   makes it a chapter opening. A bad map is rejected with concrete fixes and sent back to the
   agent (bounded by `--max-attempts`). The budget is printed in the scout report, and on the
   last allowed turn the agent is told that a submission is the only useful call left — a run
-  that spends its final turn inspecting writes nothing, which is how *We Need to Talk About
-  Kevin* failed before its [recovered map](#replaying-a-map-without-the-model) was written.
-- **No writes before validation.** Stage 1's `slice` is a deterministic tail node reachable
+  that spends its final turn inspecting writes nothing, which is how a run can fail before its
+  [recovered map](#replaying-a-map-without-the-model) is written.
+- **No writes before validation.** Stage 2's `slice` is a deterministic tail node reachable
   only from a validated plan; there is no model-reachable write tool in that graph at all.
-  Stage 2 does the same per chapter: `apply_chapter_cleaning` is blocked until *that*
+  Stage 3 does the same per chapter: `apply_chapter_cleaning` is blocked until *that*
   chapter's plan has been validated.
 - **No content loss.** The verifier recomputes SHA-256 over the files on disk and compares it
-  with the source slice the manifest claims to cover. Stage 2 goes further: every source line is
+  with the source slice the manifest claims to cover. Stage 3 goes further: every source line is
   accounted for in a provenance map, and a line may only disappear when it was a header
   consisting of nothing but a printed page number (bare digits or a dash-framed number)
   *and* the plan declared it.
-- **No arbitrary rewriting.** Stage 2 has no free-text edit. A plan entry can only choose one of
+- **No arbitrary rewriting.** Stage 3 has no free-text edit. A plan entry can only choose one of
   seven decisions (`keep` / `promote` / `demote` / `remove` / `remove_caption` /
   `merge_with_next` / `merge_demote`) plus four named text fixes, each with a
   machine-checkable rule; `apply` re-derives the output with that rule and the verifier
@@ -1940,14 +1936,14 @@ the same kind of stage: a deterministic package build whose whole vocabulary is
   stripped and duplicates are disambiguated instead of overwritten. A filename whose slug is a
   near-miss of its own short heading (`15-belestke.md` for `## BELEŠKE`) is repaired from the
   heading, while descriptive names such as `05-glava-2-seks-i-srce.md` are left untouched.
-  Stage 2 keeps each chapter's filename, so `02-chapters/` and `03-preprocessed/` line up one to one,
-  and stage 3 does the same with `04-reduced/` and `04-reduced-unique/`.
-- **The opening audit deletes only provable junk.** The final phase of stages 2 and 9 can remove
+  Stage 3 keeps each chapter's filename, so `02-chapters/` and `03-preprocessed/` line up one to one,
+  and stage 4 does the same with `04-reduced/` and `04-reduced-unique/`.
+- **The opening audit deletes only provable junk.** The final phase of stages 3 and 10 can remove
   a line only when it is *nothing but* a stray number next to the title, a copy of the title, or a
   printed page number in the same run — and it re-audits the written file to prove that no fixable
   issue survives. A title that is only a number, a title that is only a label and a chapter that
   opens on prose are reported, never deleted: a title is a naming decision for stage 10's book plan.
-- **Stage 3 drops, never edits.** A reduced chapter contains only whole sentences copied
+- **Stage 4 (dictionary) drops, never edits.** A reduced chapter contains only whole sentences copied
   verbatim from the chapter, one per line. No word is changed, no NER markup is written, and the
   manifest records exactly how many sentences each filter removed and why (with clipped examples
   in the trace).
@@ -1979,7 +1975,7 @@ model each stage uses is set in [book_translator.toml](book_translator.toml) (se
 Stage requirements are bundled in [requirements.txt](requirements.txt):
 * Stage 1 (`convert`): uses `docling` (with `pypdfium2` fallback) when source is EPUB/PDF; TXT and Markdown sources need no extra parsing.
 * Stages 5 & 6 (`chunk`): uses `chonkie`, `tiktoken`, and `rapidfuzz`.
-* Stage 3 & 6 (`dictionary`): uses `classla` (2.2.3 with PyTorch CUDA) and `stanza`.
+* Stages 4 & 6 (`dictionary`): uses `classla` (2.2.3 with PyTorch CUDA) and `stanza`.
 * Stage 12 (`epub`): uses `markdown-it-py`.
 * Native TOC extraction (PDF/EPUB): `PyMuPDF`, `ebooklib`, and `beautifulsoup4` are included.
 
@@ -2025,7 +2021,7 @@ python -m book_translator convert BOOK.epub --no-images # text only; write no im
 #    inspect and split run stage 1 automatically for a non-Markdown source.
 python -m book_translator inspect --candidates
 
-# 2. Stage 1 — split it (writes to data/output/<book>/02-chapters/)
+# 2. Stage 2 — split it (writes to data/output/<book>/02-chapters/)
 python -m book_translator split BOOK.md
 
 # Plans the chapters and validates them, but writes nothing
@@ -2037,17 +2033,17 @@ python -m book_translator split BOOK.md --map my-map.json
 # Reuse a chapters folder that is already there: no model, no key, no rewrite
 python -m book_translator split BOOK.md --skip-if-present
 
-# 3. What does stage 2 have to fix? (no LLM, no writes)
+# 3. What does stage 3 have to fix? (no LLM, no writes)
 python -m book_translator scan                  # the book-wide damage profile
 python -m book_translator scan --digest         # per chapter: headers + evidence + recommendation
 
-# 4. Stage 2 — clean every chapter, one at a time
+# 4. Stage 3 — clean every chapter, one at a time
 #    (writes to data/output/<book>/03-preprocessed/)
 python -m book_translator preprocess
 python -m book_translator preprocess --dry-run          # validate every plan, write nothing
 python -m book_translator preprocess --workers 4        # same work, thread pool
 
-# 5. Stage 3 — reduce each chapter to its entity-bearing sentences, then to
+# 5. Stage 4 (step 1) — reduce each chapter to its entity-bearing sentences, then to
 #    first mentions (writes to data/output/<book>/04-reduced/ and 04-reduced-unique/)
 python -m book_translator dictionary                    # auto-detect the language
 python -m book_translator dictionary --language sr --gpu 1
@@ -2058,7 +2054,7 @@ python -m book_translator dictionary --no-save-unique   # write 04-reduced/ only
 python -m book_translator dictionary --unique-only      # write 04-reduced-unique/ only
 python -m book_translator dictionary --out data/output/BOOK/03-preprocessed/   # reduce the cleaned text
 
-# 6. Stage 4 — build the glossary, one chapter at a time, first to last
+# 6. Stage 4 (step 2) — build the glossary, one chapter at a time, first to last
 #    (writes to data/output/<book>/04-glossary/; calls the model, so it costs tokens)
 python -m book_translator glossary                      # English -> Serbian, the default pair
 python -m book_translator glossary -s sr -t en          # a Serbian book into English
@@ -2079,7 +2075,7 @@ python -m book_translator chunk --out data/output/BOOK/03-preprocessed/   # chun
 
 # 8. Stage 6 — tag every chunk first, then attach the glossary terms it mentions
 #    (writes to data/output/<book>/06-chunk-glossary/; no LLM, no API key;
-#     the NER tagger is the same one stage 3 uses)
+#     the NER tagger is the same one stage 4 uses)
 python -m book_translator chunk-glossary                # default 95% rapidfuzz match
 python -m book_translator chunk-glossary --match-threshold 90   # more permissive
 python -m book_translator chunk-glossary --scorer token_sort_ratio
@@ -2088,7 +2084,7 @@ python -m book_translator chunk-glossary --first-chapters 3   # the first three 
 python -m book_translator chunk-glossary --resume       # reuse finished per-chunk files
 python -m book_translator chunk-glossary --dry-run      # both phases, no writes
 
-# 9. Stage 8 — localize the front/back matter before translation
+# 9. Stage 7 — localize the front/back matter before translation
 #    (writes the localized chunks to data/output/<book>/08-translations/, the plan to
 #     07-matter/ and every agent input to 07-matter-prompts/; no dictionary is used)
 python -m book_translator matter                        # web-search the published title
@@ -2124,7 +2120,7 @@ python -m book_translator postprocess --first-chapters 3
 python -m book_translator postprocess --resume          # reuse unchanged chapters
 python -m book_translator postprocess --dry-run         # validate every plan, write nothing
 
-# 12b. The chapter-opening audit on its own (the final phase of stages 2 and 9;
+# 12b. The chapter-opening audit on its own (the final phase of stages 3 and 10;
 #      no LLM, no API key; the default folder is the book's most advanced stage)
 python -m book_translator openings                      # audit and repair every opening
 python -m book_translator openings --dry-run            # report every finding, write nothing
@@ -2194,12 +2190,12 @@ Two rules apply to both the stage commands and `run_pipeline.py`:
 
 * **The text stages read the cleaned text by default.** `dictionary`, `glossary`, `chunk`,
   `chunk-glossary`, `translate`, `concatenate`, `postprocess`, `bind` and `epub` use
-  `03-preprocessed/` when stage 2 wrote a completed manifest for it, and fall back to
+  `03-preprocessed/` when stage 3 wrote a completed manifest for it, and fall back to
   `02-chapters/` otherwise. An explicit `--out` (or a book argument that is already a folder) is
   used as given, so `--out .../02-chapters` asks for the raw text on purpose. `scan` and
   `preprocess` always read `02-chapters/`, because they run before (or produce) the cleaned copy.
   `matter` also keeps `02-chapters/`, because it creates synthetic front/back-matter files in that
-  folder and appends them to stage 1's manifest; its chunk text still comes from `05-chunks/`.
+  folder and appends them to stage 2's manifest; its chunk text still comes from `05-chunks/`.
 * **`--dry-run` validates but never spends.** Deterministic stages still do their real work
   (the chunker verifies every cut, the binder assembles in memory, the EPUB packager builds and
   verifies the package) and write nothing. Model-backed stages stop at their deterministic
@@ -2237,15 +2233,15 @@ python scripts/run_pipeline.py BOOK.pdf --force-convert       # convert again de
 python scripts/run_pipeline.py BOOK.md --debug      # + the per-phase detail
 python scripts/run_pipeline.py --dry-run            # validate every plan, write no artifact
                                                     # (stage 1 converts into a temporary folder)
-python scripts/run_pipeline.py --no-preprocess      # skip stage 2 (cleaning) and read raw text
+python scripts/run_pipeline.py --no-preprocess      # skip stage 3 (cleaning) and read raw text
 python scripts/run_pipeline.py --stop-after split   # stop once the chapters exist
-python scripts/run_pipeline.py --start-at dictionary  # stage 3 only, over existing chapters
-python scripts/run_pipeline.py --text-in 02-chapters   # put stages 3-5 back on the raw text
-python scripts/run_pipeline.py --start-at matter      # stage 8 only, over existing chunks
+python scripts/run_pipeline.py --start-at dictionary  # stage 4 (dictionary + glossary) only, over existing chapters
+python scripts/run_pipeline.py --text-in 02-chapters   # put stages 4-5 back on the raw text
+python scripts/run_pipeline.py --start-at matter      # stage 7 only, over existing chunks
 python scripts/run_pipeline.py --with-matter          # localize matter without translating the body
 python scripts/run_pipeline.py --skip-if-present    # reuse chapters, reduced chapters, glossary
 python scripts/run_pipeline.py --no-dictionary      # split + scan + chunk only
-python scripts/run_pipeline.py --unique-only        # stage 3 first mentions only
+python scripts/run_pipeline.py --unique-only        # stage 4 first mentions only
 python scripts/run_pipeline.py --start-at chunk     # stage 5 only, over existing chapters
 python scripts/run_pipeline.py --start-at chunk_glossary   # stage 6 only, over existing chunks
 python scripts/run_pipeline.py --chunk-size 700     # smaller translation chunks
@@ -2274,11 +2270,11 @@ python scripts/run_pipeline.py --no-glossary                             # reduc
 python scripts/run_pipeline.py --limit 2 --dry-run                      # validate, write nothing
 ```
 
-Stage 3 stays selected but **reports itself as skipped** when its optional tagger is not
+Stage 4 (dictionary) stays selected but **reports itself as skipped** when its optional tagger is not
 installed, so a split-only workflow still finishes; `--with-dictionary` / `--no-dictionary`
 override that for one run. Stage 5 does the same for a missing `chonkie`, and `--no-chunk`
-drops it from the run. Stages 3 and 5 read the **cleaned** `03-preprocessed/` folder by
-default, so the page numbers and split headings stage 2 repaired never reach the dictionary,
+drops it from the run. Stages 4 and 5 read the **cleaned** `03-preprocessed/` folder by
+default, so the page numbers and split headings stage 3 repaired never reach the dictionary,
 the glossary or the chunks; `--text-in 02-chapters/` forces the raw text for every stage, and
 `--chunk-in` overrides the folder for the chunker alone. Resume flags do not cross that
 source change: a reduction or glossary built from `02-chapters/` is rebuilt when the run
@@ -2292,7 +2288,7 @@ drops it, `--start-at chunk_glossary` runs only it, `--match-threshold` and `--m
 retrieval, and `--no-manifest` keeps only the per-chunk files. The closing report lists the stage-6
 manifest and the `06-chunk-glossary/` folder.
 
-Stage 8 (`matter`) runs automatically with stage 8, and can be run on its own with
+Stage 7 (`matter`) runs automatically with stage 8, and can be run on its own with
 `--with-matter` or `--start-at matter`. It localizes the front/back matter chunks with its own
 book-level plan and chunk graphs, **without** the dictionary, and writes them to the same
 `08-translations/` folder so stage 9 needs no special case. The plan searches the web for a published
@@ -2320,14 +2316,14 @@ key; front/back matter and every other stage keep their own `[llm.<stage>]`
 section from [book_translator.toml](book_translator.toml). A `--dry-run` reports
 stage 8 as skipped instead of spending, exactly
 like the glossary half of `dictionary`. The closing report lists
-`08-translations/`, `08-translation-prompts/` and the stage-7 manifest and trace.
+`08-translations/`, `08-translation-prompts/` and the stage-8 manifest and trace.
 
 Stage 9 (`concatenate`) runs automatically with stage 8 and can be run on its own with
 `--start-at concatenate`. It groups the translated chunks by stage 5's recorded chapter, joins each
 group in chunk order, and writes `09-translated-chapters/` without touching the source `02-chapters/`. A
 chapter with an untranslated chunk is reported as incomplete and skipped, never written truncated.
 `--no-concat` drops it from a run, and `--translated-chapters-out` moves the folder. The closing
-report lists `09-translated-chapters/` and the stage-8 manifest and trace.
+report lists `09-translated-chapters/` and the stage-9 manifest and trace.
 
 `--first-chapters N` is the whole-pipeline window: splitting still runs over the **whole** book (its
 boundaries are the coordinate system every later stage reads), while dictionary, the glossary,
@@ -2365,10 +2361,11 @@ a model:
 
 | table | stage |
 |---|---|
-| `[llm.split]` | stage 1 — the routing agent |
-| `[llm.preprocess]` | stage 2 — the per-chapter cleaning agent |
-| `[llm.dictionary]` | stages 3–4 — the glossary extractor |
-| `[llm.matter]` | stage 8 — the front/back matter localizer |
+| `[llm.split]` | stage 2 — the routing agent |
+| `[llm.preprocess]` | stage 3 — the per-chapter cleaning agent |
+| `[llm.dictionary]` | stage 4 — the glossary extractor |
+| `[llm.matter]` | stage 7 — the front/back matter localizer |
+| `[llm.matter_image]` | stage 7 — multimodal matter image recreation |
 | `[llm.translate]` | stage 8 — the chunk translator |
 | `[llm.postprocess]` | stage 10 — the headings/TOC agent |
 
@@ -2438,7 +2435,7 @@ the explicit `--api-key` → `--llm <stage>.api_key` / `api_key_env` → the sha
 `SPLITTER_API_KEY` → `refs:` in `~/.dsh/.credentials.yaml`. Local endpoints
 (`localhost`, `127.0.0.1`) may run keyless.
 
-Stages 3, 5 and 6 (reduction, chunking, NER matching) call no model at all. Stage 4
+Stage 4's dictionary funnel and stages 5 and 6 (reduction, chunking, NER matching) call no model at all. Stage 4's glossary pass
 needs a key only when there is a chapter left to mine, and stage 8 only when there
 is a chunk left to translate: a `--resume` run over a finished book exits without
 resolving a model (and without a key).
@@ -2447,7 +2444,7 @@ resolving a model (and without a key).
 
 ```
 data/output/<book-stem>/01-markdown/         # stage 1 — only for a non-Markdown source
-├── <book>.md                             # the converted source stage 1 reads
+├── <book>.md                             # the converted source stage 2 reads
 └── _convert_manifest.json                # source hash, method, PDF text-layer evidence
 
 data/output/<book-stem>/02-chapters/          # stage 2
@@ -2455,7 +2452,7 @@ data/output/<book-stem>/02-chapters/          # stage 2
 ├── 01-introduction.md
 ├── 02-a-note-on-the-text.md
 ├── …
-├── 04-chapter-i-down-the-rabbit-hole.md
+├── 04-chapter-1.md
 ├── …
 ├── 99-back-matter.md
 ├── _manifest.json                         # filenames, line ranges, byte counts, SHA-256
@@ -2485,14 +2482,14 @@ data/output/<book-stem>/05-chunks/            # stage 5 — flat, globally order
 ├── 00000-00-front-matter-0000.md          # <global>-<chapter>-<index>.md, an exact slice
 ├── 00003-01-introduction-0000.md
 ├── …
-├── 00011-04-chapter-i-down-the-rabbit-hole-0000.md
+├── 00011-04-chapter-1-0000.md
 ├── …
 ├── _chunk_manifest.json                   # per chunk: chapter, order, char/line spans,
 │                                          #   tokens, boundary kind, hashes + the proof
 └── _chunk_trace.json                      # the same run, with each chapter's own log
 
 data/output/<book-stem>/06-chunk-glossary/   # stage 6 — one file per chunk
-├── 00011-04-chapter-i-down-the-rabbit-hole-0000.md.json  # named after the chunk it describes
+├── 00011-04-chapter-1-0000.md.json        # named after the chunk it describes
 ├── …
 ├── _chunk_glossary_manifest.json          # per chunk: NER counts + matched terms,
 │                                          #   the two phases and their timings
@@ -2510,22 +2507,22 @@ data/output/<book-stem>/07-matter-prompts/   # stage 7 — the whole agent input
 
 data/output/<book-stem>/08-translations/     # stage 8 — the translated chunks
 ├── 00000-00-front-matter-0000.md         # same names as 05-chunks/; concatenate to rebuild
-├── 00011-04-chapter-i-down-the-rabbit-hole-0000.md
+├── 00011-04-chapter-1-0000.md
 ├── …
 ├── images/                               # recreated matter images (multimodal localized art)
 ├── _translation_manifest.json             # per chunk: chars, sha, tokens, attempts, paths
 └── _translation_trace.json                # + terms, logs, raw answers and the run's totals
 
 data/output/<book-stem>/08-translation-prompts/   # stage 8 — the whole input of every call
-├── 00011-04-chapter-i-down-the-rabbit-hole-0000.md.json     # system+user prompt, messages, glossary,
-│                                                            #   source chunk text, answer (or error)
-└── 00011-04-chapter-i-down-the-rabbit-hole-0000.md.prompt.md   # the same prompt, readable
+├── 00011-04-chapter-1-0000.md.json       # system+user prompt, messages, glossary,
+│                                         #   source chunk text, answer (or error)
+└── 00011-04-chapter-1-0000.md.prompt.md  # the same prompt, readable
 
 data/output/<book-stem>/09-translated-chapters/   # stage 9 — one file per translated chapter
 ├── 00-front-matter.md                    # same names as 02-chapters/, never over them
 ├── 01-introduction.md
 ├── …
-├── 04-chapter-i-down-the-rabbit-hole.md
+├── 04-chapter-1.md
 ├── …
 ├── 99-back-matter.md
 ├── _translated_chapters_manifest.json    # per chapter: chunks, chars, sha, written/reused
@@ -2536,7 +2533,7 @@ data/output/<book-stem>/10-postprocessed-chapters/  # stage 10 — headings/TOC 
 ├── 00-table-of-contents.md               # created only when the book had no TOC
 ├── 01-introduction.md
 ├── …
-├── 04-chapter-i-down-the-rabbit-hole.md
+├── 04-chapter-1.md
 ├── …
 ├── 99-back-matter.md
 ├── _postprocess_manifest.json            # book plan, per-chapter decisions, TOC state
@@ -2555,7 +2552,7 @@ data/output/<book-stem>/12-translated-book.epub   # stage 12 — the same chapte
   plus _epub_trace.json                   # the whole result, for replay and debugging
 ```
 
-The two stage-3 folders are two views of one pass: `04-reduced/` holds every sentence the NER gate
+The two stage-4 reduction folders are two views of one pass: `04-reduced/` holds every sentence the NER gate
 kept, `04-reduced-unique/` holds the subset that introduces at least one noun no earlier sentence
 used, decided book-wide in chapter order. `04-reduced/_reduced_manifest.json` describes both
 (`unique_dir`, `unique_totals`, and per file `unique_lines`, `unique_kept`,
@@ -2569,14 +2566,14 @@ insertion order — reading order of the book. `glossary.md` is the same diction
 table, and the token total — the number the run prints last — is stored under `tokens` alongside
 the input/output split and the number of model calls.
 
-`_agent_trace.json` is stage 1's audit trail: which strategy won, what the agent proposed, and
-what the validators said about it. `_preprocess_trace.json` is stage 2's: for every chapter, the
+`_agent_trace.json` is stage 2's audit trail: which strategy won, what the agent proposed, and
+what the validators said about it. `_preprocess_trace.json` is stage 3's: for every chapter, the
 operations the agent chose, the fixes it requested, the validator's verdict, and the provenance
-map of the file that was written. `_reduced_trace.json` is stage 3's: the detected language, its
+map of the file that was written. `_reduced_trace.json` is stage 4's (step 1): the detected language, its
 samples and any reflex overrule, which backend ran and on which device, the timings, and per
 chapter how many sentences each filter removed with clipped examples of the casualties — the two
 cheap filters, the NER gate, and the first-mention pass (`detail[].unique`, which also lists the
-nouns each kept sentence introduced). `_glossary_trace.json` is stage 4's: for every chapter, the
+nouns each kept sentence introduced). `_glossary_trace.json` is stage 4's (step 2): for every chapter, the
 entries it added, the terms it returned again, the conflicts it tried to introduce, the raw answers
 it gave, and the tokens each of them cost. `_chunk_manifest.json` is stage 5's index — the chunk
 files are text, so the manifest is what makes them a *book* again: it records every chunk's chapter,
@@ -2629,14 +2626,14 @@ the graph blocks premature writes, a rejected plan loops back with corrections, 
 writes nothing, and — asserted directly — **no chapter prose ever appears in the messages sent
 to the model**.
 
-Stage 2's tests use the exact damaged strings the sample book contains
+Stage 3's tests use the exact damaged strings the sample book contains
 (`… psi182 ljutnje`, `1otkucaja`, `disfunkcional38 nost`, `75 lič nosti`), and assert the two
 halves of the safety story: a repair rule may only remove the page number it was written for
 (`brzinu od 130 otkucaja`, `Tiraž 1000`, `(TxA2)`/`(PG12)` survive), and a plan that
 demotes body text, removes a real heading, merges into a page number, or claims damage that is
 not there is rejected before anything is written.
 
-Stage 3's tests inject a fake tagger, so they pin the funnel without a model, a weight download or
+Stage 4's dictionary tests inject a fake tagger, so they pin the funnel without a model, a weight download or
 a GPU: the sentence splitter on abbreviations, initials, ellipses, `5. maja 1990.` and dialogue
 attributions; the uppercase and four-word filters and which reason each drop is reported under;
 one reduced file per chapter with one raw sentence per line; the manifest shape the later stages
@@ -2647,7 +2644,7 @@ noun" rule, the book-wide `seen` set) and through the runner: both folders writt
 a strict subset, a chapter re-run picking up the nouns of the chapters it did not re-tag, and the
 CLI switches that add, move or drop the second folder.
 
-Stage 4's tests inject a scripted extractor and a scripted chat model, so the whole stage runs
+Stage 4's glossary tests inject a scripted extractor and a scripted chat model, so the whole stage runs
 offline: the Pydantic contract (the five categories, a normalised label the model invented, an
 empty field rejected, a bare array and an invented wrapper unwrapped); the retry loop (a rejected
 answer is retried with the failure named in the prompt, the last `auto` attempt falls back to JSON
@@ -2707,12 +2704,12 @@ forwards the resume flags to every stage.
 
 The opening audit (`tests/test_openings.py`) is pinned end to end, with no model: the exact
 failure that motivated it — `# Poglavlje 2` followed by a stray `2` — is found and removed, with the
-blank collapsed for stage 10 and kept as a slot for stage 2; a duplicated title, a leftover page
+blank collapsed for stage 10 and kept as a slot for stage 3; a duplicated title, a leftover page
 number and a heading that repeats the chapter number are removed; a numbered section heading
 (`## 1`), a title that is only a number, a label-only title and a front matter page that opens on
 prose are not; a first-line `## 2` is the *title* for stage 10 (so the plan sets it instead of
 inserting a second heading), while a `## 18` page number above a real `## Poglavlje 1` is still
-skipped; both stage runners apply the pass as their final phase (stage 2 keeping the line count,
+skipped; both stage runners apply the pass as their final phase (stage 3 keeping the line count,
 its manifest/trace recording the counts); a dry run writes nothing; `--resume` reprocesses a
 chapter whose detected title no longer matches the canonical title; and the tools return bounded
 openings, never a paragraph.
@@ -2745,10 +2742,8 @@ The format is documented in [book_translator/stages/slicing/mapfile.py](book_tra
 a list of `{"line_number", "filename", "title"?, "role"?, "evidence"?}` entries, or an object
 with that list under `splits` / `split_mapping` / `map` / `chapters` / `entries`. Aliases are
 accepted (`line`/`start_line`, `file`/`name`, `kind` for `role`, `provenance` for `evidence`), so
-a hand-recovered, richly documented map can be replayed unchanged — for example the one written
-for *Zima u hotelu smrti* at
-[data/output/Kenneth_M._Cameron_-_Zima_u_hotelu_smrti/02-chapters/_recovered_map.json](data/output/Kenneth_M._Cameron_-_Zima_u_hotelu_smrti/02-chapters/_recovered_map.json),
-which states its evidence and confidence per chapter. A map that fails validation writes nothing
+a hand-recovered, richly documented map (`data/output/<book>/02-chapters/_recovered_map.json`)
+that states its evidence and confidence per chapter can be replayed unchanged. A map that fails validation writes nothing
 but its trace, and the trace says which entry was refused and why.
 
 This is the escape hatch for the one thing no deterministic check can supply: *which paragraph*
@@ -2771,7 +2766,7 @@ transformation changed, and all 16 chapters verified again for the price of a fe
 
 ### Auditing a real run
 
-Stage 2 is the only place in the pipeline that may change a character, so a real run is followed
+Stage 3 is the only place in the pipeline that may change a character, so a real run is followed
 by a character-level audit:
 
 ```bash
@@ -2798,7 +2793,7 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_translator/core/constants.py](book_translator/core/constants.py) | every guardrail and default in one place |
 | [book_translator/core/settings.py](book_translator/core/settings.py) | provider and credential resolution |
 | [book_translator/core/errors.py](book_translator/core/errors.py) | `ToolError`, `ConfigError` |
-| [book_translator/core/llm.py](book_translator/core/llm.py) | the one structured-call loop shared by stages 4 and 7: `build_chat_model`, `StructuredCaller`, `TokenUsage`, answer parsing and the provider-refusal latch |
+| [book_translator/core/llm.py](book_translator/core/llm.py) | the one structured-call loop shared by stages 4 and 8: `build_chat_model`, `StructuredCaller`, `TokenUsage`, answer parsing and the provider-refusal latch |
 | [book_translator/core/artifacts.py](book_translator/core/artifacts.py) | atomic `write_json`/`write_text`, manifest/trace readers and writers, the UTC timestamp convention and the one SHA-256 family |
 | [book_translator/core/run.py](book_translator/core/run.py) | `RunContext` (clock, dry-run, limit, progress) and `run_items` with per-item error isolation |
 | [book_translator/documents/io.py](book_translator/documents/io.py) | cached source reading |
@@ -2826,20 +2821,20 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_translator/stages/preprocess/plan.py](book_translator/stages/preprocess/plan.py) | the legal-edit vocabulary, its predicates and the two validators (no writes) |
 | [book_translator/stages/preprocess/apply.py](book_translator/stages/preprocess/apply.py) | pure line rewriting, the provenance map and the `LineProvenance` index |
 | [book_translator/stages/preprocess/verify.py](book_translator/stages/preprocess/verify.py) | the content proof that only declared lines changed |
-| [book_translator/stages/openings/inspect.py](book_translator/stages/openings/inspect.py) | the final phase of stages 2/9: one chapter's opening — title candidate, ≤12 clipped lines and the provable issue vocabulary |
-| [book_translator/stages/openings/repair.py](book_translator/stages/openings/repair.py) | the final phase: pure removal of the audited junk lines (blank slot for stage 2, collapsed blank for stage 10) |
+| [book_translator/stages/openings/inspect.py](book_translator/stages/openings/inspect.py) | the final phase of stages 3/10: one chapter's opening — title candidate, ≤12 clipped lines and the provable issue vocabulary |
+| [book_translator/stages/openings/repair.py](book_translator/stages/openings/repair.py) | the final phase: pure removal of the audited junk lines (blank slot for stage 3, collapsed blank for stage 10) |
 | [book_translator/stages/openings/phase.py](book_translator/stages/openings/phase.py) | the final phase: the book-wide pass, counts/findings and the per-chapter report both stage runners store |
-| [book_translator/stages/dictionary/sentences.py](book_translator/stages/dictionary/sentences.py) | stage 3: sentence splitting and the two dependency-free filters |
-| [book_translator/stages/dictionary/language.py](book_translator/stages/dictionary/language.py) | stage 3: sampled language detection (`lingua-py`), the ekavian/ijekavian tie-breaker, backend routing |
-| [book_translator/stages/dictionary/ner.py](book_translator/stages/dictionary/ner.py) | stage 3: the CLASSLA/stanza gate, entity rules, GPU selection and the device actually used |
-| [book_translator/stages/dictionary/unique.py](book_translator/stages/dictionary/unique.py) | stage 3: the noun key and the first-mention filter (book-wide, in chapter order) |
-| [book_translator/stages/dictionary/runner.py](book_translator/stages/dictionary/runner.py) | stage 3: `run_dictionary`, the chapter loop, timings, `04-reduced/` + `04-reduced-unique/` and their manifest |
-| [book_translator/stages/glossary/models.py](book_translator/stages/glossary/models.py) | stage 4: the Pydantic answer (`term` / `category` / `translation`) and category normalisation |
-| [book_translator/stages/glossary/prompts.py](book_translator/stages/glossary/prompts.py) | stage 4: the book-translation system prompt, the incremental chapter prompt, the dictionary renderer |
-| [book_translator/stages/glossary/extract.py](book_translator/stages/glossary/extract.py) | stage 4: the chapter schema and outcome over `core.llm.StructuredCaller` |
-| [book_translator/stages/glossary/book.py](book_translator/stages/glossary/book.py) | stage 4: the live dictionary — first rendering wins, repeats deduplicated, drift recorded as a conflict |
-| [book_translator/stages/glossary/records.py](book_translator/stages/glossary/records.py) | stage 4: the four records (`GlossaryTerm`, `ChapterPlan`, `ChapterGlossary`, `GlossaryResult`) and the chapter selection |
-| [book_translator/stages/glossary/runner.py](book_translator/stages/glossary/runner.py) | stage 4: `run_glossary`, the ordered chapter walk, the front/back-matter skip and the four artifacts |
+| [book_translator/stages/dictionary/sentences.py](book_translator/stages/dictionary/sentences.py) | stage 4 (step 1): sentence splitting and the two dependency-free filters |
+| [book_translator/stages/dictionary/language.py](book_translator/stages/dictionary/language.py) | stage 4 (step 1): sampled language detection (`lingua-py`), the ekavian/ijekavian tie-breaker, backend routing |
+| [book_translator/stages/dictionary/ner.py](book_translator/stages/dictionary/ner.py) | stage 4 (step 1): the CLASSLA/stanza gate, entity rules, GPU selection and the device actually used |
+| [book_translator/stages/dictionary/unique.py](book_translator/stages/dictionary/unique.py) | stage 4 (step 1): the noun key and the first-mention filter (book-wide, in chapter order) |
+| [book_translator/stages/dictionary/runner.py](book_translator/stages/dictionary/runner.py) | stage 4 (step 1): `run_dictionary`, the chapter loop, timings, `04-reduced/` + `04-reduced-unique/` and their manifest |
+| [book_translator/stages/glossary/models.py](book_translator/stages/glossary/models.py) | stage 4 (step 2): the Pydantic answer (`term` / `category` / `translation`) and category normalisation |
+| [book_translator/stages/glossary/prompts.py](book_translator/stages/glossary/prompts.py) | stage 4 (step 2): the book-translation system prompt, the incremental chapter prompt, the dictionary renderer |
+| [book_translator/stages/glossary/extract.py](book_translator/stages/glossary/extract.py) | stage 4 (step 2): the chapter schema and outcome over `core.llm.StructuredCaller` |
+| [book_translator/stages/glossary/book.py](book_translator/stages/glossary/book.py) | stage 4 (step 2): the live dictionary — first rendering wins, repeats deduplicated, drift recorded as a conflict |
+| [book_translator/stages/glossary/records.py](book_translator/stages/glossary/records.py) | stage 4 (step 2): the four records (`GlossaryTerm`, `ChapterPlan`, `ChapterGlossary`, `GlossaryResult`) and the chapter selection |
+| [book_translator/stages/glossary/runner.py](book_translator/stages/glossary/runner.py) | stage 4 (step 2): `run_glossary`, the ordered chapter walk, the front/back-matter skip and the four artifacts |
 | [book_translator/stages/chunking/boundaries.py](book_translator/stages/chunking/boundaries.py) | stage 5: names the boundary kind of a cut (paragraph / sentence / line / word / hard) |
 | [book_translator/stages/chunking/tokenizer.py](book_translator/stages/chunking/tokenizer.py) | stage 5: resolves the tokenizer and the offline approximation, with the reason recorded |
 | [book_translator/stages/chunking/runner.py](book_translator/stages/chunking/runner.py) | stage 5: `run_chunking`, the reversible cut, the manifest, the skip/reuse rules and the reconstruction helpers |
@@ -2847,10 +2842,10 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_translator/stages/chunk_glossary/matching.py](book_translator/stages/chunk_glossary/matching.py) | stage 6: glossary loading, term normalisation and the rapidfuzz matcher (threshold and scorer are options) |
 | [book_translator/stages/chunk_glossary/runner.py](book_translator/stages/chunk_glossary/runner.py) | stage 6: `run_chunk_glossary`, the two phases (NER over every chunk, then retrieval), the per-chunk files and the manifest/trace |
 | [book_translator/stages/chunk_glossary/__init__.py](book_translator/stages/chunk_glossary/__init__.py) | stage 6: public surface (`run_chunk_glossary`, the matcher and the per-chunk records) |
-| [book_translator/stages/matter/metadata.py](book_translator/stages/matter/metadata.py) | stage 8: `Title - Author` parsing from the input filename (re-exports the shared `BookMetadata`) |
-| [book_translator/stages/matter/generate.py](book_translator/stages/matter/generate.py) | stage 8: the English text of a synthetic front/back matter section |
-| [book_translator/stages/matter/records.py](book_translator/stages/matter/records.py) | stage 8: split/chunk manifest records, totals and the two manifest updates |
-| [book_translator/stages/matter/synthesize.py](book_translator/stages/matter/synthesize.py) | stage 8: `ensure_matter_sections` — decide what is missing and write it |
+| [book_translator/stages/matter/metadata.py](book_translator/stages/matter/metadata.py) | stage 7: `Title - Author` parsing from the input filename (re-exports the shared `BookMetadata`) |
+| [book_translator/stages/matter/generate.py](book_translator/stages/matter/generate.py) | stage 7: the English text of a synthetic front/back matter section |
+| [book_translator/stages/matter/records.py](book_translator/stages/matter/records.py) | stage 7: split/chunk manifest records, totals and the two manifest updates |
+| [book_translator/stages/matter/synthesize.py](book_translator/stages/matter/synthesize.py) | stage 7: `ensure_matter_sections` — decide what is missing and write it |
 | [book_translator/stages/translation/models.py](book_translator/stages/translation/models.py) | stage 8: the Pydantic answer — one `translation` field, non-blank |
 | [book_translator/stages/translation/prompts.py](book_translator/stages/translation/prompts.py) | stage 8: the constant translator system prompt and the per-chunk prompt (glossary, optional context, source, task) |
 | [book_translator/stages/translation/translator.py](book_translator/stages/translation/translator.py) | stage 8: the translation schema, quality validation and JSON recovery over `core.llm.StructuredCaller` |
@@ -2870,31 +2865,31 @@ The package is split by responsibility; each folder can be read on its own.
 | [book_translator/stages/epub/verify.py](book_translator/stages/epub/verify.py) | stage 12: post-write verification, split by rule (mimetype, container, package document, navigation, documents, cover) |
 | [book_translator/stages/epub/render.py](book_translator/stages/epub/render.py) | stage 12: Markdown → XHTML (`markdown_it`, imported lazily), heading anchors, picture figures |
 | [book_translator/stages/epub/package.py](book_translator/stages/epub/package.py) | stage 12: the EPUB 3 container — zip layout, package document, navigation document, cover page |
-| [book_translator/stages/epub/metadata.py](book_translator/stages/epub/metadata.py) | stage 12: `dc:` metadata from stage 8's records, the stable UUID, the package timestamp and the ZIP date encoding |
+| [book_translator/stages/epub/metadata.py](book_translator/stages/epub/metadata.py) | stage 12: `dc:` metadata from stage 7's records, the stable UUID, the package timestamp and the ZIP date encoding |
 | [book_translator/stages/epub/assets/style.css](book_translator/stages/epub/assets/style.css) | stage 12: the stylesheet every package ships |
-| [book_translator/stages/agent/prompts.py](book_translator/stages/agent/prompts.py) | stage 1 system prompt and the fallback protocol |
+| [book_translator/stages/agent/prompts.py](book_translator/stages/agent/prompts.py) | stage 2 system prompt and the fallback protocol |
 | [book_translator/stages/agent/llm.py](book_translator/stages/agent/llm.py) | the chat model with the toolset bound |
-| [book_translator/stages/agent/tools/registry.py](book_translator/stages/agent/tools/registry.py) | tool registry with the `shared` / `split` / `preprocess` stage tags |
+| [book_translator/toolkit/registry.py](book_translator/toolkit/registry.py), [book_translator/stages/agent/tools/registry.py](book_translator/stages/agent/tools/registry.py) | tool registry with the `shared` / `split` / `preprocess` / `matter` / `postprocess` stage tags |
 | [book_translator/stages/agent/tools/shared.py](book_translator/stages/agent/tools/shared.py) | the generic tools both stages bind |
-| [book_translator/stages/agent/tools/](book_translator/stages/agent/tools/__init__.py) | stage 1 tools: `extract` / `toc` / `proposal` / `execution` |
-| [book_translator/toolkit/preprocess/tools.py](book_translator/toolkit/preprocess/tools.py) | stage 2 tools: header collection, damage, plan submission, apply |
+| [book_translator/stages/agent/tools/](book_translator/stages/agent/tools/__init__.py) | stage 2 tools: `extract` / `toc` / `proposal` / `execution` |
+| [book_translator/toolkit/preprocess/tools.py](book_translator/toolkit/preprocess/tools.py) | stage 3 tools: header collection, damage, plan submission, apply |
 | [book_translator/toolkit/postprocess/tools.py](book_translator/toolkit/postprocess/tools.py) | stage 10 tools: title inventory, heading records, plan submission, apply/verify |
-| [book_translator/toolkit/matter/tools.py](book_translator/toolkit/matter/tools.py) | the front/back matter readers and localization tools |
+| [book_translator/toolkit/matter/tools.py](book_translator/toolkit/matter/tools.py) | stage 7 tools: the front/back matter readers and localization tools |
 | [book_translator/toolkit/context.py](book_translator/toolkit/context.py) | `ToolContext`: the run's folder/book/section/chunk, passed to tools explicitly instead of through a `ContextVar` |
-| [book_translator/stages/agent/tools/openings.py](book_translator/stages/agent/tools/openings.py) | the chapter-opening audit tools shared by stages 2 and 9 (`audit_chapter_opening`, `audit_book_openings`) |
+| [book_translator/stages/agent/tools/openings.py](book_translator/stages/agent/tools/openings.py) | the chapter-opening audit tools shared by stages 3 and 10 (`audit_chapter_opening`, `audit_book_openings`) |
 | [book_translator/stages/agent/nodes/](book_translator/stages/agent/nodes/__init__.py) | `scout` / `validate` / `slice` / `verify`, plus the splitter's `give_up` override |
 | [book_translator/stage_graph/](book_translator/stage_graph/__init__.py) | the shared scaffold every stage is compiled from: `AgentStateBase`, `StageSpec`, `build_stage_graph` and the three routers |
 | [book_translator/stage_graph/nodes.py](book_translator/stage_graph/nodes.py) | the shared `agent` / `tools` / `give_up` node bodies, `absorb_plan` and `usage` |
-| [book_translator/stages/agent/graph.py](book_translator/stages/agent/graph.py) | stage 1 `StageSpec` (`scout` → `agent` ↔ `tools` → `validate` → `slice` → `verify`) and the dry-run router, compiled by the scaffold |
+| [book_translator/stages/agent/graph.py](book_translator/stages/agent/graph.py) | stage 2 `StageSpec` (`scout` → `agent` ↔ `tools` → `validate` → `slice` → `verify`) and the dry-run router, compiled by the scaffold |
 | [book_translator/stages/agent/runner.py](book_translator/stages/agent/runner.py) | `run_split` and the trace writer |
-| [book_translator/stages/agent/state.py](book_translator/stages/agent/state.py) | stage 1 graph state (metadata only, never prose); the shared keys come from `AgentStateBase` |
+| [book_translator/stages/agent/state.py](book_translator/stages/agent/state.py) | stage 2 graph state (metadata only, never prose); the shared keys come from `AgentStateBase` |
 | [book_translator/stages/agent/result.py](book_translator/stages/agent/result.py) | the `SplitterResult` dataclass |
-| [book_translator/stages/preprocess_agent/prompts.py](book_translator/stages/preprocess_agent/prompts.py) | stage 2 system prompt and the decision vocabulary |
+| [book_translator/stages/preprocess_agent/prompts.py](book_translator/stages/preprocess_agent/prompts.py) | stage 3 system prompt and the decision vocabulary |
 | [book_translator/stages/preprocess_agent/llm.py](book_translator/stages/preprocess_agent/llm.py) | the model with *only* the preprocessing tools bound |
 | [book_translator/stages/preprocess_agent/nodes.py](book_translator/stages/preprocess_agent/nodes.py) | `collect` / `validate` / `apply` / `verify` |
-| [book_translator/stages/preprocess_agent/graph.py](book_translator/stages/preprocess_agent/graph.py) | stage 2 `StageSpec` for **one chapter**, compiled by the scaffold |
+| [book_translator/stages/preprocess_agent/graph.py](book_translator/stages/preprocess_agent/graph.py) | stage 3 `StageSpec` for **one chapter**, compiled by the scaffold |
 | [book_translator/stages/preprocess_agent/runner.py](book_translator/stages/preprocess_agent/runner.py) | `run_preprocess`: the sequential (or pooled) chapter loop |
-| [book_translator/stages/preprocess_agent/state.py](book_translator/stages/preprocess_agent/state.py) | stage 2 graph state (metadata only, never prose); the shared keys come from `AgentStateBase` |
+| [book_translator/stages/preprocess_agent/state.py](book_translator/stages/preprocess_agent/state.py) | stage 3 graph state (metadata only, never prose); the shared keys come from `AgentStateBase` |
 | [tests/](tests/conftest.py) | the test suite, split the same way as the code |
 
 ## Related but external
@@ -2910,7 +2905,7 @@ side-by-side use. The whole folder is gitignored (only its README is tracked), a
   sampled pages carried text; run OCR outside the pipeline (or supply the EPUB/TXT edition) and
   re-run. A scanned PDF that *does* carry an invisible OCR layer is accepted, because that layer is
   text the source already contains. EPUB/PDF conversion is docling's layout interpretation: it may
-  produce different heading levels than the printed book, which is exactly the damage stages 1-2
+  produce different heading levels than the printed book, which is exactly the damage stages 2-3
   are designed to repair. A TXT is copied verbatim, so it must already use Markdown headings (or be
   split by the heuristic/prose-chapter strategies).
 - Splitting is **line-based**: a chapter must start at the beginning of a line. Two-column PDF
@@ -2925,7 +2920,7 @@ side-by-side use. The whole folder is gitignored (only its README is tracked), a
 - The printed-TOC route needs the TOC to be in the front matter and its titles to resemble the
   body headings; titles that are entirely absent from the body fall back to heuristics.
 - Front matter is kept in `00-front-matter.md` rather than discarded.
-- Stage 2 repairs **shapes**, not meanings. It cannot fix a mis-OCR'd word (`ielja` for `želja`),
+- Stage 3 repairs **shapes**, not meanings. It cannot fix a mis-OCR'd word (`ielja` for `želja`),
   a paragraph whose sentences were reordered by a two-column page break, or a page number that is
   indistinguishable from a real inline number — those stay as they are, and `inspect_chapter_damage`
   reports the shapes it found so a human can decide. The tool is designed to be extended: adding a
@@ -2940,26 +2935,26 @@ side-by-side use. The whole folder is gitignored (only its README is tracked), a
   prose together.
 - **A caption now stays with its picture.** Before stage 1 extracted images, a
   figure caption was a label for something the Markdown did not contain, so
-  stage 2 deleted it. Since images are preserved, captions are kept: a body
+  stage 3 deleted it. Since images are preserved, captions are kept: a body
   caption is left alone (`keep`) and a caption that the converter marked up as a
   heading is `demote`d to a paragraph. The old `remove_caption` decision remains
   accepted for compatibility, but the prompt no longer recommends it.
-- Stage 2's `merge_with_next` joins two source lines into one, `remove` (and the
+- Stage 3's `merge_with_next` joins two source lines into one, `remove` (and the
   legacy `remove_caption`) leave a **blank slot** where the artefact was, and
   `promote` adds `##` to a plain ALL-CAPS heading. Those output lines are not
   byte-equal to their source by design, which is why the provenance map records
   the source lines and the verifier re-derives the transformation instead of
   comparing bytes.
-- Stage 2 reads only the *headers* of a chapter, plus the page numbers and captions it recognises in
+- Stage 3 reads only the *headers* of a chapter, plus the page numbers and captions it recognises in
   the body, unless the agent explicitly asks for a window or a damage scan — so a defect that has no
   header and no recognised shape is invisible to it. A blank slot also means the cleaned chapter has
   the same line numbering as `02-chapters/`, at the cost of a few consecutive blank lines.
-- Stage 3's no-uppercase filter is deliberately aggressive: on the sample book it removes 3 619 of
+- Stage 4 (dictionary)'s no-uppercase filter is deliberately aggressive: on the sample book it removes 3 619 of
   4 271 sentences on its own (85 %), including any sentence whose only capital is a name the author
   left uncapitalised or that opens with a proper noun in the first position (`Beograd je veliki
   grad.` goes; `U Beogradu je veliki grad.` stays). That is the price of not running the tagger on
   everything; `--no-uppercase-filter` turns it off when a book needs it.
-- Stage 3 has no NER model for Macedonian and none at all for a language outside CLASSLA's four plus
+- Stage 4 (dictionary) has no NER model for Macedonian and none at all for a language outside CLASSLA's four plus
   stanza's `en`. Adding one means adding the ISO code to `STANZA_LANGUAGES` and installing stanza's
   models for it — the routing is one line, the tagger does the rest.
 - **Automatic language detection is only trustworthy for the sr/en decision**, which is why the
@@ -2973,19 +2968,19 @@ side-by-side use. The whole folder is gitignored (only its README is tracked), a
   of the output (the sample book's own run: 16 heading lines, plus `A`×29 among the `MISC`
   mentions) and they are visible in the reduced files rather than hidden, which is deliberate while
   the filter chain is still being tuned.
-- Stage 3's temporal-only filter (`--drop-temporal-only`) is a surface-form heuristic, because
+- Stage 4 (dictionary)'s temporal-only filter (`--drop-temporal-only`) is a surface-form heuristic, because
   neither CLASSLA nor stanza has a TIME/DATE entity type: it recognises years, clock times,
   `d.m.yyyy`, month and weekday names, and a short list of temporal nouns. A date written in a shape
   outside that list survives. Note that CLASSLA rarely tags a bare year at all (`Sreli smo se 1996.
   godine.` yields no entity), so this flag matters less than it looks.
-- Stage 3 timings measure wall clock on the machine that ran them: the sample book's 3.3 s of NER
+- Stage 4 (dictionary) timings measure wall clock on the machine that ran them: the sample book's 3.3 s of NER
   is **CPU** time, because no GPU was reachable from the shell that produced the run. The summary
   reports the device actually used, so a silent CPU fallback cannot be mistaken for a GPU run.
-- Stage 3 does **not** build the dictionary. It only reduces the text; stage 4 is the step that
+- Stage 4 (step 1: dictionary) does **not** build the glossary. It only reduces the text; stage 4 (step 2: glossary) is the step that
   reads the reduced chapters and decides which nouns need a fixed translation, and
   `04-reduced-unique/` is the list it reads by default — the whole first-mention set, one sentence per
   noun, in book order. Both folders are saved (and switchable with `--no-save-unique` /
-  `--unique-only`) so stage 4 can be pointed at either (`--sentences reduced`), and so the funnel's
+  `--unique-only`) so the glossary pass can be pointed at either (`--sentences reduced`), and so the funnel's
   output can be compared while the rule is adjusted.
 - **Stage 4's consistency is only as good as the model's answer.** The dictionary locks what the
   first chapter that mentioned an entity decided, and the run cannot tell a good rendering from a
@@ -3005,13 +3000,13 @@ side-by-side use. The whole folder is gitignored (only its README is tracked), a
   gets an abbreviation. The prompt asks for the full name behind an alias when the chapter shows
   one, but a later chapter cannot amend an entry — that is the price of "the first rendering wins",
   and it is deliberate: an amendable dictionary is one a translated chapter can disagree with.
-- Stage 4 skips the front and back matter by default, and stage 1's `kind` is what it trusts. A book
+- Stage 4 skips the front and back matter by default, and stage 2's `kind` is what it trusts. A book
   whose manifest is missing or whose blocks were never labelled falls back to filenames, which means
   an unusually named back-matter file (`15-beleske.md`) is **mined** rather than skipped. The
   manifest records exactly which files were skipped and why, so the mistake is visible; the fix is
   `--include-back-matter` on a rerun (or a chapter map that names the block `back-matter`).
 - Stage 4's `--resume` trusts the manifest. If the reduced chapters changed after the first run
-  (stage 3 re-run with different filters), the entries from the reused chapters are the old
+  (stage 4's dictionary pass re-run with different filters), the entries from the reused chapters are the old
   chapter's; delete `04-glossary/` or run without `--resume` to rebuild.
 - The first-mention filter keys on the **surface form** of a mention, case-folded and trimmed, and
   ignores its entity type. Two inflections of the same name (`Marko` / `Marku`) are therefore two

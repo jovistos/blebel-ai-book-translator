@@ -43,7 +43,7 @@ Each slice is categorized into one of three kinds:
 * `data/output/<book>/02-chapters/00-front-matter.md`
 * `data/output/<book>/02-chapters/01-*.md`, `02-*.md`, ...
 * `data/output/<book>/02-chapters/99-back-matter.md`
-* `data/output/<book>/02-chapters/_split_manifest.json`
+* `data/output/<book>/02-chapters/_manifest.json`
 * `data/output/<book>/02-chapters/_agent_trace.json`
 
 ---
@@ -175,7 +175,7 @@ flowchart LR
     subgraph Phase2["Phase 2: Fuzzy Glossary Matching"]
         RawTerms --> Fuzzy["rapidfuzz Matching (Threshold >= 95%)"]
         G4["04-glossary/glossary.json"] --> Fuzzy
-        Fuzzy --> Matched["06-chunk-glossary/<chunk>.json"]
+        Fuzzy --> Matched["06-chunk-glossary/<chunk>.md.json"]
     end
 ```
 
@@ -183,5 +183,5 @@ flowchart LR
 2. **Phase 2 (Fuzzy Retrieval):** For each discovered term, `rapidfuzz` matches against `04-glossary/glossary.json`. Any match exceeding the similarity threshold (default: 95%) is added to the chunk's `matched_terms` list.
 
 ### Artifacts Written
-* `data/output/<book>/06-chunk-glossary/<chunk>.json` (One JSON file per chunk)
+* `data/output/<book>/06-chunk-glossary/<chunk>.md.json` (One JSON file per chunk)
 * `data/output/<book>/06-chunk-glossary/_chunk_glossary_manifest.json`

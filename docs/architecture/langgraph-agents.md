@@ -42,9 +42,9 @@ classDiagram
 
 ## 1. Split Agent (Stage 2: Chapter Boundaries)
 
-* **Source Module:** [book_translator/stages/agent/](file:///home/jovis/Documents/WORK/BleBelTranslateBook/book_translator/stages/agent/)
+* **Source Module:** [book_translator/stages/agent/](../../book_translator/stages/agent/)
 * **Input:** `01-markdown/<book>.md` (or raw source Markdown)
-* **Output:** Slicing map -> `02-chapters/` (Verbatim chapter files + `_split_manifest.json`)
+* **Output:** Slicing map -> `02-chapters/` (Verbatim chapter files + `_manifest.json`)
 * **Core Contract:** The agent never sees book paragraphs; it receives only line numbers and candidate headings emitted by deterministic extractors.
 
 ### State Machine Architecture
@@ -75,7 +75,7 @@ stateDiagram-v2
 * `report_split_proposal`: Terminal tool where the agent submits its proposed split map.
 
 ### Deterministic Validation Contract
-Before any file is written, [book_translator/stages/slicing/validation.py](file:///home/jovis/Documents/WORK/BleBelTranslateBook/book_translator/stages/slicing/validation.py) verifies:
+Before any file is written, [book_translator/stages/slicing/validation.py](../../book_translator/stages/slicing/validation.py) verifies:
 1. Split line numbers are strictly monotonically increasing.
 2. The first chapter begins at line 0 or after verified front matter.
 3. No splits create empty chapters or abnormally small fragments (< 2 lines).
@@ -85,7 +85,7 @@ Before any file is written, [book_translator/stages/slicing/validation.py](file:
 
 ## 2. Preprocess Agent (Stage 3: Header & Damage Repair)
 
-* **Source Module:** [book_translator/stages/preprocess_agent/](file:///home/jovis/Documents/WORK/BleBelTranslateBook/book_translator/stages/preprocess_agent/)
+* **Source Module:** [book_translator/stages/preprocess_agent/](../../book_translator/stages/preprocess_agent/)
 * **Input:** Chapter files from `02-chapters/`
 * **Output:** Cleaned chapters in `03-preprocessed/` + `_preprocess_manifest.json`
 * **Core Contract:** Operates sequentially chapter-by-chapter. The agent inspects headers, stray numbers, and damaged lines, outputting an action plan in a closed vocabulary.
@@ -119,7 +119,7 @@ No line may be deleted unless verified as a layout artifact or page number.
 
 ## 3. Matter Agent (Stage 7: Front/Back Matter Localization)
 
-* **Source Module:** [book_translator/stages/matter_agent/](file:///home/jovis/Documents/WORK/BleBelTranslateBook/book_translator/stages/matter_agent/)
+* **Source Module:** [book_translator/stages/matter_agent/](../../book_translator/stages/matter_agent/)
 * **Input:** Front matter (`00-front-matter.md`) and back matter (`99-back-matter.md`)
 * **Output:** Localized matter chunks in `08-translations/`, metadata in `07-matter/`
 * **Core Contract:** Translates and synthesizes front/back matter **without the dictionary**. Credits **BleBel** as translator and web-searches for existing official target-language book titles.
@@ -163,7 +163,7 @@ sequenceDiagram
 ### Key Localization Guidelines
 * **Translator Credit:** Enforces translator credit: `Prevod: BleBel`.
 * **Cover First:** A cover picture in the first front-matter chunk is never pushed below the title page; the localized title and credit follow the cover.
-* **Title Verification:** Uses DuckDuckGo search to see if the book was already published in Serbian/Croatian/target language (e.g. ensuring "The Great Gatsby" translates to "Veliki Getsbi").
+* **Title Verification:** Uses DuckDuckGo search to see if the book was already published in Serbian/Croatian/target language (reusing the official published target-language title when one exists).
 * **Imprint Pruning:** Removes original edition publisher addresses, printer details, ISBN numbers, and CIP cataloging records that do not apply to the new translated edition.
 * **Multimodal Matter Image Translation (Multimodal Model Required):** Recreates front/back matter images (e.g., covers, title plates, frontispieces) from scratch with translated typography seamlessly integrated into the original illustration and artistic style. A multimodal model (such as `gemini-nano-banana-2.1` or `gemini-3.1-flash-image` via Google Gemini) is required for this phase, as text models like Gemini 3.8 Flash do not support image generation. Pure illustrations without text are preserved untouched.
 
@@ -171,7 +171,7 @@ sequenceDiagram
 
 ## 4. Postprocess Agent (Stage 10: Heading Consistency & TOC)
 
-* **Source Module:** [book_translator/stages/postprocess_agent/](file:///home/jovis/Documents/WORK/BleBelTranslateBook/book_translator/stages/postprocess_agent/)
+* **Source Module:** [book_translator/stages/postprocess_agent/](../../book_translator/stages/postprocess_agent/)
 * **Input:** Assembled translated chapters in `09-translated-chapters/`
 * **Output:** Consistent chapters in `10-postprocessed-chapters/` + synchronized TOC
 * **Core Contract:** Operates on translated text. Never alters body paragraphs; standardizes chapter headings, resolves numbering discrepancies, and generates a unified Table of Contents.
@@ -184,4 +184,4 @@ sequenceDiagram
 2. **Per-Chapter Plan:**
    * Inspects chapter openings (maximum 12 lines).
    * Applies title fixes, promotions, and demotions.
-   * Runs the **Chapter Openings Audit** ([book_translator/stages/openings/](file:///home/jovis/Documents/WORK/BleBelTranslateBook/book_translator/stages/openings/)) to guarantee no stray page numbers or duplicated titles remain at the top of any chapter.
+   * Runs the **Chapter Openings Audit** ([book_translator/stages/openings/](../../book_translator/stages/openings/)) to guarantee no stray page numbers or duplicated titles remain at the top of any chapter.

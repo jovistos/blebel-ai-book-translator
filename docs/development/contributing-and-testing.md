@@ -91,7 +91,7 @@ mypy book_translator
 
 ## 4. Packaging and Wheel Verification
 
-Packaging configuration is defined in [pyproject.toml](file:///home/jovis/Documents/WORK/BleBelTranslateBook/pyproject.toml) and checked by `tests/test_packaging.py`.
+Packaging configuration is defined in [pyproject.toml](../../pyproject.toml) and checked by `tests/test_packaging.py`.
 
 To build the source distribution and wheel:
 ```bash

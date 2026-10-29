@@ -26,7 +26,7 @@ data/
         │   ├── 01-chapter-1.md
         │   ├── ...
         │   ├── 99-back-matter.md
-        │   ├── _split_manifest.json
+        │   ├── _manifest.json
         │   └── _agent_trace.json
         ├── 03-preprocessed/                  <- Stage 3: Cleaned chapters
         │   ├── 01-chapter-1.md
@@ -45,10 +45,10 @@ data/
         │   ├── 00002-01-chapter-1-0001.md
         │   └── _chunk_manifest.json
         ├── 06-chunk-glossary/                <- Stage 6: Per-chunk terms
-        │   ├── 00001-01-chapter-1-0000.json
+        │   ├── 00001-01-chapter-1-0000.md.json
         │   └── _chunk_glossary_manifest.json
         ├── 07-matter/                       <- Stage 7: Matter plan & metadata
-        │   ├── matter_plan.json
+        │   ├── book-plan.json
         │   ├── _matter_manifest.json         <- Chunk metadata & image recreation records
         │   └── _matter_trace.json            <- Full logs including multimodal image operations
         ├── 07-matter-prompts/               <- Stage 7: Agent prompts & logs
@@ -59,11 +59,11 @@ data/
         │   ├── 00001-01-chapter-1-0000.md
         │   └── _translation_manifest.json
         ├── 08-translation-prompts/           <- Stage 8: Exact prompt and response audits
-        │   ├── 00001-01-chapter-1-0000.json
-        │   └── 00001-01-chapter-1-0000.prompt.md
+        │   ├── 00001-01-chapter-1-0000.md.json
+        │   └── 00001-01-chapter-1-0000.md.prompt.md
         ├── 09-translated-chapters/           <- Stage 9: Reassembled translated chapters
         │   ├── 01-chapter-1.md
-        │   └── _assembly_manifest.json
+        │   └── _translated_chapters_manifest.json
         ├── 10-postprocessed-chapters/        <- Stage 10: Harmonized titles & TOC
         │   ├── 00-table-of-contents.md
         │   ├── 01-chapter-1.md
@@ -78,11 +78,11 @@ data/
 
 Every stage records a machine-readable manifest (`_<stage>_manifest.json`) capturing the input parameters, execution timestamps, source SHA-256 hashes, and output file manifests.
 
-### A. Stage 2 Split Manifest (`_split_manifest.json`)
+### A. Stage 2 Split Manifest (`_manifest.json`)
 Records how the source file was divided:
 ```json
 {
-  "source_path": "data/input/The-Great-Gatsby.md",
+  "source_path": "data/input/<book>.md",
   "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "total_lines": 4210,
   "chapter_count": 9,
@@ -122,7 +122,7 @@ Guarantees byte-for-byte reconstruction:
 }
 ```
 
-### C. Stage 6 Chunk Glossary (`06-chunk-glossary/<chunk>.json`)
+### C. Stage 6 Chunk Glossary (`06-chunk-glossary/<chunk>.md.json`)
 Supplies matched entities directly to translation prompts:
 ```json
 {
@@ -150,6 +150,6 @@ Supplies matched entities directly to translation prompts:
 ## 3. Auditing & Prompt Tracing
 
 `book-translator` guarantees that no translation output is an inscrutable "black box":
-* **`08-translation-prompts/<chunk>.json`**: Contains the full payload sent to the LLM client, including system instructions, formatted terminology tables, preceding translation context, source markdown chunk, and raw model output.
-* **`08-translation-prompts/<chunk>.prompt.md`**: Human-readable markdown rendition of the prompt for rapid manual inspection.
+* **`08-translation-prompts/<chunk>.md.json`**: Contains the full payload sent to the LLM client, including system instructions, formatted terminology tables, preceding translation context, source markdown chunk, and raw model output.
+* **`08-translation-prompts/<chunk>.md.prompt.md`**: Human-readable markdown rendition of the prompt for rapid manual inspection.
 * **`_agent_trace.json`**: Records every LangGraph tool invocation, argument payload, and validation rejection during agent execution.

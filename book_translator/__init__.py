@@ -2,14 +2,12 @@
 
 The pipeline turns one long book into translation-ready material.
 
-Stage 0 — :mod:`book_translator.stages.conversion` — turns a source EPUB, a text-based
+Stage 1 — :mod:`book_translator.stages.conversion` — turns a source EPUB, a text-based
 PDF or a TXT into Markdown under ``01-markdown/``. EPUB/PDF go through docling
 with OCR disabled, so an image-based PDF is rejected instead of OCR'd; a TXT is
 copied under a ``.md`` name. Pictures are extracted to ``01-markdown/images/``
 and referenced from the Markdown (``--no-images`` turns that off), so they reach
 the final translated book. A Markdown source skips this stage entirely.
-
-Stage 1 — :mod:`book_translator.stages.conversion` — is the entry stage described above.
 
 Stage 2 — :mod:`book_translator.stages.agent` — splits one long Markdown book into one
 file per chapter **without reading its body**. Design contract:

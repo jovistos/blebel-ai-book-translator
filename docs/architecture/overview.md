@@ -63,10 +63,10 @@ flowchart TD
 ## 2. Core Architectural Principles
 
 ### Invariant 1: Structural Agents Never Read Body Prose
-LLMs tend to hallucinate, omit text, rephrase lines, or drift when exposed to massive walls of prose. In `book-translator`, agents in structural stages (Stage 1 Split, Stage 2 Preprocess, Stage 9 Postprocess) **never read the body prose**:
-* **Stage 1 (Split):** The agent only inspects line numbers and short candidate headings emitted by deterministic tools. The actual slicing is done byte-for-byte by the slicer.
-* **Stage 2 (Preprocess):** The agent only inspects headers, page-number candidates, and conversion damage. It outputs a declarative cleaning plan.
-* **Stage 9 (Postprocess):** The agent only inspects the first dozen lines of each chapter and heading records to establish a book-wide title hierarchy.
+LLMs tend to hallucinate, omit text, rephrase lines, or drift when exposed to massive walls of prose. In `book-translator`, agents in structural stages (Stage 2 Split, Stage 3 Preprocess, Stage 10 Postprocess) **never read the body prose**:
+* **Stage 2 (Split):** The agent only inspects line numbers and short candidate headings emitted by deterministic tools. The actual slicing is done byte-for-byte by the slicer.
+* **Stage 3 (Preprocess):** The agent only inspects headers, page-number candidates, and conversion damage. It outputs a declarative cleaning plan.
+* **Stage 10 (Postprocess):** The agent only inspects the first dozen lines of each chapter and heading records to establish a book-wide title hierarchy.
 
 ### Invariant 2: Plan-Action Separation with Deterministic Verifiers
 No agent directly writes or edits files. All agents operate through strict plan-action separation:
@@ -78,7 +78,7 @@ No agent directly writes or edits files. All agents operate through strict plan-
 
 ### Invariant 3: Byte-For-Byte Reversibility
 Decomposition must be provably lossless:
-* **Stage 2 (Split):** Concatenating all chapter files in `02-chapters/` recreates the source Markdown document byte-for-byte (verified via SHA-256 in `_split_manifest.json`).
+* **Stage 2 (Split):** Concatenating all chapter files in `02-chapters/` recreates the source Markdown document byte-for-byte (verified via SHA-256 in `_manifest.json`).
 * **Stage 5 (Chunking):** Chunks in `05-chunks/` are exact slices. Concatenating a chapter's chunks restores the preprocessed chapter byte-for-byte. Concatenating all chunks in global reading order restores the book.
 
 ### Invariant 4: Strict Per-Line and Per-Chunk Provenance
@@ -120,13 +120,13 @@ classDiagram
 
 * **LangGraph Agents:** Used when heuristics alone are insufficient to resolve ambiguous semantic layout (e.g., distinguishing a printed book title at the top of a page from an internal section header, or synthesizing publisher-grade front matter).
 * **Deterministic Funnels:** Used wherever mathematical or string-exact precision is required. Chunker, fuzzy dictionary matcher, chunk assembler, and EPUB compiler never invoke an LLM.
-* **Structured LLM Stages:** Single-purpose, schema-enforced Pydantic invocation loops (`StructuredCaller` in [book_translator/core/llm.py](file:///home/jovis/Documents/WORK/BleBelTranslateBook/book_translator/core/llm.py)) with automatic retries and JSON-mode fallback.
+* **Structured LLM Stages:** Single-purpose, schema-enforced Pydantic invocation loops (`StructuredCaller` in [book_translator/core/llm.py](../../book_translator/core/llm.py)) with automatic retries and JSON-mode fallback.
 
 ---
 
 ## 4. Multi-Provider AI Architecture
 
-`book-translator` connects to multiple AI backends via an OpenAI-compatible interface, configured through [book_translator.toml](file:///home/jovis/Documents/WORK/BleBelTranslateBook/book_translator.toml):
+`book-translator` connects to multiple AI backends via an OpenAI-compatible interface, configured through [book_translator.toml](../../book_translator.toml):
 
 1. **DeepSeek (Cloud Default):** Fast, economical, high-quality reasoning (`deepseek-flash`, `deepseek-v4-pro`).
 2. **LM Studio (Local / Completely Offline):** Local OpenAI-compatible server at `http://127.0.0.1:1234/v1`. Auto-detects whatever model is loaded; no model name required.
@@ -142,7 +142,7 @@ Every stage can use a different provider or model (e.g., DeepSeek for splitting,
 
 ## 5. Execution Model and Orchestration
 
-The pipeline is driven by [book_translator/pipeline/driver.py](file:///home/jovis/Documents/WORK/BleBelTranslateBook/book_translator/pipeline/driver.py):
+The pipeline is driven by [book_translator/pipeline/driver.py](../../book_translator/pipeline/driver.py):
 * **State Resolution:** Each stage reads the output of its predecessor from canonical numbered folders (`01-markdown/` through `10-postprocessed-chapters/`).
 * **Resumability & Cache Invalidation:** Stages support `--skip-if-present` (or `--resume`). If chapter, chunk, or translation files already exist and match their expected hashes, expensive LLM calls are skipped.
 * **Partial Execution:** Operators can run windowed runs (e.g. `--first-chapters 5`), stop after specific stages (`--stop-after chunk`), or restart at downstream stages (`--start-at translate`).

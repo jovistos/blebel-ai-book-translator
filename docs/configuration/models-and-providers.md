@@ -2,7 +2,7 @@
 
 `book-translator` features a flexible, multi-provider configuration system. Every AI agent or stage in the pipeline can be bound to a different model or provider depending on cost, quality, and latency requirements.
 
-Configuration is centralized in [book_translator.toml](file:///home/jovis/Documents/WORK/BleBelTranslateBook/book_translator.toml) and can be overridden via environment variables or CLI flags.
+Configuration is centralized in [book_translator.toml](../../book_translator.toml) and can be overridden via environment variables or CLI flags.
 
 ---
 
@@ -54,7 +54,7 @@ max_retries = 3
 
 # Granular per-stage overrides:
 # Available stage sections: [llm.split], [llm.preprocess], [llm.dictionary],
-#                          [llm.matter], [llm.translate], [llm.postprocess]
+#                          [llm.matter], [llm.matter_image], [llm.translate], [llm.postprocess]
 
 [llm.split]
 model = "deepseek-flash"
@@ -69,9 +69,12 @@ model = "deepseek-flash"
 # Note: Recreating images with text (covers, title plates) requires a multimodal model!
 [llm.matter]
 model = "deepseek-flash"
-# For multimodal matter image generation/recreation, set GEMINI_API_KEY in .env,
-# or set provider = "gemini" and model = "gemini-nano-banana-2.1" (or "gemini-3.1-flash-image")
-# under [llm.matter_image]. Note that general text models like Gemini 3.8 Flash do not generate images.
+
+# Dedicated multimodal image recreation model for Stage 7 matter images/covers
+# (General text models like Gemini 3.8 Flash do not generate images)
+[llm.matter_image]
+provider = "gemini"
+model = "gemini-nano-banana-2.1"  # or "gemini-3.1-flash-image"
 
 # Translate stage using local LM Studio for zero-cost offline body translation:
 [llm.translate]

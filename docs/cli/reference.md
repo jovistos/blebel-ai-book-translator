@@ -36,7 +36,7 @@ book-translator-pipeline [BOOK] [OPTIONS]
 
 ## 2. Common Pipeline Workflows
 
-### A. Initial Structural Preparation (Stages 0 to 6)
+### A. Initial Structural Preparation (Stages 1 to 6)
 Prepare the book, clean headers, extract terminology, and cut into translation chunks:
 ```bash
 book-translator-pipeline "MyBook.epub" --cpu

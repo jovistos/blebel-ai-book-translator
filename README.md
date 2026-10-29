@@ -9,7 +9,7 @@
 [![LangGraph Multi-Agent](https://img.shields.io/badge/LangGraph-Agents-8b5cf6.svg?style=flat)](https://github.com/langchain-ai/langgraph)
 [![Local LLM: LM Studio](https://img.shields.io/badge/LM%20Studio-Offline%20Ready-blueviolet.svg?style=flat)](https://lmstudio.ai/)
 [![Tests: 800+ Offline](https://img.shields.io/badge/tests-800%2B%20passed-10b981.svg?style=flat)](tests/)
-[![Architecture: Hybrid](https://img.shields.io/badge/Architecture-Agents%20%2B%20Funnels-blue.svg?style=flat)](#hybrid-pipeline-overview)
+[![Architecture: Hybrid](https://img.shields.io/badge/Architecture-Agents%20%2B%20Funnels-blue.svg?style=flat)](#the-blebel-hybrid-architecture)
 
 **Turn full-length books into consistent translations through staged, verifiable AI agents and deterministic funnels.**
 
@@ -165,8 +165,8 @@ book-translator wizard
 └────────────────────────────────────────────────────────┘
 
 Available Books in data/input/:
-  [1] Alice-in-Wonderland.epub (2.4 MB)
-  [2] Dont-You-Forget-About-Me.pdf (1.8 MB)
+  [1] my-book.epub (2.4 MB)
+  [2] another-book.pdf (1.8 MB)
 
 Select Workflow Preset:
   [1] Full Pipeline (Stages 1-12: Convert ➔ Split ➔ Translate ➔ EPUB)
