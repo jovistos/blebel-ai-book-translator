@@ -220,8 +220,9 @@ def test_numbered_publisher_sections_do_not_consume_the_window(tmp_path: Path):
         "01-introduction.md",
         "02-a-note-on-the-text.md",
         "03-preface-to-the-first-edition.md",
-        "04-chapter-1-down-the-rabbit-hole.md",
-        "05-chapter-2-the-pool-of-tears.md",
+        "04-translator-s-preface.md",
+        "05-chapter-1-down-the-rabbit-hole.md",
+        "06-chapter-2-the-pool-of-tears.md",
         "99-back-matter.md",
     ]
     chapters = tmp_path / "book" / "02-chapters"
@@ -230,19 +231,21 @@ def test_numbered_publisher_sections_do_not_consume_the_window(tmp_path: Path):
         (chapters / name).write_text(f"{name} text.\n", encoding="utf-8")
 
     assert body_chapter_names(names) == [
-        "04-chapter-1-down-the-rabbit-hole.md",
-        "05-chapter-2-the-pool-of-tears.md",
+        "05-chapter-1-down-the-rabbit-hole.md",
+        "06-chapter-2-the-pool-of-tears.md",
     ]
     assert is_body_chapter_name("01-introduction.md") is False
     assert is_body_chapter_name("02-a-note-on-the-text.md") is False
     assert is_body_chapter_name("03-preface-to-the-first-edition.md") is False
+    assert is_body_chapter_name("04-translator-s-preface.md") is False
     # The whole front block plus chapter 1 makes up the window's file prefix.
-    assert chapter_window_limit_for_path(chapters, 1) == 5
-    assert chapter_window_limit_for_path(chapters, 2) == 6
+    assert chapter_window_limit_for_path(chapters, 1) == 6
+    assert chapter_window_limit_for_path(chapters, 2) == 7
     # The same name rule drives stage 10's matter classifier.
     assert matter_kind("01-introduction.md", 1) == "front"
     assert matter_kind("02-a-note-on-the-text.md", 2) == "front"
-    assert matter_kind("04-chapter-1-down-the-rabbit-hole.md", 4) == "body"
+    assert matter_kind("04-translator-s-preface.md", 4) == "front"
+    assert matter_kind("05-chapter-1-down-the-rabbit-hole.md", 5) == "body"
 
 
 def test_assembly_first_chapters_keeps_front_and_back_matter(tmp_path: Path):

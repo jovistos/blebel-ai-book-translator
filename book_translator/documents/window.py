@@ -65,13 +65,21 @@ _BACK_MATTER_MARKERS = ("back-matter", "back_matter", "backmatter")
 #: later stage can see (a translated folder no longer carries stage 1's
 #: ``kind``), and the same rules are used by stage 6b and stage 9.
 _FRONT_NAME_RE = re.compile(
-    r"^(?:\d*[-_ ]*)?(?:predgovor|uvod|prolog|preface|foreword|introduction|"
-    r"zahvaln|acknowledg|(?:a[-_ ])?note[-_ ]on[-_ ]the[-_ ]text)\b",
+    r"^(?:\d*[-_ ]*)?(?:"
+    r"(?:(?:translator|author|editor|publisher)s?(?:[-_ ]*s)?[-_ ]+)?"
+    r"(?:predgovor|uvod|prolog(?:ue)?|preface|foreword|introduction|"
+    r"zahvaln\w*|acknowledg\w*|(?:a[-_ ])?notes?[-_ ]on[-_ ](?:the[-_ ])?(?:text|translation|edition))"
+    r"|"
+    r"(?:(?:translator|author|editor|publisher)s?(?:[-_ ]*s)?[-_ ]+notes?)"
+    r"|"
+    r"(?:(?:re[cč]|bele[sš]k\w*|napomen\w*)[-_ ]+(?:prevodioc\w*|autor\w*|izdava[cč]\w*|urednik\w*))"
+    r")\b",
     re.IGNORECASE,
 )
 _BACK_NAME_RE = re.compile(
-    r"^(?:\d*[-_ ]*)?(?:pogovor|epilog|bele[sš]ke|beleske|notes|dodatak|appendix|"
-    r"o[-_ ]autoru|about[-_ ]the[-_ ]author|index|indeks)\b",
+    r"^(?:\d*[-_ ]*)?(?:pogovor|epilog|afterword|bele[sš]ke|beleske|notes|endnotes|dodatak|appendix|"
+    r"(?:textual[-_ ])?notes|o[-_ ]autoru|o[-_ ]autorki|o[-_ ]prevodiocu|"
+    r"about[-_ ]the[-_ ](?:author|translator)|index|indeks)\b",
     re.IGNORECASE,
 )
 

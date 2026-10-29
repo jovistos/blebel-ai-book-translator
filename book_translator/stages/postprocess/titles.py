@@ -100,13 +100,21 @@ _CHAPTER_NUMBER_TOKEN_RE = re.compile(
 #: so (``01-predgovor.md`` is a preface, not chapter 1). The naming policy must
 #: not renumber these as body chapters.
 FRONT_TITLE_RE = re.compile(
-    r"^\s*(?:#+\s*)?(predgovor|uvod|prolog|preface|foreword|introduction|"
-    r"zahvalnost|zahvalnice|acknowledg\w*)\b",
+    r"^\s*(?:#+\s*)?(?:"
+    r"(?:(?:translator|author|editor|publisher)['’]?s?\s+)?"
+    r"(?:predgovor|uvod|prolog(?:ue)?|preface|foreword|introduction|"
+    r"zahvalnost|zahvalnice|acknowledg\w*|(?:a\s+)?notes?\s+on\s+(?:the\s+)?(?:text|translation|edition))"
+    r"|"
+    r"(?:(?:translator|author|editor|publisher)['’]?s?\s+notes?)"
+    r"|"
+    r"(?:(?:re[cč]|bele[sš]k\w*|napomen\w*)\s+(?:prevodioc\w*|autor\w*|izdava[cč]\w*|urednik\w*))"
+    r")\b",
     re.IGNORECASE,
 )
 BACK_TITLE_RE = re.compile(
-    r"^\s*(?:#+\s*)?(pogovor|epilog|bele[sš]ke|beleske|notes|dodatak|appendix|"
-    r"o autoru|o autorki|about the author|index|indeks)\b",
+    r"^\s*(?:#+\s*)?(?:pogovor|epilog|afterword|bele[sš]ke|beleske|notes|endnotes|dodatak|appendix|"
+    r"(?:textual\s+)?notes|o autoru|o autorki|o prevodiocu|"
+    r"about the (?:author|translator)|index|indeks)\b",
     re.IGNORECASE,
 )
 LABELLED_NUMBER_RE = re.compile(

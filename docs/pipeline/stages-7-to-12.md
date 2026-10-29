@@ -93,6 +93,7 @@ Front and back matter frequently feature images containing source-language typog
 * Establishes a uniform book-wide heading convention (e.g. `# Glava 1: [Naslov]`).
 * Reconciles the generated navigation Table of Contents with the translated chapter headings.
 * Never edits body prose. Inspects only heading records and the first 12 lines of each chapter.
+* **Dual Matter Classification (`matter_kind`)**: Postprocess identifies front and back matter using both filename conventions and translated heading analysis (`FRONT_TITLE_RE` / `BACK_TITLE_RE`). Standalone prefaces (e.g., `## PREDGOVOR PREVODIOCA`, `## UVOD`, `## REČ AUTORA`) are protected from body chapter renumbering policies (`Poglavlje N`), and the plan validator confirms the presence of body chapters before applying chapter naming rules.
 
 ### Quality Gate: Chapter Openings Audit (`book_translator.stages.openings`)
 At the end of Stage 10, the automated openings audit scans the first lines of every chapter:

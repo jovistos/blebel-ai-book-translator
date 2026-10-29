@@ -21,7 +21,7 @@ book-translator-pipeline [BOOK] [OPTIONS]
 | `BOOK` | Path or filename of the book. If only one file exists in `data/input/`, it is selected automatically. |
 | `--stop-after <stage>` | Stop pipeline execution after the named stage (e.g. `--stop-after chunk`). |
 | `--start-at <stage>` | Skip earlier stages and begin execution at the named stage (e.g. `--start-at matter`). |
-| `--first-chapters <N>` | Restrict downstream stages (preprocessing, dictionary, translation) to the first $N$ chapters. |
+| `--first-chapters <N>` | Restrict downstream stages (preprocessing, dictionary, translation) to the first $N$ body chapters. Front and back matter (prefaces, introductions, author notes, afterwords) are automatically identified and preserved, and do not consume any of the $N$ limit. |
 | `--with-translate` | Include Stage 8 (body translation) in the run. (By default, pipeline stops after preparation). |
 | `--with-postprocess` | Include Stage 10 (heading postprocessing) in the run. |
 | `--skip-if-present` | Skip recomputing chapters, chunks, or translations that already exist and match on disk. |

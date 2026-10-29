@@ -33,11 +33,16 @@ This document provides complete, systematic specifications for the first six sta
 * Slices the source file **verbatim**. No lines are reflowed, re-indented, or re-encoded.
 * **Lossless Concatenation Guarantee:** Concatenating all files in `02-chapters/` in natural numerical order reproduces the source Markdown file byte-for-byte.
 
-### Chapter Classification
+### Chapter Classification & Matter Distinction
 Each slice is categorized into one of three kinds:
-1. `front_matter`: Title page, copyright page, dedication, preface, foreword (`00-front-matter.md`).
-2. `body`: Numbered or titled main book chapters (`01-chapter-1.md`, `02-chapter-2.md`, ...).
-3. `back_matter`: Epilogue, afterword, acknowledgments, index, notes (`99-back-matter.md`).
+1. `front_matter`: Title page, copyright page, dedication, preface, foreword (`00-front-matter.md`). Standalone numbered sections such as `01-translator-s-preface.md`, `01-introduction.md`, `02-a-note-on-the-text.md`, or `01-author-s-note.md` are also recognized as front matter across all downstream windowing and matter stages.
+2. `body`: Numbered or titled main book chapters (`01-chapter-1.md`, `02-1-a-runaway-reef.md`, ...).
+3. `back_matter`: Epilogue, afterword, acknowledgments, index, textual notes, endnotes (`99-back-matter.md`, `49-back-matter.md`).
+
+#### Shared Matter Resolution Rules (`book_translator.documents.window`)
+To keep chapter windowing (`--first-chapters N`), glossary building, and assembly in exact agreement:
+* **Filename Detection (`matter_kind_of_name`)**: Filenames beginning with `00-`, containing `front-matter`, or matching front keywords (`preface`, `foreword`, `introduction`, `translator-s-preface`, `author-s-note`, `note-on-the-text`, `rec-prevodioca`, `napomena-prevodioca`) are treated as front matter. Filenames matching `afterword`, `appendix`, `notes`, `endnotes`, or `about-the-author` are treated as back matter.
+* **Window Invariance**: `--first-chapters N` skips all front and back matter when counting, guaranteeing that $N$ selects exactly the first $N$ true body chapters of the work while retaining the front and back matter for complete publication assembly.
 
 ### Artifacts Written
 * `data/output/<book>/02-chapters/00-front-matter.md`
