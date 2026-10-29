@@ -29,19 +29,19 @@ def add_parser(sub: Any) -> None:
     """Register this command's parser (the help text is snapshot-tested)."""
     p_pre = sub.add_parser(
         "preprocess",
-        help="stage 2: clean each chapter, one chapter at a time, and write the result",
+        help="stage 3: clean each chapter, one chapter at a time, and write the result",
     )
     parents.add_book(p_pre, required=False)
     p_pre.add_argument(
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters)",
+        help="the chapters folder from stage 2 (default: data/output/<book>/02-chapters)",
     )
     p_pre.add_argument(
         "--preprocessed-out",
         default=None,
-        help="where to write cleaned chapters (default: data/output/<book>/02-preprocessed)",
+        help="where to write cleaned chapters (default: data/output/<book>/03-preprocessed)",
     )
     parents.add_model_flags(p_pre)
     p_pre.add_argument(

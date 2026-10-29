@@ -42,9 +42,9 @@ def add_parser(sub: Any) -> None:
         "--out",
         "-o",
         default=None,
-        help="the chapter folder (default: the cleaned data/output/<book>/02-preprocessed "
-        "when stage 2 wrote it, else data/output/<book>/01-chapters); pass "
-        "01-chapters to chunk the raw text instead",
+        help="the chapter folder (default: the cleaned data/output/<book>/03-preprocessed "
+        "when stage 3 wrote it, else data/output/<book>/02-chapters); pass "
+        "02-chapters to chunk the raw text instead",
     )
     p_chunk.add_argument(
         "--chunks-out",
@@ -102,8 +102,8 @@ def add_parser(sub: Any) -> None:
     p_chunk.add_argument(
         "--text-in",
         default=None,
-        help="chapter text folder to read (default: 02-preprocessed/ when it covers "
-        "the window, else 01-chapters/); overrides --out",
+        help="chapter text folder to read (default: 03-preprocessed/ when it covers "
+        "the window, else 02-chapters/); overrides --out",
     )
     p_chunk.set_defaults(func=cmd_chunk)
 

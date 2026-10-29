@@ -1,14 +1,14 @@
-"""Stage 0 — turn an EPUB, a text-based PDF or a TXT into the Markdown stage 1 reads.
+"""Stage 1 — turn an EPUB, a text-based PDF or a TXT into the Markdown stage 2 reads.
 
 The splitter is deliberately line-based: it copies Markdown lines verbatim and
 never re-flows prose. That contract needs one honest conversion up front instead
 of a second converter hidden inside the splitter, so this module is a stage of
-its own and writes to ``00-markdown/``, before ``01-chapters/``.
+its own and writes to ``01-markdown/``, before ``02-chapters/``.
 
 Three source kinds are accepted:
 
 ``.md`` / ``.markdown``
-    Already Markdown. The stage is a no-op and stage 1 reads the file directly.
+    Already Markdown. The stage is a no-op and stage 2 reads the file directly.
 
 ``.txt``
     Already plain text. The bytes are copied unchanged; only the name changes to
@@ -105,7 +105,7 @@ class ConversionResult:
     sampled_pages: int | None = None
     text_pages: int | None = None
     text_based: bool | None = None
-    #: Files written to ``00-markdown/images/`` (0 when the source has no pictures).
+    #: Files written to ``01-markdown/images/`` (0 when the source has no pictures).
     images: int = 0
     #: Image references in the converted Markdown (after duplicate files are merged).
     image_refs: int = 0
@@ -183,7 +183,7 @@ def run_conversion(
     force: bool = False,
     images: bool = True,
 ) -> ConversionResult:
-    """Convert one source document to Markdown under ``00-markdown/``.
+    """Convert one source document to Markdown under ``01-markdown/``.
 
     ``dry_run`` validates the source (including a PDF's text layer) and reports
     what would happen without running docling or writing a file. An image-based
@@ -192,7 +192,7 @@ def run_conversion(
 
     With ``images`` (the default) docling extracts the pictures of an EPUB/PDF
     into ``images/`` next to the Markdown and the Markdown references them. The
-    links are written relative to the book folder (``../00-markdown/images/…``),
+    links are written relative to the book folder (``../01-markdown/images/…``),
     which is correct for every stage folder one level below it. ``images=False``
     keeps the old text-only conversion.
     """
@@ -201,7 +201,7 @@ def run_conversion(
     target = converted_markdown_path(book, out_dir, output_root=output_root)
     image_dir = target.parent / IMAGES_DIRNAME
     # Every later stage lives one folder below the book output folder, where
-    # `../00-markdown/images/` is the same path. A caller-supplied --out outside
+    # `../01-markdown/images/` is the same path. A caller-supplied --out outside
     # the canonical layout only gets a local `images/` reference.
     canonical = target.parent.name == MARKDOWN_DIRNAME
     image_prefix = CHAPTER_IMAGE_PREFIX if canonical else f"{IMAGES_DIRNAME}/"
@@ -216,7 +216,7 @@ def run_conversion(
     )
 
     if kind == "markdown":
-        result.log.append("source is already Markdown — stage 1 can read it directly")
+        result.log.append("source is already Markdown — stage 2 can read it directly")
         return result
 
     if kind == "pdf":

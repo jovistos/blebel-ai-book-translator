@@ -122,9 +122,9 @@ def run_bind(
             }
         )
     book = "\n\n".join(parts) + "\n"
-    # Chapter files sit one folder below the book, hence `../00-markdown/images/`.
+    # Chapter files sit one folder below the book, hence `../01-markdown/images/`.
     # The bound book is written at the book root, where the same folder is
-    # `00-markdown/images/`; rewrite once, so every picture still resolves.
+    # `01-markdown/images/`; rewrite once, so every picture still resolves.
     book = book.replace(CHAPTER_IMAGE_PREFIX, ROOT_IMAGE_PREFIX)
     errors: list[str] = []
     if not book.strip():

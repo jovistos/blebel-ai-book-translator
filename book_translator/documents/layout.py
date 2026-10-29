@@ -1,7 +1,7 @@
 """The one stage-directory registry and the one path resolver.
 
-Every stage folder is named with its stage number (``00-markdown/``,
-``01-chapters/``, …, ``09-postprocessed-chapters/``). Before this module each
+Every stage folder is named with its stage number (``01-markdown/``,
+``02-chapters/``, …, ``10-postprocessed-chapters/``). Before this module each
 helper in :mod:`book_translator.documents.chapters` carried its own copy of "if
 the caller handed me one of my siblings, step up to the book folder, then
 append my own name", and each copy had a slightly different list of siblings it

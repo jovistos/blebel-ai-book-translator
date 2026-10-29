@@ -35,7 +35,7 @@ def add_parser(sub: Any) -> None:
     """Register this command's parser (the help text is snapshot-tested)."""
     p_matter = sub.add_parser(
         "matter",
-        help="stage 6b: localize the front/back matter before translation with its "
+        help="stage 7: localize the front/back matter before translation with its "
         "own LangGraph agent — no dictionary, a web-searched published title, the "
         "BleBel credit, original-edition material omitted, published formatting",
     )
@@ -44,14 +44,14 @@ def add_parser(sub: Any) -> None:
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters); "
+        help="the chapters folder from stage 2 (default: data/output/<book>/02-chapters); "
         "the chunks, translations and matter folders are derived from the book folder",
     )
     p_matter.add_argument(
         "--chapters-in",
         default=None,
         help="the chapter folder the chunks were cut from (default: derived from the "
-        "book); point it at 02-preprocessed/ when that is what was chunked",
+        "book); point it at 03-preprocessed/ when that is what was chunked",
     )
     p_matter.add_argument(
         "--chunks-in",
@@ -62,21 +62,21 @@ def add_parser(sub: Any) -> None:
     p_matter.add_argument(
         "--translations-out",
         default=None,
-        help="where the localized matter chunks land; this is the same folder stage 7 "
-        "writes, so stage 8 assembles them with the body "
-        "(default: data/output/<book>/07-translations)",
+        help="where the localized matter chunks land; this is the same folder stage 8 "
+        "writes, so stage 9 assembles them with the body "
+        "(default: data/output/<book>/08-translations)",
     )
     p_matter.add_argument(
         "--matter-out",
         default=None,
         help="where the book plan, manifest and trace land "
-        "(default: data/output/<book>/06b-matter)",
+        "(default: data/output/<book>/07-matter)",
     )
     p_matter.add_argument(
         "--prompts-out",
         default=None,
         help="where the whole agent input of each matter chunk lands "
-        "(default: data/output/<book>/06b-matter-prompts)",
+        "(default: data/output/<book>/07-matter-prompts)",
     )
     p_matter.add_argument(
         "--source-language",
@@ -137,14 +137,14 @@ def add_parser(sub: Any) -> None:
 
 
 def cmd_matter(args: argparse.Namespace) -> int:
-    """Stage 6b: localize front/back matter with its own agent, before translation."""
+    """Stage 7: localize front/back matter with its own agent, before translation."""
     from book_translator.stages.chunk_glossary.runner import resolve_chunks_dir
     from book_translator.stages.matter_agent import run_matter
 
     if args.chapters_in:
         chapters_path = chapters_dir(Path(args.chapters_in).expanduser())
     else:
-        # The matter stage keeps stage 1's folder: it creates synthetic
+        # The matter stage keeps stage 2's folder: it creates synthetic
         # front/back-matter files and appends them to that stage's manifest.
         chapters_path = chapters_dir(
             _resolve_chapters_dir(args.book, args.in_dir, args.out, getattr(args, "output_root", None))
@@ -348,5 +348,5 @@ def _print_matter_summary(result, dry_run: bool = False) -> None:
         return
     print(
         "\nOK — front/back matter localized without a dictionary; the translated chunks "
-        "are in 07-translations/ and stage 8 will assemble them with the body."
+        "are in 08-translations/ and stage 9 will assemble them with the body."
     )

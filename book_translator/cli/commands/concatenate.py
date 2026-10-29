@@ -33,16 +33,16 @@ def add_parser(sub: Any) -> None:
     p_concat = sub.add_parser(
         "concatenate",
         aliases=["assemble"],
-        help="stage 8: concatenate the translated chunks back into one file per "
-        "chapter, in a separate 08-translated-chapters/ folder",
+        help="stage 9: concatenate the translated chunks back into one file per "
+        "chapter, in a separate 09-translated-chapters/ folder",
     )
     parents.add_book(p_concat, required=False)
     p_concat.add_argument(
         "--out",
         "-o",
         default=None,
-        help="the chapter folder (default: the cleaned data/output/<book>/02-preprocessed "
-        "when stage 2 wrote it, else data/output/<book>/01-chapters); "
+        help="the chapter folder (default: the cleaned data/output/<book>/03-preprocessed "
+        "when stage 3 wrote it, else data/output/<book>/02-chapters); "
         "used to locate the chunks, translations and book folder",
     )
     p_concat.add_argument(
@@ -54,13 +54,13 @@ def add_parser(sub: Any) -> None:
     p_concat.add_argument(
         "--translations-in",
         default=None,
-        help="the translated chunks from stage 7 (default: a sibling of 05-chunks/)",
+        help="the translated chunks from stage 8 (default: a sibling of 05-chunks/)",
     )
     p_concat.add_argument(
         "--chapters-out",
         default=None,
         help="where the translated chapter files go "
-        "(default: data/output/<book>/08-translated-chapters)",
+        "(default: data/output/<book>/09-translated-chapters)",
     )
     p_concat.add_argument(
         "--first-chapters",
@@ -94,7 +94,7 @@ def add_parser(sub: Any) -> None:
 
 
 def cmd_concatenate(args: argparse.Namespace) -> int:
-    """Stage 8: concatenate the translated chunks into one file per chapter."""
+    """Stage 9: concatenate the translated chunks into one file per chapter."""
     from book_translator.stages.assembly.runner import resolve_chunks_dir
 
     if args.chunks_in:

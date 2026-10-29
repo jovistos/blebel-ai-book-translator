@@ -50,7 +50,7 @@ def no_spend(monkeypatch):
 def test_split_dry_run_reads_the_source_but_builds_no_graph(fixture_book, no_spend):
     out = fixture_book / "dry-chapters"
     result = run_split(
-        str(fixture_book / "00-markdown" / "fixture.md"),
+        str(fixture_book / "01-markdown" / "fixture.md"),
         str(out),
         max_attempts=3,
         dry_run=True,
@@ -65,7 +65,7 @@ def test_preprocess_dry_run_inventories_chapters_but_builds_no_graph(
     fixture_book, no_spend
 ):
     out = fixture_book / "dry-preprocessed"
-    result = run_preprocess(str(fixture_book / "01-chapters"), str(out), dry_run=True)
+    result = run_preprocess(str(fixture_book / "02-chapters"), str(out), dry_run=True)
     assert result.ok and result.dry_run is True
     assert result.chapter_count > 0
     assert result.chapters == []
@@ -78,9 +78,9 @@ def test_glossary_dry_run_inventories_chapters_but_builds_no_extractor(
 ):
     out = fixture_book / "dry-glossary"
     result = run_glossary(
-        str(fixture_book / "02-preprocessed"),
+        str(fixture_book / "03-preprocessed"),
         str(out),
-        sentences_dir=str(fixture_book / "02-preprocessed"),
+        sentences_dir=str(fixture_book / "03-preprocessed"),
         dry_run=True,
     )
     assert result.ok and result.dry_run is True
@@ -92,7 +92,7 @@ def test_glossary_dry_run_inventories_chapters_but_builds_no_extractor(
 def test_matter_dry_run_inventories_sections_but_builds_no_plan(fixture_book, no_spend):
     out = fixture_book / "dry-matter-translations"
     result = run_matter(
-        str(fixture_book / "01-chapters"),
+        str(fixture_book / "02-chapters"),
         str(fixture_book / "05-chunks"),
         str(out),
         dry_run=True,
@@ -121,7 +121,7 @@ def test_postprocess_dry_run_inventories_chapters_but_builds_no_plan(
 ):
     out = fixture_book / "dry-postprocessed"
     result = run_postprocess(
-        str(fixture_book / "08-translated-chapters"), str(out), dry_run=True
+        str(fixture_book / "09-translated-chapters"), str(out), dry_run=True
     )
     assert result.ok and result.dry_run is True
     assert result.chapter_count > 0

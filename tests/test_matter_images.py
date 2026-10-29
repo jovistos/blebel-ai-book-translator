@@ -104,15 +104,15 @@ def test_is_translated_image_match():
     assert is_translated_image_match("![Cover](images/cover.jpg)", "![Cover](images/cover.jpg)")
     assert is_translated_image_match("![Cover](images/cover.jpg)", "![Cover](images/cover_translated.jpg)")
     assert is_translated_image_match(
-        "![Cover](../00-markdown/images/cover.png)",
-        "![Cover](../00-markdown/images/cover_translated.png)",
+        "![Cover](../01-markdown/images/cover.png)",
+        "![Cover](../01-markdown/images/cover_translated.png)",
     )
     assert not is_translated_image_match("![Cover](images/cover.jpg)", "![Other](images/portrait.jpg)")
 
 
 def test_resolve_matter_image_path(tmp_path: Path):
     book_dir = tmp_path / "book"
-    img_dir = book_dir / "00-markdown" / "images"
+    img_dir = book_dir / "01-markdown" / "images"
     sample = _create_sample_image(img_dir / "test_cover.jpg")
 
     chunks_dir = book_dir / "05-chunks"
@@ -184,7 +184,7 @@ def test_synthesize_and_translate_image_without_text(tmp_path: Path):
 
 
 def test_recreate_matter_images_in_chunk_end_to_end(tmp_path: Path):
-    img_dir = tmp_path / "00-markdown" / "images"
+    img_dir = tmp_path / "01-markdown" / "images"
     _create_sample_image(img_dir / "cover.jpg", "The Great Gatsby")
     _create_sample_image(img_dir / "portrait.jpg")  # no text
 
@@ -210,7 +210,7 @@ def test_recreate_matter_images_in_chunk_end_to_end(tmp_path: Path):
         {"recreated": False, "has_text": False},
     ])
 
-    out_dir = tmp_path / "07-translations"
+    out_dir = tmp_path / "08-translations"
     out_dir.mkdir(parents=True)
 
     updated_text, records = recreate_matter_images_in_chunk(
@@ -237,9 +237,9 @@ def test_recreate_matter_images_in_chunk_end_to_end(tmp_path: Path):
 
 def test_run_matter_end_to_end_image_generation(tmp_path: Path):
     book = tmp_path / "book"
-    ch_dir = book / "01-chapters"
+    ch_dir = book / "02-chapters"
     ch_dir.mkdir(parents=True)
-    img_dir = book / "00-markdown" / "images"
+    img_dir = book / "01-markdown" / "images"
     _create_sample_image(img_dir / "title_plate.png", "A London Mystery")
 
     front_text = (

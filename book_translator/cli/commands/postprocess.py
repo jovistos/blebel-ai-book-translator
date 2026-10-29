@@ -33,7 +33,7 @@ def add_parser(sub: Any) -> None:
     """Register this command's parser (the help text is snapshot-tested)."""
     p_post = sub.add_parser(
         "postprocess",
-        help="stage 9: postprocess the translated chapters' headings and table of "
+        help="stage 10: postprocess the translated chapters' headings and table of "
         "contents in a separate folder, without reading chapter prose",
     )
     parents.add_book(p_post, required=False)
@@ -41,26 +41,26 @@ def add_parser(sub: Any) -> None:
         "--out",
         "-o",
         default=None,
-        help="the chapter folder (default: the cleaned data/output/<book>/02-preprocessed "
-        "when stage 2 wrote it, else data/output/<book>/01-chapters); "
+        help="the chapter folder (default: the cleaned data/output/<book>/03-preprocessed "
+        "when stage 3 wrote it, else data/output/<book>/02-chapters); "
         "the translated-chapters and postprocessed-chapters folders are derived from it",
     )
     p_post.add_argument(
         "--translated-chapters-in",
         default=None,
-        help="stage 8's output folder (default: data/output/<book>/08-translated-chapters)",
+        help="stage 9's output folder (default: data/output/<book>/09-translated-chapters)",
     )
     p_post.add_argument(
         "--chunks-in",
         default=None,
         help="alternative way to locate the book: stage 5's chunks folder; its sibling "
-        "08-translated-chapters/ is used as input",
+        "09-translated-chapters/ is used as input",
     )
     p_post.add_argument(
         "--postprocessed-out",
         default=None,
         help="where the postprocessed chapters go "
-        "(default: data/output/<book>/09-postprocessed-chapters)",
+        "(default: data/output/<book>/10-postprocessed-chapters)",
     )
     parents.add_model_flags(p_post)
     p_post.add_argument(
@@ -108,7 +108,7 @@ def add_parser(sub: Any) -> None:
 
 
 def cmd_postprocess(args: argparse.Namespace) -> int:
-    """Stage 9: postprocess the translated chapters' headings and table of contents."""
+    """Stage 10: postprocess the translated chapters' headings and table of contents."""
     from book_translator.stages.postprocess_agent import run_postprocess
     from book_translator.stages.translation.runner import resolve_chunks_dir as _resolve_chunks
 

@@ -10,21 +10,21 @@ Rather than feeding entire manuscripts into monolithic LLM prompts or relying on
 
 ```mermaid
 flowchart TD
-    subgraph S0["Stage 0: Ingestion & Conversion"]
+    subgraph S1["Stage 1: Ingestion & Conversion"]
         Raw["Source (EPUB / PDF / TXT)"] --> Convert["Conversion (docling, OCR off)"]
-        Convert --> M0["00-markdown/<book>.md + images/"]
+        Convert --> M0["01-markdown/<book>.md + images/"]
     end
 
-    subgraph S1_2["Decomposition & Cleanup (Agentic)"]
-        M0 --> Split["Stage 1: Split Agent (LangGraph)"]
-        Split --> C1["01-chapters/ (Verbatim Slices)"]
-        C1 --> Preprocess["Stage 2: Preprocess Agent (LangGraph)"]
-        Preprocess --> C2["02-preprocessed/ (Cleaned Chapters)"]
+    subgraph S2_3["Decomposition & Cleanup (Agentic)"]
+        M0 --> Split["Stage 2: Split Agent (LangGraph)"]
+        Split --> C1["02-chapters/ (Verbatim Slices)"]
+        C1 --> Preprocess["Stage 3: Preprocess Agent (LangGraph)"]
+        Preprocess --> C2["03-preprocessed/ (Cleaned Chapters)"]
     end
 
-    subgraph S3_4["Terminology Extraction (Funnels + LLM)"]
-        C2 --> Dict["Stage 3: Sentence Funnel + NER (CLASSLA/Stanza)"]
-        Dict --> R3["03-reduced/ & 03-reduced-unique/"]
+    subgraph S4["Terminology Extraction (Funnels + LLM)"]
+        C2 --> Dict["Stage 4: Sentence Funnel + NER (CLASSLA/Stanza)"]
+        Dict --> R3["04-reduced/ & 04-reduced-unique/"]
         R3 --> Gloss["Stage 4: Glossary Builder (Structured LLM Accumulator)"]
         Gloss --> G4["04-glossary/glossary.json"]
     end
@@ -37,24 +37,24 @@ flowchart TD
         CG --> CG6["06-chunk-glossary/<chunk>.json"]
     end
 
-    subgraph S6b_7["Translation & Localization"]
-        K5 --> Matter["Stage 6b: Matter Agent (Web Search + BleBel Credit)"]
-        Matter --> T7["07-translations/ (Localized Matter Chunks)"]
-        K5 --> Trans["Stage 7: Body Translator (Structured LLM)"]
+    subgraph S7_8["Translation & Localization"]
+        K5 --> Matter["Stage 7: Matter Agent (Web Search + BleBel Credit)"]
+        Matter --> T7["08-translations/ (Localized Matter Chunks)"]
+        K5 --> Trans["Stage 8: Body Translator (Structured LLM)"]
         CG6 --> Trans
         Trans --> T7
     end
 
-    subgraph S8_11["Assembly, Polish & Packaging"]
-        T7 --> Assemble["Stage 8: Assembly (Deterministic Join)"]
-        Assemble --> A8["08-translated-chapters/"]
-        A8 --> Post["Stage 9: Postprocess Agent (Harmonize Headings & TOC)"]
+    subgraph S9_12["Assembly, Polish & Packaging"]
+        T7 --> Assemble["Stage 9: Assembly (Deterministic Join)"]
+        Assemble --> A8["09-translated-chapters/"]
+        A8 --> Post["Stage 10: Postprocess Agent (Harmonize Headings & TOC)"]
         Post --> OpenAudit["Quality Gate: Openings Audit"]
-        OpenAudit --> P9["09-postprocessed-chapters/"]
-        P9 --> Bind["Stage 10: Binding (Deterministic)"]
-        Bind --> B10["10-translated-book.md"]
-        P9 --> EPUB["Stage 11: EPUB Packager (markdown-it-py)"]
-        EPUB --> E11["11-translated-book.epub"]
+        OpenAudit --> P9["10-postprocessed-chapters/"]
+        P9 --> Bind["Stage 11: Binding (Deterministic)"]
+        Bind --> B10["11-translated-book.md"]
+        P9 --> EPUB["Stage 12: EPUB Packager (markdown-it-py)"]
+        EPUB --> E11["12-translated-book.epub"]
     end
 ```
 
@@ -78,13 +78,13 @@ No agent directly writes or edits files. All agents operate through strict plan-
 
 ### Invariant 3: Byte-For-Byte Reversibility
 Decomposition must be provably lossless:
-* **Stage 1 (Split):** Concatenating all chapter files in `01-chapters/` recreates the source Markdown document byte-for-byte (verified via SHA-256 in `_split_manifest.json`).
+* **Stage 2 (Split):** Concatenating all chapter files in `02-chapters/` recreates the source Markdown document byte-for-byte (verified via SHA-256 in `_split_manifest.json`).
 * **Stage 5 (Chunking):** Chunks in `05-chunks/` are exact slices. Concatenating a chapter's chunks restores the preprocessed chapter byte-for-byte. Concatenating all chunks in global reading order restores the book.
 
 ### Invariant 4: Strict Per-Line and Per-Chunk Provenance
 Every transformation records exhaustive provenance:
-* **Stage 2:** Writes `_preprocess_manifest.json` with a per-line provenance map proving that every line in `02-preprocessed/` either matches the original line or was altered by a validated operation (`keep`, `promote`, `demote`, `remove`, `merge_with_next`).
-* **Stage 7:** Writes `07-translation-prompts/` recording the exact system prompt, user prompt, glossary rows, source text, and raw model response for every single chunk, ensuring translation issues are 100% debuggable.
+* **Stage 3:** Writes `_preprocess_manifest.json` with a per-line provenance map proving that every line in `03-preprocessed/` either matches the original line or was altered by a validated operation (`keep`, `promote`, `demote`, `remove`, `merge_with_next`).
+* **Stage 8:** Writes `08-translation-prompts/` recording the exact system prompt, user prompt, glossary rows, source text, and raw model response for every single chunk, ensuring translation issues are 100% debuggable.
 
 ---
 
@@ -95,26 +95,26 @@ The pipeline cleanly separates tasks requiring fuzzy reasoning from tasks requir
 ```mermaid
 classDiagram
     class LangGraph_Agents {
-        +Stage 1: Split Agent (Chapter Boundaries)
-        +Stage 2: Preprocess Agent (Damage & Header Cleaning)
-        +Stage 6b: Matter Agent (Front/Back Matter Localization)
-        +Stage 9: Postprocess Agent (Headings & TOC Synchronization)
+        +Stage 2: Split Agent (Chapter Boundaries)
+        +Stage 3: Preprocess Agent (Damage & Header Cleaning)
+        +Stage 7: Matter Agent (Front/Back Matter Localization)
+        +Stage 10: Postprocess Agent (Headings & TOC Synchronization)
     }
 
     class Deterministic_Funnels {
-        +Stage 0: Conversion (docling text extraction)
-        +Stage 3: Dictionary Funnel (Sentence filtering & NER)
+        +Stage 1: Conversion (docling text extraction)
+        +Stage 4: Dictionary Funnel (Sentence filtering & NER)
         +Stage 5: Chunking (chonkie recursive boundary slicer)
         +Stage 6: Chunk Glossary (rapidfuzz fuzzy joiner)
         +Quality Gate: Chapter Openings Audit (openings repair)
-        +Stage 8: Assembly (Manifest-directed join)
-        +Stage 10: Binding (Markdown concatenation)
-        +Stage 11: EPUB Packaging (EPUB 3 builder)
+        +Stage 9: Assembly (Manifest-directed join)
+        +Stage 11: Binding (Markdown concatenation)
+        +Stage 12: EPUB Packaging (EPUB 3 builder)
     }
 
     class Structured_LLM_Stages {
         +Stage 4: Glossary (Sequential Term Accumulator)
-        +Stage 7: Translation (Chunk-by-Chunk Structured LLM)
+        +Stage 8: Translation (Chunk-by-Chunk Structured LLM)
     }
 ```
 
@@ -136,13 +136,13 @@ classDiagram
 Every stage can use a different provider or model (e.g., DeepSeek for splitting, local LM Studio for translation, Claude for front-matter synthesis, Gemini for multimodal matter image recreation).
 
 > [!NOTE]
-> **Multimodal Matter Translation (Stage 6b):** While stages 1-6a and 7-9 use text models, Stage 6b performs both front/back matter text localization and end-to-end **multimodal image translation** (recreating covers and title plates from scratch with translated lettering). A multimodal model with vision input and image synthesis capabilities (such as `gemini-3.1-flash-image`) is required for this step.
+> **Multimodal Matter Translation (Stage 7):** While stages 1-6 and 8-10 use text models, Stage 7 performs both front/back matter text localization and end-to-end **multimodal image translation** (recreating covers and title plates from scratch with translated lettering). A multimodal model with vision input and image synthesis capabilities (such as `gemini-3.1-flash-image`) is required for this step.
 
 ---
 
 ## 5. Execution Model and Orchestration
 
 The pipeline is driven by [book_translator/pipeline/driver.py](file:///home/jovis/Documents/WORK/BleBelTranslateBook/book_translator/pipeline/driver.py):
-* **State Resolution:** Each stage reads the output of its predecessor from canonical numbered folders (`00-markdown/` through `09-postprocessed-chapters/`).
+* **State Resolution:** Each stage reads the output of its predecessor from canonical numbered folders (`01-markdown/` through `10-postprocessed-chapters/`).
 * **Resumability & Cache Invalidation:** Stages support `--skip-if-present` (or `--resume`). If chapter, chunk, or translation files already exist and match their expected hashes, expensive LLM calls are skipped.
 * **Partial Execution:** Operators can run windowed runs (e.g. `--first-chapters 5`), stop after specific stages (`--stop-after chunk`), or restart at downstream stages (`--start-at translate`).

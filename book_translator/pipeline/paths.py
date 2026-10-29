@@ -12,7 +12,7 @@ while each stage command rebuilt the same layout from ``--out`` and its own
     A stage command hands in the folder it is anchored to (the chapters folder,
     the chunks folder, the translated-chapters folder, …) and gets the same
     layout, rooted at that folder's book folder. This preserves the long-standing
-    stage-command behaviour where ``chunk --out /tmp/book/01-chapters`` writes
+    stage-command behaviour where ``chunk --out /tmp/book/02-chapters`` writes
     ``/tmp/book/05-chunks``.
 
 The folder names themselves stay in :mod:`book_translator.documents.layout`; this

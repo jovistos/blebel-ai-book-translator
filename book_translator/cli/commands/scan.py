@@ -25,14 +25,14 @@ def add_parser(sub: Any) -> None:
     """Register this command's parser (the help text is snapshot-tested)."""
     p_scan = sub.add_parser(
         "scan",
-        help="stage 2 pre-flight: header evidence and damage profile (no LLM, no writes)",
+        help="stage 3 pre-flight: header evidence and damage profile (no LLM, no writes)",
     )
     parents.add_book(p_scan, required=False)
     p_scan.add_argument(
         "--out",
         "-o",
         default=None,
-        help="the chapters folder from stage 1 (default: data/output/<book>/01-chapters)",
+        help="the chapters folder from stage 2 (default: data/output/<book>/02-chapters)",
     )
     p_scan.add_argument(
         "--headers", action="store_true", help="print the full header record per chapter"
@@ -98,5 +98,5 @@ def cmd_scan(args: argparse.Namespace) -> int:
             for name, value in sorted(counts.items(), key=lambda item: -item[1]):
                 print(f"  {name:<28} {value:>5}")
         if not counts:
-            print("  none recognised — stage 2 has nothing to repair")
+            print("  none recognised — stage 3 has nothing to repair")
     return 0

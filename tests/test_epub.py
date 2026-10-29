@@ -1,4 +1,4 @@
-"""Offline tests for stage 11: the EPUB 3 package.
+"""Offline tests for stage 12: the EPUB 3 package.
 
 Every test builds a tiny book on disk — front matter, two chapters, back matter,
 one picture — and then reads the zip the stage produced. Nothing here needs a
@@ -30,7 +30,7 @@ FRONT_MATTER = """# Alisa u zemlji čuda
 
 *Prevod sa engleskog: BleBel*
 
-![Image](../00-markdown/images/cover.png)
+![Image](../01-markdown/images/cover.png)
 
 ---
 
@@ -90,13 +90,13 @@ def make_book(
     matter: dict | None = MATTER_MANIFEST,
     picture: bool = True,
 ) -> Path:
-    """A minimal postprocessed book, and the folder stage 11 reads."""
+    """A minimal postprocessed book, and the folder stage 12 reads."""
     book = root / "Alisa-u-zemlji-cuda"
-    chapters = book / "09-postprocessed-chapters"
+    chapters = book / "10-postprocessed-chapters"
     chapters.mkdir(parents=True)
-    (book / "00-markdown" / "images").mkdir(parents=True)
+    (book / "01-markdown" / "images").mkdir(parents=True)
     if picture:
-        (book / "00-markdown" / "images" / "cover.png").write_bytes(PNG)
+        (book / "01-markdown" / "images" / "cover.png").write_bytes(PNG)
     (chapters / "00-front-matter.md").write_text(FRONT_MATTER, encoding="utf-8")
     (chapters / "01-prvo.md").write_text(CHAPTER_ONE, encoding="utf-8")
     (chapters / "02-drugo.md").write_text(CHAPTER_TWO, encoding="utf-8")
@@ -104,7 +104,7 @@ def make_book(
     if toc:
         (chapters / "00-table-of-contents.md").write_text(TOC_PAGE, encoding="utf-8")
     if matter is not None:
-        folder = book / "06b-matter"
+        folder = book / "07-matter"
         folder.mkdir()
         (folder / "_matter_manifest.json").write_text(
             json.dumps(matter, ensure_ascii=False), encoding="utf-8"
@@ -165,7 +165,7 @@ def test_the_folder_becomes_an_epub3_package(tmp_path):
 
     assert result.ok, result.errors
     target = Path(result.output_path)
-    assert target.name == "11-translated-book.epub"
+    assert target.name == "12-translated-book.epub"
     assert target.is_file()
     assert target.parent == chapters.parent
     assert result.document_count == 4
@@ -295,7 +295,7 @@ def test_the_navigation_nests_sections_under_their_chapter(tmp_path):
 def test_a_picture_is_embedded_once_and_its_reference_rewritten(tmp_path):
     chapters = make_book(tmp_path)
     (chapters / "02-drugo.md").write_text(
-        CHAPTER_TWO + "\n![Image](../00-markdown/images/cover.png)\n", encoding="utf-8"
+        CHAPTER_TWO + "\n![Image](../01-markdown/images/cover.png)\n", encoding="utf-8"
     )
 
     result = run_epub(chapters, write_manifest=False)
@@ -308,7 +308,7 @@ def test_a_picture_is_embedded_once_and_its_reference_rewritten(tmp_path):
         assert pictures == ["OEBPS/images/cover.png"]
         front = archive.read("OEBPS/text/00-front-matter.xhtml").decode("utf-8")
         assert 'src="../images/cover.png"' in front
-        assert "../00-markdown/images" not in front
+        assert "../01-markdown/images" not in front
         # A picture alone on its line is a figure, not a paragraph.
         assert "<figure>" in front
         assert result.images[0]["media_type"] == "image/png"
@@ -435,12 +435,12 @@ def test_a_dry_run_writes_nothing(tmp_path):
     assert result.ok
     assert result.dry_run is True
     assert result.bytes > 0
-    assert not (chapters.parent / "11-translated-book.epub").exists()
+    assert not (chapters.parent / "12-translated-book.epub").exists()
     assert not (chapters.parent / "_epub_manifest.json").exists()
 
 
 def test_a_folder_without_postprocessed_chapters_is_an_error(tmp_path):
-    empty = tmp_path / "book" / "09-postprocessed-chapters"
+    empty = tmp_path / "book" / "10-postprocessed-chapters"
     empty.mkdir(parents=True)
 
     with pytest.raises(ToolError, match="run `postprocess` first"):
@@ -491,9 +491,9 @@ def test_the_renderer_escapes_text_instead_of_passing_html_through():
 
 
 def test_an_html_picture_tag_survives_as_a_markdown_picture():
-    rendered = render_markdown('<img src="../00-markdown/images/x.png" alt="Slika">\n')
+    rendered = render_markdown('<img src="../01-markdown/images/x.png" alt="Slika">\n')
 
-    assert '<img src="../00-markdown/images/x.png" alt="Slika" />' in rendered.body
+    assert '<img src="../01-markdown/images/x.png" alt="Slika" />' in rendered.body
     assert rendered.warnings == []
 
 
@@ -526,7 +526,7 @@ def test_the_cli_writes_the_epub_and_reports_it(tmp_path, capsys):
     captured = capsys.readouterr()
 
     assert code == 0
-    assert (chapters.parent / "11-translated-book.epub").is_file()
+    assert (chapters.parent / "12-translated-book.epub").is_file()
     assert "title           : Naslov" in captured.out
     assert "verification    : mimetype ok" in captured.out
     assert "OK — the postprocessed chapters were packaged" in captured.out
@@ -606,7 +606,7 @@ def test_entries_use_the_newest_chapter_timestamp(tmp_path):
     with open_package(Path(result.output_path)) as archive:
         stamps = {info.date_time for info in archive.infolist()}
     assert len(stamps) == 1
-    assert posixpath.basename(result.output_path) == "11-translated-book.epub"
+    assert posixpath.basename(result.output_path) == "12-translated-book.epub"
     # The zip stores local time, so compare through the reported ISO timestamp.
     assert result.modified.endswith("Z")
     assert newest <= Path(chapters / "01-prvo.md").stat().st_mtime + 1

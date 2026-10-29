@@ -70,28 +70,27 @@ The pipeline decomposes book translation into **12 verifiable stages**:
 ```mermaid
 flowchart TD
     subgraph S_INGEST ["Phase 1: Ingestion & Structure"]
-        A["Source File<br/>(EPUB / PDF / TXT)"] --> S0["0. Convert (Docling)<br/><i>Markdown + Images</i>"]
-        S0 --> S1["1. Split (LangGraph Agent)<br/><i>Discovers Chapter Boundaries</i>"]
-        S1 --> S2["2. Preprocess (LangGraph Agent)<br/><i>Removes OCR Damage & Page Numbers</i>"]
+        A["Source File<br/>(EPUB / PDF / TXT)"] --> S1["1. Convert (Docling)<br/><i>Markdown + Images</i>"]
+        S1 --> S2["2. Split (LangGraph Agent)<br/><i>Discovers Chapter Boundaries</i>"]
+        S2 --> S3["3. Preprocess (LangGraph Agent)<br/><i>Removes OCR Damage & Page Numbers</i>"]
     end
 
     subgraph S_GLOSSARY ["Phase 2: Entity & Glossary Extraction"]
-        S2 --> S3["3. Dictionary (CLASSLA / Stanza)<br/><i>Extracts Entities & Proper Nouns</i>"]
-        S3 --> S4["4. Glossary (Structured LLM)<br/><i>Translates & Locks Book Terminology</i>"]
-        S2 --> S5["5. Chunking (Chonkie)<br/><i>Non-Destructive Paragraph Slicing</i>"]
+        S3 --> S4["4. Entity Extraction & Glossary (CLASSLA + LLM)<br/><i>Extracts Entities & Locks Book Terminology</i>"]
+        S3 --> S5["5. Chunking (Chonkie)<br/><i>Non-Destructive Paragraph Slicing</i>"]
         S4 & S5 --> S6["6. Chunk Glossary (RapidFuzz)<br/><i>Matches Locked Terms Per Chunk</i>"]
     end
 
     subgraph S_TRANSLATE ["Phase 3: Translation & Assembly"]
-        S6 --> S6b["6b. Matter Agent (Web Search & Multimodal Image)<br/><i>Localizes Matter & Recreates Covers</i>"]
-        S6b --> S7["7. Translate (DeepSeek / LM Studio)<br/><i>Translates Body Chunks with Locked Terms</i>"]
-        S7 --> S8["8. Assemble (Deterministic)<br/><i>Concatenates Chunks into Chapters</i>"]
+        S6 --> S7["7. Matter Agent (Web Search & Multimodal Image)<br/><i>Localizes Matter & Recreates Covers</i>"]
+        S7 --> S8["8. Translate (DeepSeek / LM Studio)<br/><i>Translates Body Chunks with Locked Terms</i>"]
+        S8 --> S9["9. Assemble (Deterministic)<br/><i>Concatenates Chunks into Chapters</i>"]
     end
 
     subgraph S_FINALIZE ["Phase 4: Postprocessing & Packaging"]
-        S8 --> S9["9. Postprocess (LangGraph Agent)<br/><i>Aligns Heading Levels & TOC</i>"]
-        S9 --> S10["10. Bind (Markdown File)<br/><i>Full Book Markdown: 10-translated-book.md</i>"]
-        S10 --> S11["11. EPUB 3 (Builder)<br/><i>Publisher-Ready: 11-translated-book.epub</i>"]
+        S9 --> S10["10. Postprocess (LangGraph Agent)<br/><i>Aligns Heading Levels & TOC</i>"]
+        S10 --> S11["11. Bind (Markdown File)<br/><i>Full Book Markdown: 11-translated-book.md</i>"]
+        S11 --> S12["12. EPUB 3 (Builder)<br/><i>Publisher-Ready: 12-translated-book.epub</i>"]
     end
 ```
 
@@ -99,19 +98,18 @@ flowchart TD
 
 | Stage | Name | Engine / Tool | Purpose & Guarantees | Output Path |
 | :---: | :--- | :--- | :--- | :--- |
-| **0** | **Convert** | `docling` | Converts EPUB/PDF/TXT to clean Markdown and extracts book illustrations. | `00-markdown/` + `images/` |
-| **1** | **Split** | LangGraph Agent | Discovers chapter beginnings without reading prose; performs byte-exact cuts. | `01-chapters/` |
-| **2** | **Preprocess** | LangGraph Agent | Eliminates running headers, orphan page numbers, and OCR scanning noise. | `02-preprocessed/` |
-| **3** | **Dictionary** | CLASSLA / Stanza | Funnels sentences and identifies named entities (PER, LOC, ORG). | `03-reduced/` & `unique/` |
-| **4** | **Glossary** | Structured LLM | Builds an accumulative, book-wide bilingual glossary in reading order. | `04-glossary/` |
+| **1** | **Convert** | `docling` | Converts EPUB/PDF/TXT to clean Markdown and extracts book illustrations. | `01-markdown/` + `images/` |
+| **2** | **Split** | LangGraph Agent | Discovers chapter beginnings without reading prose; performs byte-exact cuts. | `02-chapters/` |
+| **3** | **Preprocess** | LangGraph Agent | Eliminates running headers, orphan page numbers, and OCR scanning noise. | `03-preprocessed/` |
+| **4** | **Dictionary & Glossary** | CLASSLA / Stanza + LLM | Funnels sentences, identifies named entities (PER, LOC, ORG), and builds locked glossary. | `04-reduced/`, `04-reduced-unique/` & `04-glossary/` |
 | **5** | **Chunk** | `chonkie` | Recursively cuts chapters into ~1,000-token chunks at natural paragraph boundaries. | `05-chunks/` |
 | **6** | **Chunk Glossary** | `rapidfuzz` | Filters and attaches *only* the glossary terms relevant to each chunk (zero LLM waste). | `06-chunk-glossary/` |
-| **6b**| **Matter** | LangGraph Agent + Multimodal Model | Localizes title, foreword, bio, credits BleBel, prunes imprint, and recreates cover/plates multimodally (multimodal model required). | `06b-matter/` + `07-translations/` |
-| **7** | **Translate** | DeepSeek / LM Studio | Translates chunks with strict JSON schema, entity locking, and prompt auditing. | `07-translations/` |
-| **8** | **Assemble** | Deterministic | Reassembles translated chunks back into complete, formatted chapters. | `08-translated-chapters/` |
-| **9** | **Postprocess** | LangGraph Agent | Verifies chapter titles, TOC headings, and opening paragraph formatting. | `09-postprocessed-chapters/` |
-| **10**| **Bind** | Deterministic | Concatenates all localized chapters into a single unified Markdown file. | `10-translated-book.md` |
-| **11**| **EPUB** | `markdown-it-py` | Compiles a valid EPUB 3 volume with NCX/nav TOC, styling, and embedded artwork. | `11-translated-book.epub` |
+| **7** | **Matter** | LangGraph Agent + Multimodal Model | Localizes title, foreword, bio, credits BleBel, prunes imprint, and recreates cover/plates multimodally (multimodal model required). | `07-matter/` + `08-translations/` |
+| **8** | **Translate** | DeepSeek / LM Studio | Translates chunks with strict JSON schema, entity locking, and prompt auditing. | `08-translations/` |
+| **9** | **Assemble** | Deterministic | Reassembles translated chunks back into complete, formatted chapters. | `09-translated-chapters/` |
+| **10**| **Postprocess** | LangGraph Agent | Verifies chapter titles, TOC headings, and opening paragraph formatting. | `10-postprocessed-chapters/` |
+| **11**| **Bind** | Deterministic | Concatenates all localized chapters into a single unified Markdown file. | `11-translated-book.md` |
+| **12**| **EPUB** | `markdown-it-py` | Compiles a valid EPUB 3 volume with NCX/nav TOC, styling, and embedded artwork. | `12-translated-book.epub` |
 
 ---
 
@@ -171,11 +169,11 @@ Available Books in data/input/:
   [2] Dont-You-Forget-About-Me.pdf (1.8 MB)
 
 Select Workflow Preset:
-  [1] Full Pipeline (Stages 0-11: Convert ➔ Split ➔ Translate ➔ EPUB)
+  [1] Full Pipeline (Stages 1-12: Convert ➔ Split ➔ Translate ➔ EPUB)
   [2] Preview / Test Run (Translate only first N chapters to verify quality)
-  [3] Preparation & Glossary Only (Stages 0-6: Zero LLM translation cost)
+  [3] Preparation & Glossary Only (Stages 1-6: Zero LLM translation cost)
   [4] Translate & Assemble Existing Chunks (Resume existing prepared chunks)
-  [5] Convert Only (Stage 0: Extract Markdown & illustrations)
+  [5] Convert Only (Stage 1: Extract Markdown & illustrations)
   [6] Custom Window (--start-at, --stop-after)
 ```
 
@@ -186,7 +184,7 @@ Select Workflow Preset:
 Prefer running via CLI commands or headless scripts? The pipeline offers full granular control:
 
 ### 1. Zero-Cost Structure & Glossary Preparation
-Run stages 0 through 6 to convert the book, clean chapter headers, extract characters into the glossary, and chunk the text without spending any translation tokens:
+Run stages 1 through 6 to convert the book, clean chapter headers, extract characters into the glossary, and chunk the text without spending any translation tokens:
 
 ```bash
 book-translator-pipeline "MyBook.epub" --cpu
@@ -246,12 +244,12 @@ provider = "deepseek"
 model = "deepseek-flash"
 temperature = 0.0
 
-# Stage 1 (Split Agent): Use ultra-fast Gemini Flash to locate chapters
+# Stage 2 (Split Agent): Use ultra-fast Gemini Flash to locate chapters
 [llm.split]
 provider = "gemini"
 model = "gemini-2.5-flash"
 
-# Stage 2 (Preprocess Agent): Scrub OCR artifacts with DeepSeek Flash
+# Stage 3 (Preprocess Agent): Scrub OCR artifacts with DeepSeek Flash
 [llm.preprocess]
 model = "deepseek-flash"
 
@@ -260,7 +258,7 @@ model = "deepseek-flash"
 provider = "claude"
 model = "anthropic/claude-3.5-haiku"
 
-# Stage 7 (Body Translation): Use local, free, offline LM Studio
+# Stage 8 (Body Translation): Use local, free, offline LM Studio
 [llm.translate]
 provider = "lmstudio"
 # No model string needed — auto-detects model loaded in LM Studio!
@@ -280,7 +278,7 @@ book-translator-pipeline "Book.epub" \
 During translation, BleBel provides live, streaming visibility into token consumption:
 
 ```text
-  [Stage 7] Body Translation (LM Studio · Qwen2.5-14B)
+  [Stage 8] Body Translation (LM Studio · Qwen2.5-14B)
     ✓ Chapter 01 (3 chunks) ·    4,120 tok ·  18.2s
     ✓ Chapter 02 (4 chunks) ·    5,830 tok ·  24.1s
     ✓ Chapter 03 (3 chunks) ·    3,940 tok ·  17.0s
@@ -302,8 +300,8 @@ For in-depth architectural guides, schemas, and API references, explore the [`do
 * 📖 **[Documentation Portal](docs/README.md)**: Master index and role-based reading guides.
 * 🏛️ **[System Architecture](docs/architecture/overview.md)**: Core design invariants, plan-action separation, and reversibility.
 * 🤖 **[LangGraph Agents Deep Dive](docs/architecture/langgraph-agents.md)**: State machines, tools, and fallback policies for all 4 agents.
-* 📦 **[Pipeline Stages 0 to 5](docs/pipeline/stages-0-to-5.md)**: Ingestion, chapter splitting, cleaning, dictionary funnel, and chunking.
-* 🚀 **[Pipeline Stages 6 to 11](docs/pipeline/stages-6-to-11.md)**: Glossary locking, front/back matter, translation, assembly, and EPUB 3 packaging.
+* 📦 **[Pipeline Stages 1 to 6](docs/pipeline/stages-1-to-6.md)**: Ingestion, chapter splitting, cleaning, dictionary funnel, and chunking.
+* 🚀 **[Pipeline Stages 7 to 12](docs/pipeline/stages-7-to-12.md)**: Matter localization, body translation, assembly, postprocessing, bind, and EPUB 3 packaging.
 * ⚙️ **[Models & Providers Configuration](docs/configuration/models-and-providers.md)**: Detailed provider setups, LM Studio, Ollama, API keys, and TOML reference.
 * 💻 **[CLI Reference](docs/cli/reference.md)**: Full manual for all 18 CLI subcommands, flags, and helper scripts.
 * 📁 **[Data Layout & Contracts](docs/data-layout-and-contracts.md)**: Directory conventions, manifest JSON schemas, traces, and prompt audit files.

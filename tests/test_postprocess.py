@@ -1,4 +1,4 @@
-"""Offline tests for stage 9 (heading postprocessing) and stage 10 (bind).
+"""Offline tests for stage 10 (heading postprocessing) and stage 11 (bind).
 
 No provider and no network: the graph models are scripted doubles. The tests pin
 the contract the book depends on:
@@ -87,12 +87,12 @@ def test_book_inventory_lists_every_chapter_title(tmp_path: Path):
 
 
 def test_book_inventory_reads_the_original_identity_from_the_matter_plan(tmp_path: Path):
-    source = tmp_path / "08-translated-chapters"
+    source = tmp_path / "09-translated-chapters"
     source.mkdir()
     (source / "01-chapter-1.md").write_text(
         "Poglavlje 1\n\nPrva rečenica.\n", encoding="utf-8"
     )
-    matter = tmp_path / "06b-matter"
+    matter = tmp_path / "07-matter"
     matter.mkdir()
     (matter / "_matter_manifest.json").write_text(
         json.dumps(
@@ -421,12 +421,12 @@ def test_matter_inspection_is_bounded_and_reports_toc(tmp_path: Path):
 
 
 def test_postprocess_graph_writes_a_separate_folder_and_toc(tmp_path: Path):
-    source = tmp_path / "08-translated-chapters"
+    source = tmp_path / "09-translated-chapters"
     source.mkdir()
     (source / "01-chapter-1.md").write_text(
         "Poglavlje 1\n\nŠta vam je na umu?\n\nPrva rečenica.\n", encoding="utf-8"
     )
-    out = tmp_path / "09-postprocessed-chapters"
+    out = tmp_path / "10-postprocessed-chapters"
     book_model = ScriptedModel(
         [
             _tool_call(
@@ -488,13 +488,13 @@ def test_postprocess_graph_writes_a_separate_folder_and_toc(tmp_path: Path):
 
 
 def test_postprocess_graph_promotes_a_plain_all_caps_heading(tmp_path: Path):
-    source = tmp_path / "08-translated-chapters"
+    source = tmp_path / "09-translated-chapters"
     source.mkdir()
     (source / "01-chapter-1.md").write_text(
         "Poglavlje 1\n\nPrva rečenica.\n\nJUTRO\n\nTekst jutra.\n",
         encoding="utf-8",
     )
-    out = tmp_path / "09-postprocessed-chapters"
+    out = tmp_path / "10-postprocessed-chapters"
     book_model = ScriptedModel(
         [
             _tool_call(
@@ -553,7 +553,7 @@ def test_chapter_agent_is_told_to_resubmit_on_its_last_turn(tmp_path: Path):
     from book_translator.stage_graph import make_agent_node
     from book_translator.stages.postprocess_agent.graph import CHAPTER
 
-    source = tmp_path / "08-translated-chapters"
+    source = tmp_path / "09-translated-chapters"
     source.mkdir()
     chapter = source / "02-chapter-2.md"
     chapter.write_text("Poglavlje 2\n\nDruga rečenica.\n", encoding="utf-8")
@@ -583,12 +583,12 @@ def test_chapter_agent_is_told_to_resubmit_on_its_last_turn(tmp_path: Path):
 
 
 def test_book_plan_requires_a_web_search_first(tmp_path: Path, monkeypatch):
-    source = tmp_path / "08-translated-chapters"
+    source = tmp_path / "09-translated-chapters"
     source.mkdir()
     (source / "01-chapter-1.md").write_text(
         "Poglavlje 1\n\nPrva rečenica.\n", encoding="utf-8"
     )
-    out = tmp_path / "09-postprocessed-chapters"
+    out = tmp_path / "10-postprocessed-chapters"
     queries: list[str] = []
 
     def fake_search(query, max_results=5):
@@ -691,7 +691,7 @@ def test_book_plan_requires_web_evidence(tmp_path: Path):
 
 
 def test_model_never_sees_chapter_prose(tmp_path: Path):
-    source = tmp_path / "08-translated-chapters"
+    source = tmp_path / "09-translated-chapters"
     source.mkdir()
     marker = "Ovo je jedinstvena rečenica tela koju model ne sme da vidi."
     opening = "\n\n".join(f"Uvodna rečenica {number}." for number in range(10))
@@ -750,14 +750,14 @@ def test_model_never_sees_chapter_prose(tmp_path: Path):
 
 
 def test_bind_concatenates_postprocessed_files_in_reading_order(tmp_path: Path):
-    source = tmp_path / "09-postprocessed-chapters"
+    source = tmp_path / "10-postprocessed-chapters"
     source.mkdir()
     (source / "00-front-matter.md").write_text("# Naslov\n\n", encoding="utf-8")
     (source / "00-table-of-contents.md").write_text(
         "# Sadržaj\n\n1. Poglavlje 1\n", encoding="utf-8"
     )
     (source / "01-chapter-1.md").write_text("# Poglavlje 1\n\nPrva.\n", encoding="utf-8")
-    target = tmp_path / "10-translated-book.md"
+    target = tmp_path / "11-translated-book.md"
 
     result = run_bind(source, target)
 
@@ -770,13 +770,13 @@ def test_bind_concatenates_postprocessed_files_in_reading_order(tmp_path: Path):
 
 
 def test_bind_rewrites_chapter_image_links_for_the_book_root(tmp_path: Path):
-    source = tmp_path / "09-postprocessed-chapters"
+    source = tmp_path / "10-postprocessed-chapters"
     source.mkdir()
-    image = "![Image](../00-markdown/images/rabbit.png)"
+    image = "![Image](../01-markdown/images/rabbit.png)"
     (source / "01-chapter-1.md").write_text(
         f"# Poglavlje 1\n\n{image}\n\nZec je gledao na sat.\n", encoding="utf-8"
     )
-    target = tmp_path / "10-translated-book.md"
+    target = tmp_path / "11-translated-book.md"
 
     result = run_bind(source, target)
 
@@ -784,13 +784,13 @@ def test_bind_rewrites_chapter_image_links_for_the_book_root(tmp_path: Path):
     assert result.image_refs == 1
     text = target.read_text(encoding="utf-8")
     # The bound file sits at the book root, one level above the chapter folder.
-    assert "![Image](00-markdown/images/rabbit.png)" in text
-    assert "../00-markdown/images/rabbit.png" not in text
+    assert "![Image](01-markdown/images/rabbit.png)" in text
+    assert "../01-markdown/images/rabbit.png" not in text
 
 
 def test_postprocessing_keeps_image_lines_untouched(tmp_path: Path):
     chapter = tmp_path / "01-chapter-1.md"
-    image = "![Image](../00-markdown/images/rabbit.png)"
+    image = "![Image](../01-markdown/images/rabbit.png)"
     chapter.write_text(
         f"# Poglavlje 1\n\n{image}\n\nZec je gledao na sat.\n", encoding="utf-8"
     )

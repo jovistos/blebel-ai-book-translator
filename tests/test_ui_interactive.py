@@ -51,7 +51,7 @@ def test_wizard_rejects_non_tty(monkeypatch: pytest.MonkeyPatch, capsys: pytest.
 def test_checkpoint_pause_continues_on_affirmative(tmp_path) -> None:
     driver = MagicMock(spec=PipelineDriver)
     driver.glossary_out = tmp_path / "04-glossary"
-    driver.matter_out = tmp_path / "06b-matter"
+    driver.matter_out = tmp_path / "07-matter"
     driver.postprocess_out = tmp_path / "09-postprocess"
     driver.book_dir = tmp_path
     driver.console = MagicMock()
@@ -71,7 +71,7 @@ def test_checkpoint_pause_continues_on_affirmative(tmp_path) -> None:
 def test_checkpoint_pause_allows_edit(tmp_path) -> None:
     driver = MagicMock(spec=PipelineDriver)
     driver.glossary_out = tmp_path / "04-glossary"
-    driver.matter_out = tmp_path / "06b-matter"
+    driver.matter_out = tmp_path / "07-matter"
     driver.postprocess_out = tmp_path / "09-postprocess"
     driver.book_dir = tmp_path
     driver.console = MagicMock()

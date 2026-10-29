@@ -47,14 +47,14 @@ def add_parser(sub: Any) -> None:
         "--out",
         "-o",
         default=None,
-        help="the chapter folder (default: the cleaned data/output/<book>/02-preprocessed "
-        "when stage 2 wrote it, else data/output/<book>/01-chapters)",
+        help="the chapter folder (default: the cleaned data/output/<book>/03-preprocessed "
+        "when stage 3 wrote it, else data/output/<book>/02-chapters)",
     )
     p_gloss.add_argument(
         "--sentences",
         choices=("unique", "reduced"),
         default="unique",
-        help="which stage-3 folder to mine: 'unique' first mentions (default) or "
+        help="which stage-4 folder to mine: 'unique' first mentions (default) or "
         "'reduced' every entity-bearing sentence",
     )
     p_gloss.add_argument(
@@ -83,7 +83,7 @@ def add_parser(sub: Any) -> None:
     p_gloss.add_argument(
         "--book-title",
         default=None,
-        help="the title the prompt uses (default: the source filename from stage 1)",
+        help="the title the prompt uses (default: the source filename from stage 2)",
     )
     p_gloss.add_argument(
         "--include-front-matter",
@@ -173,8 +173,8 @@ def add_parser(sub: Any) -> None:
     p_gloss.add_argument(
         "--text-in",
         default=None,
-        help="chapter text folder to read (default: 02-preprocessed/ when it covers "
-        "the window, else 01-chapters/); overrides --out",
+        help="chapter text folder to read (default: 03-preprocessed/ when it covers "
+        "the window, else 02-chapters/); overrides --out",
     )
     p_gloss.set_defaults(func=cmd_glossary)
 

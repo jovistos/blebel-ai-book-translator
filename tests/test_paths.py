@@ -66,11 +66,11 @@ def test_per_book_output_layout():
     assert book_output_dir(book, root=ROOT) == ROOT / "data" / "output" / "My-Book"
     assert (
         book_markdown_dir(book, root=ROOT)
-        == ROOT / "data" / "output" / "My-Book" / "00-markdown"
+        == ROOT / "data" / "output" / "My-Book" / "01-markdown"
     )
     assert (
         book_chapters_dir(book, root=ROOT)
-        == ROOT / "data" / "output" / "My-Book" / "01-chapters"
+        == ROOT / "data" / "output" / "My-Book" / "02-chapters"
     )
 
 
@@ -83,7 +83,7 @@ def test_output_root_can_be_overridden():
     book = "book.md"
     assert book_chapters_dir(book, output_root="/tmp/out") == __import__(
         "pathlib"
-    ).Path("/tmp/out/book/01-chapters")
+    ).Path("/tmp/out/book/02-chapters")
 
 
 # --------------------------------------------------------------------------- #
@@ -154,7 +154,7 @@ def test_resolve_book_reports_a_missing_document(tmp_path):
 def test_resolve_output_dir_defaults_under_the_book_stem():
     book = ROOT / "data" / "input" / "novel.md"
     assert resolve_output_dir(book, None, root=ROOT) == (
-        ROOT / "data" / "output" / "novel" / "01-chapters"
+        ROOT / "data" / "output" / "novel" / "02-chapters"
     )
     assert resolve_output_dir(book, "/tmp/custom", root=ROOT) == __import__("pathlib").Path(
         "/tmp/custom"

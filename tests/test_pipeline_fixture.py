@@ -62,8 +62,8 @@ def test_fixture_book_runs_every_stage_and_hashes_the_whole_tree(
     assert any(name.endswith(".prompt.md") for name in files), (
         "no .prompt.md debugging artifact was written"
     )
-    assert "01-chapters/_manifest.json" in files
-    assert "11-translated-book.epub" in files
+    assert "02-chapters/_manifest.json" in files
+    assert "12-translated-book.epub" in files
 
     # 3. Same inputs, different work folders -> identical canonical bytes.
     assert first_tree == second_tree, (

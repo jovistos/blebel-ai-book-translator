@@ -119,7 +119,7 @@ def resolve_matter_image_path(
         search_dirs.append(p / MARKDOWN_DIRNAME / IMAGES_DIRNAME)
         search_dirs.append(p.parent / MARKDOWN_DIRNAME / IMAGES_DIRNAME)
         search_dirs.append(p.parent / IMAGES_DIRNAME)
-        search_dirs.append(p.parent / "00-markdown" / IMAGES_DIRNAME)
+        search_dirs.append(p.parent / MARKDOWN_DIRNAME / IMAGES_DIRNAME)
 
     for directory in search_dirs:
         option = directory / filename

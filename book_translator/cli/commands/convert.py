@@ -18,7 +18,7 @@ def add_parser(sub: Any) -> None:
     """Register this command's parser (the help text is snapshot-tested)."""
     p_convert = sub.add_parser(
         "convert",
-        help="stage 0: convert an EPUB, a text-based PDF or a TXT to Markdown "
+        help="stage 1: convert an EPUB, a text-based PDF or a TXT to Markdown "
         "(docling; image-based PDFs are rejected instead of OCR'd)",
     )
     parents.add_book(p_convert, required=False)
@@ -26,7 +26,7 @@ def add_parser(sub: Any) -> None:
         "--out",
         "-o",
         default=None,
-        help="folder for the converted Markdown (default: data/output/<book>/00-markdown)",
+        help="folder for the converted Markdown (default: data/output/<book>/01-markdown)",
     )
     p_convert.add_argument(
         "--force",
@@ -52,7 +52,7 @@ def add_parser(sub: Any) -> None:
 
 
 def cmd_convert(args: argparse.Namespace) -> int:
-    """Stage 0: EPUB/PDF/TXT -> Markdown under ``00-markdown/``."""
+    """Stage 1: EPUB/PDF/TXT -> Markdown under ``01-markdown/``."""
     source = _resolve_book(args)
     result = run_conversion(
         source,

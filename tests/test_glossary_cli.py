@@ -265,10 +265,10 @@ def test_the_help_text_states_the_default_pair():
 # --------------------------------------------------------------------------- #
 def _stage_folders(tmp_path):
     book = tmp_path / "book"
-    raw = book / "01-chapters"
+    raw = book / "02-chapters"
     raw.mkdir(parents=True)
     (raw / "01-a.md").write_text("# A\n\ntext\n", encoding="utf-8")
-    cleaned = book / "02-preprocessed"
+    cleaned = book / "03-preprocessed"
     cleaned.mkdir()
     (cleaned / "01-a.md").write_text("# A\n\ntext\n", encoding="utf-8")
     return book, raw, cleaned

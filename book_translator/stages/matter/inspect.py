@@ -22,6 +22,7 @@ from typing import Any
 from book_translator.core.constants import (
     CHAPTERS_DIRNAME,
     CHUNKS_DIRNAME,
+    MARKDOWN_DIRNAME,
     MAX_MATTER_READ_CHARS,
 )
 from book_translator.core.errors import ToolError
@@ -346,14 +347,14 @@ def _source_file(chapters_path: Path, manifest: dict[str, Any]) -> str:
 
 
 def _original_source_filename(chapters_path: Path, source_file: str) -> str:
-    """The original document filename (e.g. EPUB) if converted through 00-markdown."""
+    """The original document filename (e.g. EPUB) if converted through 01-markdown."""
     if source_file:
         p = Path(source_file)
-        if p.name.endswith(".md") and (p.parent.name == "00-markdown" or (chapters_path.parent / "00-markdown").is_dir()):
+        if p.name.endswith(".md") and (p.parent.name == MARKDOWN_DIRNAME or (chapters_path.parent / MARKDOWN_DIRNAME).is_dir()):
             convert_manifest = (
                 p.parent / "_convert_manifest.json"
-                if p.parent.name == "00-markdown"
-                else chapters_path.parent / "00-markdown" / "_convert_manifest.json"
+                if p.parent.name == MARKDOWN_DIRNAME
+                else chapters_path.parent / MARKDOWN_DIRNAME / "_convert_manifest.json"
             )
             if convert_manifest.is_file():
                 try:

@@ -100,7 +100,7 @@ def _split_block(block: str) -> list[str]:
     if not text:
         return []
     # Pictures are not vocabulary evidence. Remove their Markdown/HTML before
-    # the sentence rules see a path such as `../00-markdown/images/rabbit.png`.
+    # the sentence rules see a path such as `../01-markdown/images/rabbit.png`.
     text = strip_images(text)
     if not text:
         return []

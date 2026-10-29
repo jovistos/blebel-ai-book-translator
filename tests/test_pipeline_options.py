@@ -477,7 +477,7 @@ def test_pipeline_translate_flags_are_normalized(runtime):
 
 
 def test_epub_cover_auto_discovery_ignores_image_000000_and_finds_cover(runtime):
-    orig_img = Path(runtime.sources.postprocess).parent / "00-markdown" / "images"
+    orig_img = Path(runtime.sources.postprocess).parent / "01-markdown" / "images"
     orig_img.mkdir(parents=True)
     (orig_img / "image_000000_logo.png").write_bytes(b"logo")
 

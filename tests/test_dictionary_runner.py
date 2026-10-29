@@ -105,7 +105,7 @@ REPEATED = {
 }
 
 
-def make_chapters(tmp_path: Path, files: dict[str, str] | None = None, name: str = "01-chapters") -> Path:
+def make_chapters(tmp_path: Path, files: dict[str, str] | None = None, name: str = "02-chapters") -> Path:
     """A minimal stage-1 folder: chapter files plus a manifest."""
     folder = tmp_path / name
     folder.mkdir(parents=True, exist_ok=True)
@@ -255,7 +255,7 @@ def test_run_dictionary_writes_one_reduced_file_per_chapter(tmp_path):
         progress=lambda chapter, done, total: seen.append((chapter["filename"], done, total)),
     )
 
-    reduced = tmp_path / "03-reduced"
+    reduced = tmp_path / "04-reduced"
     assert result.ok is True
     assert result.chapter_count == 2
     assert result.processed_count == 2
@@ -316,7 +316,7 @@ def test_skip_if_present_reuses_the_files_and_builds_no_tagger(tmp_path):
     assert result.skipped_count == 2
     assert second.calls == []  # nothing was tagged again
     assert result.chapters[0]["skipped"] is True
-    assert (tmp_path / "03-reduced" / "01-prva.md").is_file()
+    assert (tmp_path / "04-reduced" / "01-prva.md").is_file()
     # The previous run's own record is carried over instead of re-detecting.
     assert result.language["language"] == "sr"
     assert result.backend == "fake"
@@ -327,7 +327,7 @@ def test_skip_if_present_rebuilds_when_the_chapter_folder_changes(tmp_path):
     raw = make_chapters(tmp_path)
     run_dictionary(str(raw), backend=FakeNer(), language="sr")
 
-    cleaned = make_chapters(tmp_path, name="02-preprocessed")
+    cleaned = make_chapters(tmp_path, name="03-preprocessed")
     (cleaned / "01-prva.md").write_text(
         "## GLAVA PRVA\n\nMarko je otišao kući.\n", encoding="utf-8"
     )
@@ -339,7 +339,7 @@ def test_skip_if_present_rebuilds_when_the_chapter_folder_changes(tmp_path):
     assert result.ok is True
     assert result.skipped is False
     assert second.calls  # the reduction ran again, from the cleaned text
-    assert (tmp_path / "03-reduced" / "01-prva.md").is_file()
+    assert (tmp_path / "04-reduced" / "01-prva.md").is_file()
 
 
 def test_a_fully_reduced_book_needs_no_detector_either(tmp_path):
@@ -366,7 +366,7 @@ def test_a_fully_reduced_book_needs_no_detector_either(tmp_path):
 def test_skip_if_present_reduces_only_the_chapters_that_are_missing(tmp_path):
     chapters = make_chapters(tmp_path)
     run_dictionary(str(chapters), backend=FakeNer(), language="sr")
-    (tmp_path / "03-reduced" / "02-druga.md").unlink()
+    (tmp_path / "04-reduced" / "02-druga.md").unlink()
 
     result = run_dictionary(
         str(chapters), backend=FakeNer(), language="sr", skip_if_present=True
@@ -375,7 +375,7 @@ def test_skip_if_present_reduces_only_the_chapters_that_are_missing(tmp_path):
     assert result.skipped is False
     assert result.processed_count == 1
     assert result.skipped_count == 1
-    assert (tmp_path / "03-reduced" / "02-druga.md").is_file()
+    assert (tmp_path / "04-reduced" / "02-druga.md").is_file()
     assert result.totals["kept"] == 2  # both of chapter 2's sentences survive
 
 
@@ -383,20 +383,20 @@ def test_save_reduced_can_be_switched_off(tmp_path):
     chapters = make_chapters(tmp_path)
     result = run_dictionary(
         str(chapters),
-        str(tmp_path / "03-reduced"),
+        str(tmp_path / "04-reduced"),
         backend=FakeNer(),
         language="sr",
         save_reduced=False,
     )
 
     assert result.ok
-    assert not (tmp_path / "03-reduced" / "01-prva.md").exists()
+    assert not (tmp_path / "04-reduced" / "01-prva.md").exists()
     assert Path(result.manifest_path).is_file()  # the record still lands
 
 
 def test_a_dry_run_writes_nothing_but_still_counts(tmp_path):
     chapters = make_chapters(tmp_path)
-    out = tmp_path / "03-reduced"
+    out = tmp_path / "04-reduced"
     result = run_dictionary(
         str(chapters), str(out), backend=FakeNer(), language="sr", dry_run=True
     )
@@ -414,7 +414,7 @@ def test_limit_reduces_only_the_first_chapters(tmp_path):
 
     assert result.chapter_count == 1
     assert result.limited is True
-    assert not (tmp_path / "03-reduced" / "02-druga.md").exists()
+    assert not (tmp_path / "04-reduced" / "02-druga.md").exists()
     manifest = json.loads(Path(result.manifest_path).read_text(encoding="utf-8"))
     assert manifest["limited"] is True
     assert manifest["chapter_count"] == 1
@@ -426,7 +426,7 @@ def test_write_manifest_can_be_switched_off(tmp_path):
         str(chapters), backend=FakeNer(), language="sr", write_manifest=False
     )
     assert result.manifest_path is None
-    assert (tmp_path / "03-reduced" / "01-prva.md").is_file()
+    assert (tmp_path / "04-reduced" / "01-prva.md").is_file()
 
 
 def test_an_explicit_chapters_output_folder_is_respected(tmp_path):
@@ -572,7 +572,7 @@ def test_an_undetectable_language_fails_before_any_file_is_written(tmp_path):
     chapters = make_chapters(tmp_path)
     with pytest.raises(ToolError, match="no NER backend"):
         run_dictionary(str(chapters), language="auto", detector=FakeDetector("fr"))
-    assert not (tmp_path / "03-reduced").exists()
+    assert not (tmp_path / "04-reduced").exists()
 
 
 def test_a_missing_tagger_is_reported_as_a_missing_dependency():
@@ -874,7 +874,7 @@ def _stub_cli_dictionary(
             ok=ok,
             chapters_path=str(chapters_path),
             output_dir=str(output_dir or chapters_path),
-            unique_dir=str(reduced.parent / "03-reduced-unique"),
+            unique_dir=str(reduced.parent / "04-reduced-unique"),
             language={"language": "sr", "method": "lingua", "confidence": 0.93, "samples": []},
             backend="classla",
             chapter_count=2,
@@ -958,8 +958,8 @@ def test_cli_dictionary_reduces_a_book(tmp_path, monkeypatch, capsys):
     assert call["save_reduced"] is True
     assert call["save_unique"] is True
     # Default output is a sibling of the chapters folder.
-    assert Path(call["output_dir"]) == chapters.parent / "03-reduced"
-    assert Path(call["unique_output_dir"]) == chapters.parent / "03-reduced-unique"
+    assert Path(call["output_dir"]) == chapters.parent / "04-reduced"
+    assert Path(call["unique_output_dir"]) == chapters.parent / "04-reduced-unique"
     assert "language        : sr" in out
     assert "sentences       : 40 -> 12 kept" in out
     assert "first mentions  : 12 -> 5 kept (duplicate-noun=7, nouns=9)" in out
@@ -978,7 +978,7 @@ def test_cli_dictionary_can_be_pointed_at_the_preprocessed_folder(tmp_path, monk
     from book_translator import cli
 
     preprocessed = make_chapters(tmp_path, name="preprocessed")
-    elsewhere = tmp_path / "out" / "03-reduced"
+    elsewhere = tmp_path / "out" / "04-reduced"
     calls = _stub_cli_dictionary(monkeypatch)
 
     code = cli.main(
@@ -988,7 +988,7 @@ def test_cli_dictionary_can_be_pointed_at_the_preprocessed_folder(tmp_path, monk
     assert code == 0
     assert Path(calls[0]["output_dir"]) == elsewhere
     # The first-mention folder follows the reduced one, so the two stay together.
-    assert Path(calls[0]["unique_output_dir"]) == elsewhere.parent / "03-reduced-unique"
+    assert Path(calls[0]["unique_output_dir"]) == elsewhere.parent / "04-reduced-unique"
 
 
 def test_cli_dictionary_accepts_the_book_folder_not_just_chapters(tmp_path, monkeypatch):
@@ -1001,8 +1001,8 @@ def test_cli_dictionary_accepts_the_book_folder_not_just_chapters(tmp_path, monk
     code = cli.main(["dictionary", "--out", str(tmp_path), "--quiet"])
 
     assert code == 0
-    assert Path(calls[0]["chapters_path"]) == tmp_path / "01-chapters"
-    assert Path(calls[0]["output_dir"]) == tmp_path / "03-reduced"
+    assert Path(calls[0]["chapters_path"]) == tmp_path / "02-chapters"
+    assert Path(calls[0]["output_dir"]) == tmp_path / "04-reduced"
 
 
 def test_a_tagger_that_cannot_load_is_a_clean_error(tmp_path, monkeypatch):
@@ -1017,7 +1017,7 @@ def test_a_tagger_that_cannot_load_is_a_clean_error(tmp_path, monkeypatch):
     with pytest.raises(ToolError, match="could not load the stanza models for 'en'"):
         run_dictionary(str(chapters), language="en")
     # Nothing was created on the way out.
-    assert not (tmp_path / "03-reduced").exists()
+    assert not (tmp_path / "04-reduced").exists()
 
 
 def test_the_cli_prints_one_line_for_a_tagger_that_cannot_load(tmp_path, monkeypatch, capsys):
@@ -1101,8 +1101,8 @@ def test_both_folders_are_written_and_the_second_is_the_first_mentions(tmp_path)
     chapters = make_chapters(tmp_path, REPEATED)
     result = run_dictionary(str(chapters), backend=FakeNer(), language="sr")
 
-    reduced = tmp_path / "03-reduced"
-    unique = tmp_path / "03-reduced-unique"
+    reduced = tmp_path / "04-reduced"
+    unique = tmp_path / "04-reduced-unique"
     assert result.save_unique is True
     assert Path(result.unique_dir) == unique
 
@@ -1161,7 +1161,7 @@ def test_the_manifest_describes_both_folders_and_carries_the_noun_index(tmp_path
 
     manifest = json.loads(Path(result.manifest_path).read_text(encoding="utf-8"))
     assert manifest["save_unique"] is True
-    assert Path(manifest["unique_dir"]) == tmp_path / "03-reduced-unique"
+    assert Path(manifest["unique_dir"]) == tmp_path / "04-reduced-unique"
     assert manifest["unique_totals"]["kept"] == 2
     assert manifest["unique_totals"]["nouns"] == 4
     assert manifest["settings"]["save_unique"] is True
@@ -1191,8 +1191,8 @@ def test_save_unique_can_be_switched_off(tmp_path):
     )
 
     assert result.save_unique is False
-    assert not (tmp_path / "03-reduced-unique").exists()
-    assert (tmp_path / "03-reduced" / "01-prva.md").is_file()
+    assert not (tmp_path / "04-reduced-unique").exists()
+    assert (tmp_path / "04-reduced" / "01-prva.md").is_file()
     assert result.unique_totals["kept"] == 0
     assert result.chapters[0]["unique_kept"] == 0
 
@@ -1206,7 +1206,7 @@ def test_an_explicit_first_mention_folder_is_respected(tmp_path):
 
     assert Path(result.unique_dir) == elsewhere
     assert (elsewhere / "01-prva.md").is_file()
-    assert not (tmp_path / "03-reduced-unique").exists()
+    assert not (tmp_path / "04-reduced-unique").exists()
 
 
 def test_a_dry_run_writes_neither_folder_but_counts_both(tmp_path):
@@ -1214,8 +1214,8 @@ def test_a_dry_run_writes_neither_folder_but_counts_both(tmp_path):
     result = run_dictionary(str(chapters), backend=FakeNer(), language="sr", dry_run=True)
 
     assert result.dry_run is True
-    assert not (tmp_path / "03-reduced").exists()
-    assert not (tmp_path / "03-reduced-unique").exists()
+    assert not (tmp_path / "04-reduced").exists()
+    assert not (tmp_path / "04-reduced-unique").exists()
     assert result.totals["kept"] == 4
     assert result.unique_totals["kept"] == 2
 
@@ -1224,8 +1224,8 @@ def test_a_rerun_rebuilds_the_book_wide_set_from_the_noun_index(tmp_path):
     """The chapters a rerun reuses still suppress their nouns in the ones it runs."""
     chapters = make_chapters(tmp_path, REPEATED)
     run_dictionary(str(chapters), backend=FakeNer(), language="sr")
-    (tmp_path / "03-reduced" / "02-druga.md").unlink()
-    (tmp_path / "03-reduced-unique" / "02-druga.md").unlink()
+    (tmp_path / "04-reduced" / "02-druga.md").unlink()
+    (tmp_path / "04-reduced-unique" / "02-druga.md").unlink()
 
     backend = FakeNer()
     result = run_dictionary(
@@ -1237,7 +1237,7 @@ def test_a_rerun_rebuilds_the_book_wide_set_from_the_noun_index(tmp_path):
     assert result.skipped_count == 1
     # Chapter 1 was never re-tagged: its nouns came from the manifest.
     assert backend.calls == ["Tamo je Marko stigao.", "Ana je čekala Marka u Beogradu."]
-    assert (tmp_path / "03-reduced-unique" / "02-druga.md").read_text(encoding="utf-8") == (
+    assert (tmp_path / "04-reduced-unique" / "02-druga.md").read_text(encoding="utf-8") == (
         "Ana je čekala Marka u Beogradu.\n"
     )
     assert result.unique_totals["nouns"] == 4
@@ -1246,7 +1246,7 @@ def test_a_rerun_rebuilds_the_book_wide_set_from_the_noun_index(tmp_path):
 def test_a_rerun_reuses_a_chapter_only_when_its_unique_file_is_there(tmp_path):
     chapters = make_chapters(tmp_path, REPEATED)
     run_dictionary(str(chapters), backend=FakeNer(), language="sr")
-    (tmp_path / "03-reduced-unique" / "02-druga.md").unlink()
+    (tmp_path / "04-reduced-unique" / "02-druga.md").unlink()
 
     result = run_dictionary(
         str(chapters), backend=FakeNer(), language="sr", skip_if_present=True
@@ -1254,7 +1254,7 @@ def test_a_rerun_reuses_a_chapter_only_when_its_unique_file_is_there(tmp_path):
 
     assert result.processed_count == 1
     assert result.skipped_count == 1
-    assert (tmp_path / "03-reduced-unique" / "02-druga.md").is_file()
+    assert (tmp_path / "04-reduced-unique" / "02-druga.md").is_file()
 
 
 def test_a_fully_reduced_book_with_both_folders_still_needs_no_tagger(tmp_path):
@@ -1269,7 +1269,7 @@ def test_a_fully_reduced_book_with_both_folders_still_needs_no_tagger(tmp_path):
     assert result.skipped is True
     assert second.calls == []
     assert result.save_unique is True
-    assert Path(result.unique_dir) == tmp_path / "03-reduced-unique"
+    assert Path(result.unique_dir) == tmp_path / "04-reduced-unique"
     assert result.chapters[0]["unique_lines"] == 1
     assert result.unique_totals["kept"] == 2  # carried over from the previous manifest
 
@@ -1289,7 +1289,7 @@ def test_cli_dictionary_can_write_the_first_mentions_only(tmp_path, monkeypatch,
     assert code == 0
     assert calls[0]["save_reduced"] is False
     assert calls[0]["save_unique"] is True
-    assert Path(calls[0]["unique_output_dir"]) == chapters.parent / "03-reduced-unique"
+    assert Path(calls[0]["unique_output_dir"]) == chapters.parent / "04-reduced-unique"
     assert "save         : first mentions only (--no-save-reduced)" in out
     assert "OK — first-mention chapters written." in out
     assert "OK — reduced chapters written." not in out

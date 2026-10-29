@@ -737,8 +737,8 @@ class StageOptions:
         cover = self.epub_cover
         if cover is None and sources.postprocess is not None:
             parent = Path(sources.postprocess).parent
-            trans_img = parent / "07-translations" / "images"
-            orig_img = parent / "00-markdown" / "images"
+            trans_img = parent / "08-translations" / "images"
+            orig_img = parent / "01-markdown" / "images"
             for d in (trans_img, orig_img):
                 if d.is_dir():
                     for pat in ("*cover*_translated.*", "*cover*.*"):

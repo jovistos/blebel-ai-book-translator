@@ -888,7 +888,7 @@ def test_scan_chapter_damage_reports_the_shapes_without_prose(tmp_path):
 # --------------------------------------------------------------------------- #
 # images: stage 2 may not touch a picture or its caption
 # --------------------------------------------------------------------------- #
-IMAGE = "![Image](../00-markdown/images/rabbit.png)"
+IMAGE = "![Image](../01-markdown/images/rabbit.png)"
 
 
 def test_an_image_line_is_never_a_caption_or_heading_candidate(tmp_path):
@@ -942,7 +942,7 @@ def test_preprocessing_keeps_every_image_reference_in_order(tmp_path):
             "",
             "Slika 4. Zec gleda na sat.",
             "",
-            "![Image](../00-markdown/images/hat.png)",
+            "![Image](../01-markdown/images/hat.png)",
         ],
     )
 
@@ -952,5 +952,5 @@ def test_preprocessing_keeps_every_image_reference_in_order(tmp_path):
     assert verification["ok"] is True, verification["problems"]
     output = text_of(result)
     assert output.count(IMAGE) == 1
-    assert output.count("../00-markdown/images/hat.png") == 1
+    assert output.count("../01-markdown/images/hat.png") == 1
     assert output.index(IMAGE) < output.index("hat.png")

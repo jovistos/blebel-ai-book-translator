@@ -205,17 +205,17 @@ def cmd_wizard(args: argparse.Namespace) -> int:
         ),
         (
             "Preparation & Glossary Only",
-            "Stages 0-6: Structure, cleanup, dictionary, locked glossary and chunking (no translation cost)",
+            "Stages 1-6: Structure, cleanup, dictionary, locked glossary and chunking (no translation cost)",
             ["--no-translate"],
         ),
         (
             "Translate & Assemble Existing Chunks",
-            "Stages 6b-11: Resume after chunks & glossary are already prepared",
+            "Stages 7-12: Resume after chunks & glossary are already prepared",
             ["--start-at", "matter", "--with-translate", "--with-postprocess"],
         ),
         (
             "Convert Only",
-            "Stage 0: Convert EPUB/PDF to Markdown and extract illustrations",
+            "Stage 1: Convert EPUB/PDF to Markdown and extract illustrations",
             ["--stop-after", "convert"],
         ),
         (

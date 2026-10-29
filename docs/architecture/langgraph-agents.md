@@ -9,28 +9,28 @@
 ```mermaid
 classDiagram
     class SplitAgent {
-        Stage 1
+        Stage 2
         Scope: Entire Book
         Goal: Discover chapter boundaries
         Prose Reading: NEVER
         Toolset: split_stage
     }
     class PreprocessAgent {
-        Stage 2
+        Stage 3
         Scope: Chapter by Chapter
         Goal: Clean headers, page numbers & OCR damage
         Prose Reading: NEVER
         Toolset: preprocess_stage
     }
     class MatterAgent {
-        Stage 6b
+        Stage 7
         Scope: Book Plan + Matter Chunks
         Goal: Localize front & back matter, BleBel credit
         Prose Reading: YES (Matter only)
         Toolset: matter_stage
     }
     class PostprocessAgent {
-        Stage 9
+        Stage 10
         Scope: Book Plan + Chapter by Chapter
         Goal: Harmonize translated headings & sync TOC
         Prose Reading: NEVER (Openings only)
@@ -40,11 +40,11 @@ classDiagram
 
 ---
 
-## 1. Split Agent (Stage 1: Chapter Boundaries)
+## 1. Split Agent (Stage 2: Chapter Boundaries)
 
 * **Source Module:** [book_translator/stages/agent/](file:///home/jovis/Documents/WORK/BleBelTranslateBook/book_translator/stages/agent/)
-* **Input:** `00-markdown/<book>.md` (or raw source Markdown)
-* **Output:** Slicing map -> `01-chapters/` (Verbatim chapter files + `_split_manifest.json`)
+* **Input:** `01-markdown/<book>.md` (or raw source Markdown)
+* **Output:** Slicing map -> `02-chapters/` (Verbatim chapter files + `_split_manifest.json`)
 * **Core Contract:** The agent never sees book paragraphs; it receives only line numbers and candidate headings emitted by deterministic extractors.
 
 ### State Machine Architecture
@@ -83,11 +83,11 @@ Before any file is written, [book_translator/stages/slicing/validation.py](file:
 
 ---
 
-## 2. Preprocess Agent (Stage 2: Header & Damage Repair)
+## 2. Preprocess Agent (Stage 3: Header & Damage Repair)
 
 * **Source Module:** [book_translator/stages/preprocess_agent/](file:///home/jovis/Documents/WORK/BleBelTranslateBook/book_translator/stages/preprocess_agent/)
-* **Input:** Chapter files from `01-chapters/`
-* **Output:** Cleaned chapters in `02-preprocessed/` + `_preprocess_manifest.json`
+* **Input:** Chapter files from `02-chapters/`
+* **Output:** Cleaned chapters in `03-preprocessed/` + `_preprocess_manifest.json`
 * **Core Contract:** Operates sequentially chapter-by-chapter. The agent inspects headers, stray numbers, and damaged lines, outputting an action plan in a closed vocabulary.
 
 ### Execution Loop
@@ -117,11 +117,11 @@ No line may be deleted unless verified as a layout artifact or page number.
 
 ---
 
-## 3. Matter Agent (Stage 6b: Front/Back Matter Localization)
+## 3. Matter Agent (Stage 7: Front/Back Matter Localization)
 
 * **Source Module:** [book_translator/stages/matter_agent/](file:///home/jovis/Documents/WORK/BleBelTranslateBook/book_translator/stages/matter_agent/)
 * **Input:** Front matter (`00-front-matter.md`) and back matter (`99-back-matter.md`)
-* **Output:** Localized matter chunks in `07-translations/`, metadata in `06b-matter/`
+* **Output:** Localized matter chunks in `08-translations/`, metadata in `07-matter/`
 * **Core Contract:** Translates and synthesizes front/back matter **without the dictionary**. Credits **BleBel** as translator and web-searches for existing official target-language book titles.
 
 ### Three-Phase Process
@@ -132,7 +132,7 @@ sequenceDiagram
     participant Web as Web Search Tool
     participant Validator as Matter Validator
     participant MModel as Multimodal Model
-    participant Disk as 07-translations/
+    participant Disk as 08-translations/
 
     Note over Agent: Phase 1: Book-Level Matter Plan
     Agent->>Web: Search target language title for author & book
@@ -144,7 +144,7 @@ sequenceDiagram
     loop For Each Matter Chunk
         Agent->>Agent: Localize text using book plan guidelines
         Agent->>Validator: report_matter_localization(translated_chunk)
-        Validator->>Disk: Write directly to 07-translations/<chunk>.md
+        Validator->>Disk: Write directly to 08-translations/<chunk>.md
     end
 
     Note over Agent,MModel: Phase 3: Multimodal Image Recreation
@@ -169,11 +169,11 @@ sequenceDiagram
 
 ---
 
-## 4. Postprocess Agent (Stage 9: Heading Consistency & TOC)
+## 4. Postprocess Agent (Stage 10: Heading Consistency & TOC)
 
 * **Source Module:** [book_translator/stages/postprocess_agent/](file:///home/jovis/Documents/WORK/BleBelTranslateBook/book_translator/stages/postprocess_agent/)
-* **Input:** Assembled translated chapters in `08-translated-chapters/`
-* **Output:** Consistent chapters in `09-postprocessed-chapters/` + synchronized TOC
+* **Input:** Assembled translated chapters in `09-translated-chapters/`
+* **Output:** Consistent chapters in `10-postprocessed-chapters/` + synchronized TOC
 * **Core Contract:** Operates on translated text. Never alters body paragraphs; standardizes chapter headings, resolves numbering discrepancies, and generates a unified Table of Contents.
 
 ### Two-Phase Execution

@@ -94,7 +94,7 @@ def test_split_json_is_one_object_and_quiet_is_silent(tmp_path, capsys):
     assert code == 0
     assert printed.lstrip().startswith("{")
     payload = json.loads(printed)
-    assert payload["output_dir"] == str(out / "book" / "01-chapters")
+    assert payload["output_dir"] == str(out / "book" / "02-chapters")
 
     code = cli.main(
         [
@@ -113,10 +113,10 @@ def test_split_json_is_one_object_and_quiet_is_silent(tmp_path, capsys):
 
 
 def test_chunk_text_in_wins_over_out(tmp_path, capsys):
-    raw = tmp_path / "book" / "01-chapters"
+    raw = tmp_path / "book" / "02-chapters"
     raw.mkdir(parents=True)
     (raw / "01-a.md").write_text("# A\n\nOne sentence.\n", encoding="utf-8")
-    cleaned = tmp_path / "book" / "02-preprocessed"
+    cleaned = tmp_path / "book" / "03-preprocessed"
     cleaned.mkdir(parents=True)
     (cleaned / "01-a.md").write_text("# A\n\nOne sentence.\n", encoding="utf-8")
 
@@ -148,12 +148,12 @@ def test_chunk_ignores_a_partial_cleaned_folder(tmp_path, capsys):
     input_dir.mkdir()
     (input_dir / "book.md").write_text("# Book\n", encoding="utf-8")
 
-    raw = tmp_path / "out" / "book" / "01-chapters"
+    raw = tmp_path / "out" / "book" / "02-chapters"
     raw.mkdir(parents=True)
     for name in ("01-a.md", "02-b.md", "03-c.md"):
         (raw / name).write_text(f"# {name}\n\nOne sentence.\n", encoding="utf-8")
 
-    cleaned = tmp_path / "out" / "book" / "02-preprocessed"
+    cleaned = tmp_path / "out" / "book" / "03-preprocessed"
     cleaned.mkdir(parents=True)
     (cleaned / "01-a.md").write_text("# 01-a.md\n\nOne sentence.\n", encoding="utf-8")
     (cleaned / "_preprocess_manifest.json").write_text(

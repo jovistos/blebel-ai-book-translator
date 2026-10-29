@@ -10,17 +10,18 @@ The project keeps generated documents away from the source code:
     ``data/output/<book-stem>/``::
 
         data/output/Aleksandar_Loven_-_Ljubav_seks_i_vase_srce/
-            00-markdown/my-book.md
-            01-chapters/00-front-matter.md
-            01-chapters/01-predgovor.md
+            01-markdown/my-book.md
+            02-chapters/00-front-matter.md
+            02-chapters/01-predgovor.md
             ...
-            01-chapters/_manifest.json
-            01-chapters/_agent_trace.json
+            02-chapters/_manifest.json
+            02-chapters/_agent_trace.json
             05-chunks/00001-chapter-1-0000.md
             06-chunk-glossary/00001-chapter-1-0000.md.json
-            07-translations/00001-chapter-1-0000.md
-            07-translation-prompts/00001-chapter-1-0000.md.json
-            08-translated-chapters/01-chapter-1.md
+            07-matter/book-plan.json
+            08-translations/00001-chapter-1-0000.md
+            08-translation-prompts/00001-chapter-1-0000.md.json
+            09-translated-chapters/01-chapter-1.md
 
 Every artifact folder is prefixed with the number of the stage that writes it, so
 a plain sort of a book's output folder follows the pipeline order.
@@ -40,20 +41,20 @@ INPUT_DIRNAME = "data/input"
 OUTPUT_DIRNAME = "data/output"
 #: Sub-directory of an output folder that receives the chapter files.
 #: Stage numbers keep a book folder sorted in pipeline order.
-CHAPTERS_DIRNAME = "01-chapters"
-#: Sub-directory that receives stage 0's converted Markdown.
-MARKDOWN_DIRNAME = "00-markdown"
-#: Sub-directory of an output folder that receives stage 3's reduced chapters.
-REDUCED_DIRNAME = "03-reduced"
-#: Sub-directory that receives stage 3's further-reduced chapters (first mentions).
-UNIQUE_DIRNAME = "03-reduced-unique"
+CHAPTERS_DIRNAME = "02-chapters"
+#: Sub-directory that receives stage 1's converted Markdown.
+MARKDOWN_DIRNAME = "01-markdown"
+#: Sub-directory of an output folder that receives stage 4's reduced chapters.
+REDUCED_DIRNAME = "04-reduced"
+#: Sub-directory that receives stage 4's further-reduced chapters (first mentions).
+UNIQUE_DIRNAME = "04-reduced-unique"
 #: Sub-directory that receives stage 5's translation-sized chunks.
 CHUNKS_DIRNAME = "05-chunks"
 
 _MARKDOWN_SUFFIXES = (".md", ".markdown")
-#: Plain text is already the content stage 0 writes; only the name changes.
+#: Plain text is already the content stage 1 writes; only the name changes.
 _TEXT_SUFFIXES = (".txt",)
-#: Formats docling converts to Markdown in stage 0.
+#: Formats docling converts to Markdown in stage 1.
 _DOCLING_SUFFIXES = (".pdf", ".epub")
 #: Every source format the pipeline accepts.
 SOURCE_SUFFIXES = _MARKDOWN_SUFFIXES + _TEXT_SUFFIXES + _DOCLING_SUFFIXES
@@ -154,7 +155,7 @@ def book_markdown_dir(
     *,
     output_root: Path | str | None = None,
 ) -> Path:
-    """``data/output/<book-stem>/00-markdown/`` — stage 0's converted source."""
+    """``data/output/<book-stem>/01-markdown/`` — stage 1's converted source."""
     return book_output_dir(book, root, output_root=output_root) / MARKDOWN_DIRNAME
 
 
@@ -208,7 +209,7 @@ def resolve_output_dir(
     root: Path | str | None = None,
     output_root: Path | str | None = None,
 ) -> Path:
-    """Resolve ``--out``, defaulting to ``data/output/<book-stem>/01-chapters``."""
+    """Resolve ``--out``, defaulting to ``data/output/<book-stem>/02-chapters``."""
     if out is not None and str(out).strip():
         return Path(out).expanduser()
     return book_chapters_dir(book, root, output_root=output_root)

@@ -1,7 +1,7 @@
-"""Chapter discovery: reading stage 1's output as the input of stage 2.
+"""Chapter discovery: reading stage 2's output as the input of stage 3.
 
-Stage 1 (``book-translator``) writes ``01-chapters/<NN-name>.md`` plus
-``_manifest.json``. Stage 2 needs exactly that: an ordered list of chapter files,
+Stage 2 (``book-translator``) writes ``02-chapters/<NN-name>.md`` plus
+``_manifest.json``. Stage 3 needs exactly that: an ordered list of chapter files,
 each with the source line range it came from, so a repair can always be checked
 against the manifest of the stage that produced it.
 
@@ -50,7 +50,7 @@ class Chapter:
 
 
 def chapters_dir(output_dir: str | Path) -> Path:
-    """The folder stage 1 writes into, given either it or the book output folder."""
+    """The folder stage 2 writes into, given either it or the book output folder."""
     out = Path(output_dir).expanduser()
     nested = out / CHAPTERS_DIRNAME
     if nested.is_dir():
@@ -59,27 +59,27 @@ def chapters_dir(output_dir: str | Path) -> Path:
 
 
 def preprocessed_dir(output_dir: str | Path) -> Path:
-    """Default stage-2 output: a sibling of ``01-chapters/``, never over it."""
+    """Default stage-3 output: a sibling of ``02-chapters/``, never over it."""
     return resolve_stage_dir(output_dir, "preprocessed")
 
 
 def reduced_dir(output_dir: str | Path) -> Path:
-    """Default stage-3 output: a sibling of ``01-chapters/``, never over it.
+    """Default stage-4 output: a sibling of ``02-chapters/``, never over it.
 
-    Stage 3 writes the reduced chapters (entity-bearing sentences only) the same
-    way stage 1 writes chapters: one file per chapter, same filenames, so the two
+    Stage 4 writes the reduced chapters (entity-bearing sentences only) the same
+    way stage 2 writes chapters: one file per chapter, same filenames, so the two
     folders line up one to one and can be diffed while the filters are tuned.
-    Handed a ``02-preprocessed/`` folder it still writes beside it, in the same
+    Handed a ``03-preprocessed/`` folder it still writes beside it, in the same
     book folder, so the cleaned text and its reduction stay siblings.
     """
     return resolve_stage_dir(output_dir, "reduced")
 
 
 def unique_dir(output_dir: str | Path) -> Path:
-    """Default stage-3b output: the further-reduced chapters, a sibling of ``03-reduced/``.
+    """Default stage-4b output: the further-reduced chapters, a sibling of ``04-reduced/``.
 
-    The second funnel step keeps the same filenames as ``03-reduced/`` and
-    ``01-chapters/``, so the three folders line up one to one and can be diffed
+    The second funnel step keeps the same filenames as ``04-reduced/`` and
+    ``02-chapters/``, so the three folders line up one to one and can be diffed
     while the extra filter is tuned. The folder is derived from wherever the
     reduced chapters went — an explicit ``--reduced-out`` moves it too, so the two
     outputs stay next to each other.
@@ -88,23 +88,23 @@ def unique_dir(output_dir: str | Path) -> Path:
 
 
 def glossary_dir(output_dir: str | Path) -> Path:
-    """Default stage-4 output: a sibling of ``01-chapters/``, never over it.
+    """Default stage-4 output: a sibling of ``02-chapters/``, never over it.
 
     The glossary is one book-level artifact (plus its manifest), not one file per
     chapter, so the folder is a plain home for it rather than a third parallel
-    folder of chapter files. Handed the cleaned ``02-preprocessed/`` folder it
+    folder of chapter files. Handed the cleaned ``03-preprocessed/`` folder it
     still writes beside it, in the same book folder.
     """
     return resolve_stage_dir(output_dir, "glossary")
 
 
 def chunks_dir(output_dir: str | Path) -> Path:
-    """Default stage-5 output: a sibling of ``01-chapters/``, never over it.
+    """Default stage-5 output: a sibling of ``02-chapters/``, never over it.
 
     Chunks are a flat, globally ordered folder (not one sub-folder per chapter):
     the file names sort into reading order, and ``_chunk_manifest.json`` carries
     the chapter membership and the character offsets of every slice. Handed a
-    ``02-preprocessed/`` folder it puts ``05-chunks/`` beside it, in the same book
+    ``03-preprocessed/`` folder it puts ``05-chunks/`` beside it, in the same book
     folder, which is where a translation run expects to find it.
     """
     return resolve_stage_dir(output_dir, "chunks")
@@ -123,21 +123,21 @@ def chunk_glossary_dir(output_dir: str | Path) -> Path:
 
 
 def translations_dir(output_dir: str | Path) -> Path:
-    """Default stage-7 output: a sibling of ``05-chunks/``, never over it.
+    """Default stage-8 output: a sibling of ``05-chunks/``, never over it.
 
     The translated chunks keep the chunk filenames, so ``05-chunks/`` and
-    ``07-translations/`` line up one to one and concatenating the translations in
+    ``08-translations/`` line up one to one and concatenating the translations in
     filename order rebuilds the translated book. Handed the book folder it writes
-    ``07-translations/`` in it; handed ``05-chunks/`` (or any other sibling artifact
+    ``08-translations/`` in it; handed ``05-chunks/`` (or any other sibling artifact
     folder) it steps over to the book folder first.
     """
     return resolve_stage_dir(output_dir, "translations")
 
 
 def translation_prompts_dir(output_dir: str | Path) -> Path:
-    """Default stage-7 debug output: the prompt/input record of every chunk.
+    """Default stage-8 debug output: the prompt/input record of every chunk.
 
-    A sibling of ``07-translations/``, never inside it: the translation folder is the
+    A sibling of ``08-translations/``, never inside it: the translation folder is the
     book's text and should stay clean enough to concatenate, while this folder is
     for a human debugging one call. Handed the translations folder it puts the
     debug folder beside it.
@@ -148,8 +148,8 @@ def translation_prompts_dir(output_dir: str | Path) -> Path:
 def matter_dir(output_dir: str | Path) -> Path:
     """Default front/back matter stage output: its book-level plan and trace.
 
-    A sibling of ``07-translations/`` (the translated chunks themselves go there, so
-    stage 8 needs no new join rule). Handed any stage folder it steps over to the
+    A sibling of ``08-translations/`` (the translated chunks themselves go there, so
+    stage 9 needs no new join rule). Handed any stage folder it steps over to the
     book folder first.
     """
     return resolve_stage_dir(output_dir, "matter")
@@ -161,22 +161,22 @@ def matter_prompts_dir(output_dir: str | Path) -> Path:
 
 
 def translated_chapters_dir(output_dir: str | Path) -> Path:
-    """Default stage-8 output: the translated chapters, a sibling of ``01-chapters/``.
+    """Default stage-9 output: the translated chapters, a sibling of ``02-chapters/``.
 
-    Handed the book folder it writes ``08-translated-chapters/`` in it; handed any
-    of the stage's sibling artifact folders (``01-chapters/``, ``05-chunks/``,
-    ``07-translations/``…) it steps over to the book folder first. The output is a
-    separate folder on purpose: ``01-chapters/`` is the source text and must never be
+    Handed the book folder it writes ``09-translated-chapters/`` in it; handed any
+    of the stage's sibling artifact folders (``02-chapters/``, ``05-chunks/``,
+    ``08-translations/``…) it steps over to the book folder first. The output is a
+    separate folder on purpose: ``02-chapters/`` is the source text and must never be
     overwritten by the translation.
     """
     return resolve_stage_dir(output_dir, "translated_chapters")
 
 
 def postprocessed_chapters_dir(output_dir: str | Path) -> Path:
-    """Default stage-9 output: the postprocessed chapters, never over its input.
+    """Default stage-10 output: the postprocessed chapters, never over its input.
 
-    Handed the book folder it writes ``09-postprocessed-chapters/`` in it; handed
-    any sibling artifact folder (``08-translated-chapters/``, ``01-chapters/``,
+    Handed the book folder it writes ``10-postprocessed-chapters/`` in it; handed
+    any sibling artifact folder (``09-translated-chapters/``, ``02-chapters/``,
     ``05-chunks/``…) it steps over to the book folder first. The translated chapter
     files are input and are never edited in place.
     """

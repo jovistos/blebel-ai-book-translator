@@ -1,4 +1,4 @@
-"""Offline tests for stage 7's model loop: structured output, retries, tokens.
+"""Offline tests for stage 8's model loop: structured output, retries, tokens.
 
 No provider and no network: the chat model is a scripted double. What is pinned
 is the contract the runner relies on — the answer is validated, a failure is

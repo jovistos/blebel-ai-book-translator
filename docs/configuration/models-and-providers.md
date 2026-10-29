@@ -65,7 +65,7 @@ model = "deepseek-flash"
 [llm.dictionary]
 model = "deepseek-flash"
 
-# Stage 6b: Matter localization and multimodal matter image recreation
+# Stage 7: Matter localization and multimodal matter image recreation
 # Note: Recreating images with text (covers, title plates) requires a multimodal model!
 [llm.matter]
 model = "deepseek-flash"
@@ -83,8 +83,8 @@ model = "deepseek-flash"
 ```
 
 > [!IMPORTANT]
-> **Multimodal Model Required for Matter Image Translation (Stage 6b):**  
-> Stage 6b not only formats front and back matter text, but also includes an end-to-end **multimodal image translation and recreation** phase. When images containing text (such as original book covers, illustrated title plates, or publisher frontispieces) are detected in matter chunks, they are sent to a multimodal vision + image generation model. The model reconstructs the full illustration from scratch with translated typography seamlessly integrated into the original artwork style (no bounding boxes or overlays).  
+> **Multimodal Model Required for Matter Image Translation (Stage 7):**  
+> Stage 7 not only formats front and back matter text, but also includes an end-to-end **multimodal image translation and recreation** phase. When images containing text (such as original book covers, illustrated title plates, or publisher frontispieces) are detected in matter chunks, they are sent to a multimodal vision + image generation model. The model reconstructs the full illustration from scratch with translated typography seamlessly integrated into the original artwork style (no bounding boxes or overlays).  
 > 
 > A **multimodal model with image generation capabilities is required for this step** (default: `gemini-3.1-flash-image` via Google Gemini). Ensure `GEMINI_API_KEY` is defined in your `.env` file, or configure `[llm.matter]` to use a multimodal provider and model (e.g. `provider = "gemini"`). If a text-only model is specified for matter text translation, the stage automatically resolves the multimodal image model from Gemini if `GEMINI_API_KEY` is present. Pure illustrations without text are recognized and kept untouched without calling the image generation model.
 

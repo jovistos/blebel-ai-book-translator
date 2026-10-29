@@ -41,8 +41,8 @@ TEXTS = {
 
 @pytest.fixture
 def chapters(tmp_path: Path) -> Path:
-    """Two ordered chapter files, the shape stage 1 writes."""
-    folder = tmp_path / "01-chapters"
+    """Two ordered chapter files, the shape stage 2 writes."""
+    folder = tmp_path / "02-chapters"
     folder.mkdir()
     for name, text in TEXTS.items():
         (folder / name).write_text(text, encoding="utf-8")
@@ -228,7 +228,7 @@ def test_no_manifest_flag_leaves_only_chunk_files(chapters: Path):
 
 
 def test_an_empty_chapter_is_reported_without_breaking_the_run(tmp_path: Path):
-    folder = tmp_path / "01-chapters"
+    folder = tmp_path / "02-chapters"
     folder.mkdir()
     (folder / "01-empty.md").write_text("", encoding="utf-8")
     (folder / "02-text.md").write_text("Jedna rečenica. Druga.\n", encoding="utf-8")
@@ -306,7 +306,7 @@ def test_cli_chunk_rejects_a_non_positive_chunk_size(chapters: Path, capsys):
 
 
 def test_cli_chunk_without_chapters_explains_the_missing_stage(tmp_path: Path, capsys):
-    empty = tmp_path / "01-chapters"
+    empty = tmp_path / "02-chapters"
     empty.mkdir()
     code = cli.main(["chunk", "--out", str(empty)])
     captured = capsys.readouterr()
@@ -318,7 +318,7 @@ def test_cli_chunk_without_chapters_explains_the_missing_stage(tmp_path: Path, c
 # --------------------------------------------------------------------------- #
 # images: a chunk cut never splits an image reference
 # --------------------------------------------------------------------------- #
-IMAGE = "![Image](../00-markdown/images/rabbit.png)"
+IMAGE = "![Image](../01-markdown/images/rabbit.png)"
 
 
 def test_a_cut_inside_an_image_reference_is_moved_to_its_edge():
@@ -340,7 +340,7 @@ def test_a_cut_inside_an_image_reference_is_moved_to_its_edge():
 
 
 def test_chunk_files_keep_each_image_reference_whole(tmp_path: Path):
-    chapters = tmp_path / "01-chapters"
+    chapters = tmp_path / "02-chapters"
     chapters.mkdir()
     (chapters / "01-one.md").write_text(
         "# One\n\n"
@@ -363,7 +363,7 @@ def test_chunk_files_keep_each_image_reference_whole(tmp_path: Path):
     for entry in result.files:
         text = (chapters.parent / "05-chunks" / entry["filename"]).read_text(encoding="utf-8")
         seen += text.count(IMAGE)
-        # No chunk may hold a bare fragment such as `![Image](../00-markdown/ima`.
-        assert "![Image](" in text or "../00-markdown/images/rabbit.png" not in text
+        # No chunk may hold a bare fragment such as `![Image](../01-markdown/ima`.
+        assert "![Image](" in text or "../01-markdown/images/rabbit.png" not in text
     assert seen == 1
     assert reconstruct_chapter(chapters.parent / "05-chunks", "01-one.md").count(IMAGE) == 1

@@ -364,10 +364,10 @@ DEFAULT_CHUNK_GLOSSARY_MIN_TERM_CHARS = 2
 # without reconstructing the prompt by hand.
 # --------------------------------------------------------------------------- #
 
-#: Stage 7 writes next to ``05-chunks/``, never over it.
-TRANSLATIONS_DIRNAME = "07-translations"
+#: Stage 8 writes next to ``05-chunks/``, never over it.
+TRANSLATIONS_DIRNAME = "08-translations"
 #: The debugging twin: one prompt/input record per chunk.
-TRANSLATION_PROMPTS_DIRNAME = "07-translation-prompts"
+TRANSLATION_PROMPTS_DIRNAME = "08-translation-prompts"
 TRANSLATION_MANIFEST_FILENAME = "_translation_manifest.json"
 TRANSLATION_TRACE_FILENAME = "_translation_trace.json"
 
@@ -404,17 +404,17 @@ TRANSLATION_GLOSSARY_SCOPES: tuple[str, ...] = ("chunk", "book")
 # some of the original edition's legal/imprint material does not belong in the
 # translation, and the new edition must say who translated it. That is a
 # different task from translating a body chunk, so it runs as its own LangGraph
-# agent before stage 7 and never consumes the dictionary.
+# agent before stage 8 and never consumes the dictionary.
 #
-# Its translated chunks still land in ``07-translations/`` (the chunk names are the
-# join key stage 8 reads); this folder holds the book-level plan, the run's
+# Its translated chunks still land in ``08-translations/`` (the chunk names are the
+# join key stage 9 reads); this folder holds the book-level plan, the run's
 # manifest/trace, and the prompt record of every agent call.
 # --------------------------------------------------------------------------- #
 
-#: The localization stage writes its book-level record next to ``07-translations/``.
-MATTER_DIRNAME = "06b-matter"
+#: The localization stage writes its book-level record next to ``08-translations/``.
+MATTER_DIRNAME = "07-matter"
 #: The debugging twin: one whole agent input record per matter chunk.
-MATTER_PROMPTS_DIRNAME = "06b-matter-prompts"
+MATTER_PROMPTS_DIRNAME = "07-matter-prompts"
 MATTER_MANIFEST_FILENAME = "_matter_manifest.json"
 MATTER_TRACE_FILENAME = "_matter_trace.json"
 
@@ -439,50 +439,50 @@ MAX_MATTER_TRANSLATION_CHARS = 40_000
 MIN_MATTER_LENGTH_RATIO = 0.08
 
 # --------------------------------------------------------------------------- #
-# Assembly stage (stage 8)
+# Assembly stage (stage 9)
 #
-# Stage 8 is the inverse of stage 5's cut, applied to the *translated* chunks:
-# it groups ``07-translations/<chunk>.md`` by the chapter the chunk manifest says
+# Stage 9 is the inverse of stage 5's cut, applied to the *translated* chunks:
+# it groups ``08-translations/<chunk>.md`` by the chapter the chunk manifest says
 # each chunk belongs to, concatenates each group in chunk order, and writes one
 # translated chapter file under the source chapter's own name. The output is a
-# separate folder so ``01-chapters/`` (the source) and ``08-translated-chapters/`` (the
+# separate folder so ``02-chapters/`` (the source) and ``09-translated-chapters/`` (the
 # product) are never confused, and so a partial or resumed run can be inspected
 # without touching either the source or the per-chunk translations.
 # --------------------------------------------------------------------------- #
 
-#: Stage 8 writes next to ``07-translations/``, never over it.
-TRANSLATED_CHAPTERS_DIRNAME = "08-translated-chapters"
+#: Stage 9 writes next to ``08-translations/``, never over it.
+TRANSLATED_CHAPTERS_DIRNAME = "09-translated-chapters"
 ASSEMBLY_MANIFEST_FILENAME = "_translated_chapters_manifest.json"
 ASSEMBLY_TRACE_FILENAME = "_translated_chapters_trace.json"
 
 # --------------------------------------------------------------------------- #
-# Postprocess stage (stage 9)
+# Postprocess stage (stage 10)
 #
-# Stage 9 is a book-level *heading* pass over the assembled translated chapters.
+# Stage 10 is a book-level *heading* pass over the assembled translated chapters.
 # It never reads a chapter's prose: the unit of work is the chapter's opening
 # (a handful of clipped lines), its heading records with short surrounding
 # context, and the book-level list of chapter titles. The agent decides a naming
 # policy for the whole book first, then a per-chapter plan (the chapter heading,
 # and keep/demote/promote for every other heading), and a table-of-contents plan.
 #
-# The output is a new ``09-postprocessed-chapters/`` folder: the translated chapter
-# files are never edited in place, exactly as stages 1-8 never edit their input.
+# The output is a new ``10-postprocessed-chapters/`` folder: the translated chapter
+# files are never edited in place, exactly as stages 1-9 never edit their input.
 # --------------------------------------------------------------------------- #
 
-#: Stage 9 writes next to ``08-translated-chapters/``, never over it.
-POSTPROCESSED_CHAPTERS_DIRNAME = "09-postprocessed-chapters"
+#: Stage 10 writes next to ``09-translated-chapters/``, never over it.
+POSTPROCESSED_CHAPTERS_DIRNAME = "10-postprocessed-chapters"
 POSTPROCESS_MANIFEST_FILENAME = "_postprocess_manifest.json"
 POSTPROCESS_TRACE_FILENAME = "_postprocess_trace.json"
 #: The final, single-document concatenation of the postprocessed chapters.
-#: Stage 10 writes one file, not a folder, but it carries its number too so it sorts
+#: Stage 11 writes one file, not a folder, but it carries its number too so it sorts
 #: after every stage folder.
-TRANSLATED_BOOK_FILENAME = "10-translated-book.md"
+TRANSLATED_BOOK_FILENAME = "11-translated-book.md"
 BIND_MANIFEST_FILENAME = "_bind_manifest.json"
 BIND_TRACE_FILENAME = "_bind_trace.json"
 
-#: Stage 11 packages the same postprocessed chapters as an EPUB 3 book: the
+#: Stage 12 packages the same postprocessed chapters as an EPUB 3 book: the
 #: Markdown file is the reading copy, the EPUB is the one you hand to a reader.
-TRANSLATED_EPUB_FILENAME = "11-translated-book.epub"
+TRANSLATED_EPUB_FILENAME = "12-translated-book.epub"
 EPUB_MANIFEST_FILENAME = "_epub_manifest.json"
 EPUB_TRACE_FILENAME = "_epub_trace.json"
 #: Inside the container: the pictures, the text documents and the stylesheet.
@@ -567,11 +567,11 @@ MAX_OPENING_AUDIT_CHAPTERS = 60
 # before docling loads a layout model.
 # --------------------------------------------------------------------------- #
 
-#: Stage 0 writes next to the stage folders, so it sorts before ``01-chapters/``.
+#: Stage 1 writes next to the stage folders, so it sorts before ``02-chapters/``.
 CONVERT_MANIFEST_FILENAME = "_convert_manifest.json"
 #: Images extracted from an EPUB/PDF live next to the converted Markdown. Every
 #: later stage is one folder below the book folder, so one relative prefix works
-#: from stage 0 through stage 9; stage 10 rewrites it once for the book root.
+#: from stage 1 through stage 10; stage 11 rewrites it once for the book root.
 IMAGES_DIRNAME = "images"
 CHAPTER_IMAGE_PREFIX = f"../{MARKDOWN_DIRNAME}/{IMAGES_DIRNAME}/"
 ROOT_IMAGE_PREFIX = f"{MARKDOWN_DIRNAME}/{IMAGES_DIRNAME}/"
@@ -592,8 +592,8 @@ FRONT_MATTER_FILENAME = "00-front-matter.md"
 MANIFEST_FILENAME = "_manifest.json"
 TRACE_FILENAME = "_agent_trace.json"
 
-#: Stage 1 (splitting) writes the source chapters; stage 2 (preprocessing) writes
+#: Stage 2 (splitting) writes the source chapters; stage 3 (preprocessing) writes
 #: next to it, never over it. Both names carry the stage number.
-PREPROCESSED_DIRNAME = "02-preprocessed"
+PREPROCESSED_DIRNAME = "03-preprocessed"
 PREPROCESS_MANIFEST_FILENAME = "_preprocess_manifest.json"
 PREPROCESS_TRACE_FILENAME = "_preprocess_trace.json"

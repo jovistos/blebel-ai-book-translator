@@ -1,15 +1,15 @@
-"""Offline tests for the chapter-opening audit (the final phase of stages 2 and 9).
+"""Offline tests for the chapter-opening audit (the final phase of stages 3 and 10).
 
 The contract the finished book depends on:
 
 * a stray number under the title (``# Poglavlje 2`` then ``2``) is found and
-  removed, with the blank line collapsed in stage 9 and kept as a slot in stage 2;
+  removed, with the blank line collapsed in stage 10 and kept as a slot in stage 3;
 * a duplicated title line and a leftover page number are removed; a numbered
   section heading (``## 1``) is not;
 * a title that is only a number, a title that is only a label and a chapter that
   opens on prose are reported, never deleted;
 * a first-line bare-number heading (``## 2``) is the chapter's *title* for stage
-  9, not a page number, so the plan sets it instead of inserting a second heading;
+  10, not a page number, so the plan sets it instead of inserting a second heading;
 * both stage runners run the audit as their final phase, over the folder they
   just wrote;
 * the tools return bounded openings, never a paragraph.
@@ -193,7 +193,7 @@ def test_the_repair_collapses_the_blank_around_the_removed_line():
     assert repair.applied[0]["text"] == "2"
 
 
-def test_the_repair_keeps_a_blank_slot_for_stage_two():
+def test_the_repair_keeps_a_blank_slot_for_stage_three():
     repair = apply_opening_fixes(
         ["# Poglavlje 2", "", "2", "", "Mila."],
         [{"line_number": 3, "action": "remove", "kind": STRAY_NUMBER_AFTER_TITLE}],
@@ -218,7 +218,7 @@ def test_the_repair_ignores_a_non_remove_action():
 # the book-wide phase
 # --------------------------------------------------------------------------- #
 def test_the_phase_repairs_the_folder_and_a_second_pass_is_clean(tmp_path: Path):
-    folder = tmp_path / "09-postprocessed-chapters"
+    folder = tmp_path / "10-postprocessed-chapters"
     _chapter(folder, "05-chapter-2.md", "# Poglavlje 2\n\n2\n\nMila laktova dalje.\n")
     _chapter(folder, "06-chapter-3.md", "# Poglavlje 3\n\nNastavak.\n")
 
@@ -237,7 +237,7 @@ def test_the_phase_repairs_the_folder_and_a_second_pass_is_clean(tmp_path: Path)
 
 
 def test_the_phase_in_a_dry_run_writes_nothing(tmp_path: Path):
-    folder = tmp_path / "09-postprocessed-chapters"
+    folder = tmp_path / "10-postprocessed-chapters"
     path = _chapter(folder, "05-chapter-2.md", "# Poglavlje 2\n\n2\n\nMila.\n")
     before = path.read_bytes()
 
@@ -250,7 +250,7 @@ def test_the_phase_in_a_dry_run_writes_nothing(tmp_path: Path):
 
 
 def test_the_phase_reports_a_chapter_that_cannot_be_repaired(tmp_path: Path):
-    folder = tmp_path / "09-postprocessed-chapters"
+    folder = tmp_path / "10-postprocessed-chapters"
     _chapter(folder, "05-chapter-2.md", "## 2\n\nMila.\n")
 
     result = audit_openings(folder)
@@ -305,8 +305,8 @@ def test_the_book_tool_counts_clean_chapters_and_expands_findings(tmp_path: Path
     assert len(full["chapters"]) == 2
 
 
-def test_a_first_line_number_heading_is_the_title_for_stage_nine(tmp_path: Path):
-    folder = tmp_path / "08-translated-chapters"
+def test_a_first_line_number_heading_is_the_title_for_stage_ten(tmp_path: Path):
+    folder = tmp_path / "09-translated-chapters"
     path = _chapter(folder, "05-chapter-2.md", "## 2\n\nMila laktova dalje.\n")
 
     candidate = find_title_candidate(path.read_text(encoding="utf-8").splitlines(), chapter_number=2)
@@ -330,7 +330,7 @@ def test_a_page_number_heading_above_the_real_title_is_still_skipped(tmp_path: P
 
 def test_a_cover_picture_is_not_a_title():
     lines = [
-        "![Image](../00-markdown/images/cover.png)",
+        "![Image](../01-markdown/images/cover.png)",
         "",
         "# Alisa u zemlji čuda",
         "",
@@ -344,7 +344,7 @@ def test_a_cover_picture_is_not_a_title():
 
 
 def test_setting_the_bare_number_title_leaves_no_stray_number(tmp_path: Path):
-    folder = tmp_path / "08-translated-chapters"
+    folder = tmp_path / "09-translated-chapters"
     path = _chapter(folder, "05-chapter-2.md", "## 2\n\n2\n\nMila laktova dalje.\n")
     structure = scan_chapter_structure(path)
 
@@ -402,10 +402,10 @@ def test_a_repair_preserves_crlf_and_a_missing_terminal_newline(tmp_path: Path):
     assert after == b"## CHAPTER 1\r\n\r\n\r\n\r\nText."
 
 
-def test_stage_nine_removes_the_stray_number_under_the_title(tmp_path: Path):
-    source = tmp_path / "08-translated-chapters"
+def test_stage_ten_removes_the_stray_number_under_the_title(tmp_path: Path):
+    source = tmp_path / "09-translated-chapters"
     _chapter(source, "05-chapter-2.md", "## 2\n\n2\n\nMila laktova dalje.\n")
-    out = tmp_path / "09-postprocessed-chapters"
+    out = tmp_path / "10-postprocessed-chapters"
     book_model = _ScriptedModel(
         [
             _tool_call(
@@ -478,10 +478,10 @@ def _book_plan_call():
     )
 
 
-def test_stage_nine_audits_a_reused_chapter_too(tmp_path: Path):
-    source = tmp_path / "08-translated-chapters"
+def test_stage_ten_audits_a_reused_chapter_too(tmp_path: Path):
+    source = tmp_path / "09-translated-chapters"
     _chapter(source, "05-chapter-2.md", "## 2\n\nMila laktova dalje.\n")
-    out = tmp_path / "09-postprocessed-chapters"
+    out = tmp_path / "10-postprocessed-chapters"
     chapter_model = _ScriptedModel(
         [
             _tool_call(
@@ -530,9 +530,9 @@ def test_stage_nine_audits_a_reused_chapter_too(tmp_path: Path):
 
 
 def test_a_reused_chapter_whose_title_moved_is_reprocessed(tmp_path: Path):
-    source = tmp_path / "08-translated-chapters"
+    source = tmp_path / "09-translated-chapters"
     _chapter(source, "05-chapter-2.md", "## 2\n\nMila laktova dalje.\n")
-    out = tmp_path / "09-postprocessed-chapters"
+    out = tmp_path / "10-postprocessed-chapters"
     first = run_postprocess(
         source,
         out,
@@ -624,12 +624,12 @@ class _WritingPreprocessApp:
         }
 
 
-def test_stage_two_keeps_the_line_count_when_it_removes_an_opening_line(
+def test_stage_three_keeps_the_line_count_when_it_removes_an_opening_line(
     tmp_path: Path, monkeypatch
 ):
-    chapters = tmp_path / "01-chapters"
+    chapters = tmp_path / "02-chapters"
     _chapter(chapters, "02-chapter-1.md", "## CHAPTER 1\n\n2\n\nText.\n")
-    out = tmp_path / "02-preprocessed"
+    out = tmp_path / "03-preprocessed"
     monkeypatch.setattr(
         preprocess_runner,
         "build_preprocess_graph",
@@ -651,7 +651,7 @@ def test_stage_two_keeps_the_line_count_when_it_removes_an_opening_line(
 
 
 def test_both_stage_runners_skip_the_phase_on_a_dry_run(tmp_path: Path):
-    chapters = tmp_path / "01-chapters"
+    chapters = tmp_path / "02-chapters"
     _chapter(chapters, "02-chapter-1.md", "## CHAPTER 1\n\nText.\n")
 
     result = preprocess_runner.run_preprocess(

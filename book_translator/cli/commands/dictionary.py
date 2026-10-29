@@ -37,7 +37,7 @@ def add_parser(sub: Any) -> None:
     """Register this command's parser (the help text is snapshot-tested)."""
     p_dict = sub.add_parser(
         "dictionary",
-        help="stage 3: reduce each chapter to its entity-bearing sentences "
+        help="stage 4: reduce each chapter to its entity-bearing sentences "
         "(sentence split -> uppercase filter -> 4-word floor -> NER gate), then to "
         "the sentences that introduce a noun (first mentions only)",
     )
@@ -46,20 +46,20 @@ def add_parser(sub: Any) -> None:
         "--out",
         "-o",
         default=None,
-        help="the chapter folder (default: the cleaned data/output/<book>/02-preprocessed "
-        "when stage 2 wrote it, else data/output/<book>/01-chapters); pass "
-        "01-chapters to reduce the raw text instead",
+        help="the chapter folder (default: the cleaned data/output/<book>/03-preprocessed "
+        "when stage 3 wrote it, else data/output/<book>/02-chapters); pass "
+        "02-chapters to reduce the raw text instead",
     )
     p_dict.add_argument(
         "--reduced-out",
         default=None,
-        help="where to write the reduced chapters (default: data/output/<book>/03-reduced)",
+        help="where to write the reduced chapters (default: data/output/<book>/04-reduced)",
     )
     p_dict.add_argument(
         "--unique-out",
         default=None,
         help="where to write the first-mention chapters "
-        "(default: a sibling of the reduced folder, data/output/<book>/03-reduced-unique)",
+        "(default: a sibling of the reduced folder, data/output/<book>/04-reduced-unique)",
     )
     p_dict.add_argument(
         "--language",
@@ -151,19 +151,19 @@ def add_parser(sub: Any) -> None:
     p_dict.add_argument(
         "--text-in",
         default=None,
-        help="chapter text folder to read (default: 02-preprocessed/ when it covers "
-        "the window, else 01-chapters/); overrides --out",
+        help="chapter text folder to read (default: 03-preprocessed/ when it covers "
+        "the window, else 02-chapters/); overrides --out",
     )
     p_dict.set_defaults(func=cmd_dictionary)
 
 
 def cmd_dictionary(args: argparse.Namespace) -> int:
-    """Stage 3: reduce each chapter to its entity-bearing sentences, then to first mentions."""
+    """Stage 4: reduce each chapter to its entity-bearing sentences, then to first mentions."""
     from book_translator.stages.dictionary import run_dictionary
 
     # Accept either the chapters folder or the book folder that holds it: an
     # explicit ``--out`` is taken as given, while the default prefers the cleaned
-    # ``02-preprocessed/`` folder only when it covers the same chapter window.
+    # ``03-preprocessed/`` folder only when it covers the same chapter window.
     paths = _command_paths(args)
     limit = chapter_window_limit_for_path(
         paths.chapters_dir, getattr(args, "first_chapters", None), args.limit

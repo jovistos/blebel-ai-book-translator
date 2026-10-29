@@ -35,7 +35,7 @@ from ..common import (
 
 def add_parser(sub: Any) -> None:
     """Register this command's parser (the help text is snapshot-tested)."""
-    p_split = sub.add_parser("split", help="stage 1: run the agent and write chapter files")
+    p_split = sub.add_parser("split", help="stage 2: run the agent and write chapter files")
     parents.add_book(p_split, required=True)
     p_split.add_argument(
         "--out",
@@ -59,7 +59,7 @@ def add_parser(sub: Any) -> None:
         "--temperature",
         type=float,
         default=None,
-        help="sampling temperature for stage 1 (default: the config file, else 0.0)",
+        help="sampling temperature for stage 2 (default: the config file, else 0.0)",
     )
     parents.add_llm_flags(p_split)
     p_split.add_argument(
@@ -123,7 +123,7 @@ def cmd_split(args: argparse.Namespace) -> int:
             print(f"output={out_dir.expanduser().resolve()}")
         return _report_split(result_from_existing_chapters(out_dir), args)
 
-    # Stage 0: the splitter only ever reads Markdown. A TXT is copied and an
+    # Stage 1: the splitter only ever reads Markdown. A TXT is copied and an
     # EPUB/text-based PDF is converted before anything tries to count lines.
     source = _ensure_markdown_source(source, output_root=getattr(args, "output_root", None))
 

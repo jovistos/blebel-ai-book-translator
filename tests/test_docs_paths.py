@@ -19,6 +19,7 @@ _BACKTICKED_PATH = re.compile(r"`([^`\n]*book_translator/[^`\n]+)`")
 _SKIP_PREFIXES = (
     "data/output/",
     "../00-markdown/images/",
+    "../01-markdown/images/",
 )
 
 

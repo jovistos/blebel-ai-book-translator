@@ -70,7 +70,7 @@ class PhaseExecutionMixin:
     """Mixin providing execution implementations for all pipeline phases."""
 
     def _ensure_markdown_source(self) -> Path:
-        """Run stage 0 on demand for a phase started past ``convert``.
+        """Run stage 1 on demand for a phase started past ``convert``.
 
         Idempotent: once ``self.source`` is Markdown this is a no-op. A dry run
         converts into a temporary folder, so ``data/output/`` keeps its promise
@@ -93,13 +93,13 @@ class PhaseExecutionMixin:
         )
         self.source = Path(result.markdown_path)
         self.console.kv(
-            "stage 0",
+            "stage 1",
             f"{result.source_kind} -> {rel(result.markdown_path)} ({result.method})",
         )
         return self.source
 
     def phase_convert(self) -> tuple[str, dict[str, Any]]:
-        """Stage 0: EPUB/PDF/TXT -> the Markdown every later phase reads."""
+        """Stage 1: EPUB/PDF/TXT -> the Markdown every later phase reads."""
         console = self.console
         target_dir = self.markdown_out
         if self.args.dry_run:
@@ -333,7 +333,7 @@ class PhaseExecutionMixin:
 
     # -- phase 3: scan ----------------------------------------------------- #
     def phase_scan(self) -> tuple[str, dict[str, Any]]:
-        """Deterministic damage profile of the chapters stage 1 just wrote."""
+        """Deterministic damage profile of the chapters stage 2 just wrote."""
         chapters = discover_chapters(self.chapters_dir)
         if self.chapter_limit is not None:
             chapters = chapters[: self.chapter_limit]
@@ -358,7 +358,7 @@ class PhaseExecutionMixin:
         for name, value in sorted(counts.items(), key=lambda item: -item[1]):
             console.info(f"      {name:<26} {value:>5}")
         if not counts:
-            console.info("      none recognised — stage 2 has nothing to repair")
+            console.info("      none recognised — stage 3 has nothing to repair")
 
         for name in sorted(counts, key=lambda key: -counts[key]):
             examples = (scan.get("examples") or {}).get(name) or []
@@ -386,8 +386,8 @@ class PhaseExecutionMixin:
         Then reduce again to the sentences that introduce a noun. No LLM: a
         deterministic sentence funnel plus an optional NER tagger. When the tagger
         is not installed the phase reports a skip with the install command instead
-        of failing the run, the way stage 2 has its off switch. It reads the
-        cleaned chapters whenever stage 2 covers the window, so page numbers and
+        of failing the run, the way stage 3 has its off switch. It reads the
+        cleaned chapters whenever stage 3 covers the window, so page numbers and
         running headers never reach the sentence funnel or the glossary.
         """
         args, console = self.args, self.console
@@ -1091,16 +1091,16 @@ class PhaseExecutionMixin:
             summary += " · dry run"
         return summary, result.to_dict()
 
-    # -- phase 7b: front/back matter localization -------------------------- #
+    # -- phase 7: front/back matter localization -------------------------- #
     def phase_matter(self) -> tuple[str, dict[str, Any]]:
-        """Stage 6b: localize front/back matter with its own agent, before translation.
+        """Stage 7: localize front/back matter with its own agent, before translation.
 
         The stage is intentionally independent of the dictionary. It first asks
         one book-level agent for a localization plan (published title if one can
         be found, the BleBel credit, the original-edition material to omit, the
         section titles), then reads every matter chunk through the same
         agent-with-tools loop with that plan binding. The translated chunks are
-        written to ``07-translations/`` under the chunk names stage 8 expects, so
+        written to ``08-translations/`` under the chunk names stage 9 expects, so
         assembly is unchanged.
         """
 
@@ -1111,8 +1111,8 @@ class PhaseExecutionMixin:
                 summary="no chunks to localize",
             )
 
-        # Matter keeps stage 1's folder, not the cleaned one: it creates the
-        # synthetic front/back matter files and appends them to stage 1's
+        # Matter keeps stage 2's folder, not the cleaned one: it creates the
+        # synthetic front/back matter files and appends them to stage 2's
         # ``_manifest.json``, so it needs the folder that manifest belongs to.
         # Its chunk text still comes from ``05-chunks/``, cleaned or not.
         matter_chapters = self.chapters_dir
@@ -1296,7 +1296,7 @@ class PhaseExecutionMixin:
         )
         console.kv(
             "matter",
-            "localized by stage 6b and skipped here"
+            "localized by stage 7 and skipped here"
             if not args.include_matter
             else "also translated here (--include-matter)",
         )
@@ -1329,7 +1329,7 @@ class PhaseExecutionMixin:
             self._log_paths("manifest", result.manifest_path)
             self._log_paths("trace", result.trace_path)
             return (
-                "no body chunks — front/back matter is localized by stage 6b",
+                "no body chunks — front/back matter is localized by stage 7",
                 result.to_dict(),
             )
         console.kv(
@@ -1615,7 +1615,7 @@ class PhaseExecutionMixin:
         if has_postprocessed_chapter_files(self.postprocess_out):
             source = self.postprocess_out
         elif has_translated_chapter_files(self.translated_chapters_out):
-            # Same fallback as stage 10: an EPUB is still worth having when the
+            # Same fallback as stage 11: an EPUB is still worth having when the
             # optional heading pass was not selected.
             source = self.translated_chapters_out
         else:

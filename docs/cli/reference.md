@@ -22,8 +22,8 @@ book-translator-pipeline [BOOK] [OPTIONS]
 | `--stop-after <stage>` | Stop pipeline execution after the named stage (e.g. `--stop-after chunk`). |
 | `--start-at <stage>` | Skip earlier stages and begin execution at the named stage (e.g. `--start-at matter`). |
 | `--first-chapters <N>` | Restrict downstream stages (preprocessing, dictionary, translation) to the first $N$ chapters. |
-| `--with-translate` | Include Stage 7 (body translation) in the run. (By default, pipeline stops after preparation). |
-| `--with-postprocess` | Include Stage 9 (heading postprocessing) in the run. |
+| `--with-translate` | Include Stage 8 (body translation) in the run. (By default, pipeline stops after preparation). |
+| `--with-postprocess` | Include Stage 10 (heading postprocessing) in the run. |
 | `--skip-if-present` | Skip recomputing chapters, chunks, or translations that already exist and match on disk. |
 | `--dry-run` | Validate and plan all operations without writing files or spending LLM tokens. |
 | `--translate-provider <name>` | Shortcut to override the translation backend (`deepseek` or `lmstudio`). |
@@ -77,22 +77,22 @@ Each stage can be executed independently using `book-translator <command> [OPTIO
 
 | Command | Stage | Description |
 | :--- | :---: | :--- |
-| **`convert`** | 0 | Convert EPUB, PDF, or TXT into Markdown in `00-markdown/` and extract pictures. |
+| **`convert`** | 1 | Convert EPUB, PDF, or TXT into Markdown in `01-markdown/` and extract pictures. |
 | **`inspect`** | Pre | Inspect source Markdown structure, line count, candidate headers (no LLM, no writes). |
-| **`split`** | 1 | Execute the Split Agent to cut source Markdown into `01-chapters/`. |
-| **`scan`** | 2 | Run pre-flight damage scan across chapters (page numbers, split headings). |
-| **`preprocess`**| 2 | Clean conversion damage and normalize headers in `02-preprocessed/`. |
-| **`dictionary`**| 3 | Reduce chapters to entity-bearing sentences (`03-reduced/` and `03-reduced-unique/`). |
+| **`split`** | 2 | Execute the Split Agent to cut source Markdown into `02-chapters/`. |
+| **`scan`** | 3 (Pre) | Run pre-flight damage scan across chapters (page numbers, split headings). |
+| **`preprocess`**| 3 | Clean conversion damage and normalize headers in `03-preprocessed/`. |
+| **`dictionary`**| 4 | Reduce chapters to entity-bearing sentences (`04-reduced/` and `04-reduced-unique/`). |
 | **`glossary`** | 4 | Build the canonical book dictionary in `04-glossary/` using structured LLM calls. |
 | **`chunk`** | 5 | Cut chapters into reversible, paragraph-preserving chunks in `05-chunks/`. |
 | **`chunk-glossary`** | 6 | Tag chunks with NER and fuzzy-match terms against the glossary in `06-chunk-glossary/`. |
-| **`matter`** | 6b | Localize front/back matter (web-search title, BleBel credit) and recreate matter images multimodally (requires multimodal model) in `07-translations/`. |
-| **`translate`** | 7 | Translate body chunks using their specific glossary in `07-translations/`. |
-| **`concatenate`**| 8 | Reassemble translated chunks back into whole chapters in `08-translated-chapters/`. |
-| **`postprocess`**| 9 | Harmonize translated chapter titles and table of contents in `09-postprocessed-chapters/`. |
-| **`openings`** | Gate | Audit and repair chapter opening lines (strip stray numbers, duplicate titles). |
-| **`bind`** | 10 | Concatenate postprocessed chapters into `10-translated-book.md`. |
-| **`epub`** | 11 | Package postprocessed chapters and images into `11-translated-book.epub`. |
+| **`matter`** | 7 | Localize front/back matter (web-search title, BleBel credit) and recreate matter images multimodally (requires multimodal model) in `07-matter/` and `08-translations/`. |
+| **`translate`** | 8 | Translate body chunks using their specific glossary in `08-translations/`. |
+| **`concatenate`**| 9 | Reassemble translated chunks back into whole chapters in `09-translated-chapters/`. |
+| **`postprocess`**| 10 | Harmonize translated chapter titles and table of contents in `10-postprocessed-chapters/`. |
+| **`openings`** | Gate | Audit and repair chapter opening lines (strip stray numbers, duplicate titles). Final phase of Stages 3 and 10. |
+| **`bind`** | 11 | Concatenate postprocessed chapters into `11-translated-book.md`. |
+| **`epub`** | 12 | Package postprocessed chapters and images into `12-translated-book.epub`. |
 | **`wizard`** | Interactive | Launch the interactive terminal setup and execution wizard. |
 | **`tools`** | Debug | Print JSON schemas of tools registered for each stage agent. |
 
@@ -103,5 +103,5 @@ Each stage can be executed independently using `book-translator <command> [OPTIO
 * **`scripts/run_pipeline.py`**: Direct executable wrapper for `book-translator-pipeline`.
 * **`scripts/run_wizard.py`**: Interactive wizard prompting the user to select books, stages, providers, and options.
 * **`scripts/check_layout.py`**: Verifies that output directory structure and file naming conform to repository contracts.
-* **`scripts/audit_preprocess_tokens.py`**: Analyzes token usage and provenance modifications across Stage 2 preprocessed files.
+* **`scripts/audit_preprocess_tokens.py`**: Analyzes token usage and provenance modifications across Stage 3 preprocessed files.
 * **`scripts/replay_preprocess.py`**: Replays an existing `_preprocess_manifest.json` against source files without calling any LLM.

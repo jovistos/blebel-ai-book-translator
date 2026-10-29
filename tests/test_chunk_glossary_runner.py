@@ -123,9 +123,9 @@ class RecordingMatcher:
 
 
 def _project(tmp_path: Path, *, chunk_size: int = 8) -> tuple[Path, Path, Path]:
-    """A stage-1/5/4 layout: chapters, chunks and a glossary, in one book folder."""
+    """A stage-2/5/4 layout: chapters, chunks and a glossary, in one book folder."""
     book = tmp_path / "book"
-    chapters = book / "01-chapters"
+    chapters = book / "02-chapters"
     chapters.mkdir(parents=True)
     for filename, text in CHAPTERS.items():
         (chapters / filename).write_text(text, encoding="utf-8")

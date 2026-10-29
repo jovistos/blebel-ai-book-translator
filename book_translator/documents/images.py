@@ -5,13 +5,13 @@ that "improves" an image path, drops a decorative rule or rewrites an ``alt``
 attribute corrupts the published Markdown even when its prose is perfect. Every
 stage therefore treats an image reference as an opaque token:
 
-* **Stage 0** writes them, relative to ``00-markdown/images/``;
-* **stage 2** refuses any cleaning operation aimed at a line that carries one;
+* **Stage 1** writes them, relative to ``01-markdown/images/``;
+* **stage 3** refuses any cleaning operation aimed at a line that carries one;
 * **stage 5** does not cut through one;
-* **stage 7** swaps each reference for ``[[IMG_1]]`` before the model sees the
+* **stage 8** swaps each reference for ``[[IMG_1]]`` before the model sees the
   chunk and restores it afterwards. The model is told to copy the marker; the
   runner verifies every marker came back exactly once.
-* **stage 10** rewrites the relative prefix for the book-root file.
+* **stage 11** rewrites the relative prefix for the book-root file.
 
 The module has no dependency on docling, a provider or the pipeline's records:
 it works on one string at a time, which is what makes it testable offline.

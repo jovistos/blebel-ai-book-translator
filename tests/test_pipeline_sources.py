@@ -36,7 +36,7 @@ def write_chapter(path: Path, text: str) -> str:
 
 
 def write_raw(root: Path, names: tuple[str, ...] = ("01-a.md", "02-b.md")) -> Path:
-    raw = root / "book" / "01-chapters"
+    raw = root / "book" / "02-chapters"
     files: list[dict[str, Any]] = []
     for name in names:
         digest = write_chapter(raw / name, f"# {name}\n\nText.\n")
@@ -57,7 +57,7 @@ def write_raw(root: Path, names: tuple[str, ...] = ("01-a.md", "02-b.md")) -> Pa
 
 
 def write_cleaned(root: Path, raw: Path, names: tuple[str, ...] | None = None) -> Path:
-    cleaned = root / "book" / "02-preprocessed"
+    cleaned = root / "book" / "03-preprocessed"
     raw_manifest = json.loads((raw / MANIFEST_FILENAME).read_text(encoding="utf-8"))
     by_name = {entry["filename"]: entry for entry in raw_manifest["files"]}
     files: list[dict[str, Any]] = []
@@ -88,7 +88,7 @@ def test_cleaned_window_is_used_when_it_covers_every_chapter(book):
     source = resolve_text_source(paths, ns(text_in=None))
     assert source.path == cleaned
     assert source.cleaned is True
-    assert source.label == "cleaned by stage 2"
+    assert source.label == "cleaned by stage 3"
 
 
 def test_explicit_text_in_always_wins(book):
@@ -150,14 +150,14 @@ def test_command_inputs_prefer_explicit_flags(book, tmp_path):
     assert resolve_chapters_input(ns(out=str(raw)), paths) == raw
     custom_chunks = tmp_path / "chunks"
     assert resolve_chunk_input(ns(chunks_in=str(custom_chunks)), paths) == custom_chunks
-    custom_translated = tmp_path / "book" / "08-translated-chapters"
+    custom_translated = tmp_path / "book" / "09-translated-chapters"
     assert (
         resolve_translated_chapters_input(
             ns(translated_chapters_in=str(custom_translated)), paths
         )
         == custom_translated
     )
-    custom_post = tmp_path / "book" / "09-postprocessed-chapters"
+    custom_post = tmp_path / "book" / "10-postprocessed-chapters"
     assert (
         resolve_postprocessed_input(ns(postprocessed_in=str(custom_post)), paths)
         == custom_post
@@ -191,7 +191,7 @@ def test_resolve_source_txt_needs_conversion(tmp_path):
     source.write_text("Book\n", encoding="utf-8")
     plan = resolve_source(source, output_root=tmp_path / "out")
     assert plan.needs_conversion is True
-    assert plan.source == tmp_path / "out" / "book" / "00-markdown" / "book.md"
+    assert plan.source == tmp_path / "out" / "book" / "01-markdown" / "book.md"
     assert plan.scratch_dir is None
 
 

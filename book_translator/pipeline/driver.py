@@ -140,7 +140,7 @@ class PipelineDriver(PhaseExecutionMixin):
         load_dotenv_files()  # so the banner's model label matches the real resolution
         args = self.args
         self.source = resolve_book_path(args.book, input_dir=args.in_dir)
-        # Stage 0 converts a non-Markdown source before any phase reads its lines.
+        # Stage 1 converts a non-Markdown source before any phase reads its lines.
         # ``self.source`` is replaced by the converted Markdown once it has run;
         # the original path is kept for the banner and the JSON summary.
         self.original_source = self.source
@@ -455,13 +455,13 @@ class PipelineDriver(PhaseExecutionMixin):
             return self.chapters_dir, "raw chapters (--no-preprocess)"
         cleaned = self._cleaned_window()
         if cleaned is not None:
-            return cleaned, "cleaned by stage 2"
+            return cleaned, "cleaned by stage 3"
         if has_chapter_files(self.preprocessed_out):
             return self.chapters_dir, "cleaned text does not cover this window"
         return self.chapters_dir, "raw chapters"
 
     def text_input(self) -> Path:
-        """The chapter folder stages 3-5 read: the cleaned text when usable."""
+        """The chapter folder stages 4-5 read: the cleaned text when usable."""
         return self._text_choice()[0]
 
     def chunk_input(self) -> Path:
@@ -474,7 +474,7 @@ class PipelineDriver(PhaseExecutionMixin):
         """Report the text folder and, when relevant, why it is not the cleaned one."""
         label = rel(input_dir)
         if input_dir == self.preprocessed_out:
-            label += "  (cleaned by stage 2)"
+            label += "  (cleaned by stage 3)"
         elif (
             self.chunk_in is None
             and self.text_in is None
@@ -714,7 +714,7 @@ class PipelineDriver(PhaseExecutionMixin):
 
                 rich_c.print(
                     Panel(
-                        f"[bold yellow]Checkpoint: Stage 6b Matter Localized[/bold yellow]\n\n"
+                        f"[bold yellow]Checkpoint: Stage 7 Matter Localized[/bold yellow]\n\n"
                         f"{content_preview}\n\n"
                         f"[bold][c][/bold] Continue to chunk translation\n"
                         f"[bold][a][/bold] Abort pipeline",

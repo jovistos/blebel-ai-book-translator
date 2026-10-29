@@ -76,7 +76,7 @@ def print_banner(driver: PipelineDriver, phases: list[str]) -> None:
             console.kv(
                 "book",
                 f"{rel(driver.source)} — {human_bytes(size)}, "
-                f"{driver.source_kind} (stage 0 converts it to Markdown)",
+                f"{driver.source_kind} (stage 1 converts it to Markdown)",
             )
     except OSError as exc:
         console.kv("book", f"{rel(driver.source)} — unreadable: {exc}")
@@ -89,7 +89,7 @@ def print_banner(driver: PipelineDriver, phases: list[str]) -> None:
         else f"built-in defaults (no {LLM_CONFIG_FILENAME})",
     )
     if driver.convert_needed:
-        console.kv("stage 0", rel(driver.markdown_out) + "/  (converted source)")
+        console.kv("stage 1", rel(driver.markdown_out) + "/  (converted source)")
     console.kv("chapters", rel(driver.chapters_dir))
     console.kv("reduced", rel(driver.reduced_out))
     console.kv("unique", rel(driver.unique_out))
@@ -122,7 +122,7 @@ def print_banner(driver: PipelineDriver, phases: list[str]) -> None:
         )
     if not driver.translate_enabled:
         console.kv(
-            "stage 7",
+            "stage 8",
             "translation switched off — add --with-translate to translate the chunks",
         )
     else:
@@ -134,7 +134,7 @@ def print_banner(driver: PipelineDriver, phases: list[str]) -> None:
         )
     if not driver.matter_enabled:
         console.kv(
-            "stage 6b",
+            "stage 7",
             "front/back matter localization switched off — add --with-matter "
             "or --start-at matter",
         )
@@ -160,31 +160,31 @@ def print_banner(driver: PipelineDriver, phases: list[str]) -> None:
         )
     if not driver.concat_enabled:
         console.kv(
-            "stage 8",
+            "stage 9",
             "assembly switched off — add --with-translate or --start-at concatenate",
         )
     else:
-        console.kv("stage 8", rel(driver.translated_chapters_out))
+        console.kv("stage 9", rel(driver.translated_chapters_out))
     if not driver.postprocess_enabled:
         console.kv(
-            "stage 9",
+            "stage 10",
             "postprocess switched off — add --with-postprocess or --start-at postprocess",
         )
     else:
-        console.kv("stage 9", rel(driver.postprocess_out))
+        console.kv("stage 10", rel(driver.postprocess_out))
     if not driver.bind_enabled:
-        console.kv("stage 10", "bind switched off — remove --no-bind to write one book file")
+        console.kv("stage 11", "bind switched off — remove --no-bind to write one book file")
     else:
-        console.kv("stage 10", rel(driver.translated_book_out))
+        console.kv("stage 11", rel(driver.translated_book_out))
     if not driver.epub_enabled:
-        console.kv("stage 11", "epub switched off — remove --no-epub to write one")
+        console.kv("stage 12", "epub switched off — remove --no-epub to write one")
     else:
-        console.kv("stage 11", rel(driver.epub_out))
+        console.kv("stage 12", rel(driver.epub_out))
     console.kv("phases", " → ".join(phases) or "(none — every selected phase is switched off)")
     if not driver.preprocess_enabled:
-        console.kv("stage 2", "preprocess switched off — remove --no-preprocess to run it")
+        console.kv("stage 3", "preprocess switched off — remove --no-preprocess to run it")
     if not driver.dictionary_enabled:
-        console.kv("stage 3", "dictionary switched off — --with-dictionary to run it")
+        console.kv("stage 4", "dictionary switched off — --with-dictionary to run it")
     elif driver.glossary_enabled:
         console.kv("glossary", rel(driver.glossary_out) + "  (built by the dictionary phase)")
     else:
@@ -307,24 +307,24 @@ def print_artifacts(driver: PipelineDriver, console: Console) -> None:
 
         tree = Tree(f"[bold cyan]Artifacts[/bold cyan] [dim]({rel(driver.book_dir)})[/dim]")
         if driver.convert_needed and not driver.args.dry_run:
-            tree.add(f"[yellow]00-markdown[/yellow] → {rel(driver.markdown_out)}/")
-        tree.add(f"[blue]01-chapters[/blue] → {rel(driver.chapters_dir)}/")
-        tree.add(f"[blue]02-preprocessed[/blue] → {rel(driver.preprocessed_out)}/")
-        tree.add(f"[blue]03-reduced[/blue] → {rel(driver.reduced_out)}/")
+            tree.add(f"[yellow]01-markdown[/yellow] → {rel(driver.markdown_out)}/")
+        tree.add(f"[blue]02-chapters[/blue] → {rel(driver.chapters_dir)}/")
+        tree.add(f"[blue]03-preprocessed[/blue] → {rel(driver.preprocessed_out)}/")
+        tree.add(f"[blue]04-reduced[/blue] → {rel(driver.reduced_out)}/")
         tree.add(f"[blue]04-glossary[/blue] → {rel(driver.glossary_out)}/")
         tree.add(f"[blue]05-chunks[/blue] → {rel(driver.chunks_out)}/")
         tree.add(f"[blue]06-chunk-glossary[/blue] → {rel(driver.chunk_glossary_out)}/")
         if driver.matter_enabled:
-            tree.add(f"[magenta]06b-matter[/magenta] → {rel(driver.matter_out)}/")
+            tree.add(f"[magenta]07-matter[/magenta] → {rel(driver.matter_out)}/")
         if driver.translate_enabled:
-            tree.add(f"[green]07-translations[/green] → {rel(driver.translations_out)}/")
-            tree.add(f"[green]08-translated-chapters[/green] → {rel(driver.translated_chapters_out)}/")
+            tree.add(f"[green]08-translations[/green] → {rel(driver.translations_out)}/")
+            tree.add(f"[green]09-translated-chapters[/green] → {rel(driver.translated_chapters_out)}/")
         if driver.postprocess_enabled:
-            tree.add(f"[cyan]09-postprocess[/cyan] → {rel(driver.postprocess_out)}/")
+            tree.add(f"[cyan]10-postprocess[/cyan] → {rel(driver.postprocess_out)}/")
         if driver.bind_enabled:
-            tree.add(f"[bold green]10-translated-book.md[/bold green] → {rel(driver.translated_book_out)}")
+            tree.add(f"[bold green]11-translated-book.md[/bold green] → {rel(driver.translated_book_out)}")
         if driver.epub_enabled:
-            tree.add(f"[bold magenta]11-translated-book.epub[/bold magenta] → {rel(driver.epub_out)}")
+            tree.add(f"[bold magenta]12-translated-book.epub[/bold magenta] → {rel(driver.epub_out)}")
         if console.log_path is not None:
             tree.add(f"[dim]pipeline.log[/dim] → {rel(console.log_path)}")
         rich_c.print(tree)
@@ -493,7 +493,7 @@ def print_next_steps(driver: PipelineDriver, console: Console, state: PhaseState
     elif state.cleaned:
         console.info(
             f"  next: {rel(driver.preprocessed_out)}/ holds the cleaned chapters — "
-            "stages 3–5 will read them by default"
+            "stages 4–5 will read them by default"
         )
     elif state.glossaried:
         console.info(
@@ -513,16 +513,16 @@ def print_next_steps(driver: PipelineDriver, console: Console, state: PhaseState
 
     if state.tagger_missing:
         console.info(
-            "  note: install stage 3's tagger (pip install -r "
+            "  note: install stage 4's tagger (pip install -r "
             "requirements.txt) and re-run --start-at dictionary"
         )
     if not driver.preprocess_enabled:
         console.info(
-            "  stage 2 (preprocess) is switched off — remove --no-preprocess to run it"
+            "  stage 3 (preprocess) is switched off — remove --no-preprocess to run it"
         )
     if not driver.translate_enabled:
         console.info(
-            "  stage 7 (translation) is switched off — --with-translate to translate "
+            "  stage 8 (translation) is switched off — --with-translate to translate "
             "the chunks (one paid model call per chunk)"
         )
 
@@ -530,39 +530,39 @@ def print_next_steps(driver: PipelineDriver, console: Console, state: PhaseState
 def find_artifact_files(driver: PipelineDriver) -> list[tuple[str, str | Path]]:
     """Manifest/trace files written by whichever phases ran, for the report."""
     candidates = [
-        ("stage-0 markdown", driver.markdown_out / f"{book_slug(driver.original_source)}.md"),
-        ("stage-0 manifest", driver.markdown_out / CONVERT_MANIFEST_FILENAME),
+        ("stage-1 markdown", driver.markdown_out / f"{book_slug(driver.original_source)}.md"),
+        ("stage-1 manifest", driver.markdown_out / CONVERT_MANIFEST_FILENAME),
         ("split trace", driver.chapters_dir / TRACE_FILENAME),
         ("split manifest", driver.chapters_dir / MANIFEST_FILENAME),
-        ("stage-3 manifest", driver.reduced_out / REDUCED_MANIFEST_FILENAME),
-        ("stage-3 trace", driver.reduced_out / REDUCED_TRACE_FILENAME),
+        ("stage-4 manifest", driver.reduced_out / REDUCED_MANIFEST_FILENAME),
+        ("stage-4 trace", driver.reduced_out / REDUCED_TRACE_FILENAME),
         ("stage-4 glossary", driver.glossary_out / GLOSSARY_FILENAME),
         ("stage-4 csv", driver.glossary_out / GLOSSARY_CSV_FILENAME),
         ("stage-4 markdown", driver.glossary_out / GLOSSARY_MARKDOWN_FILENAME),
         ("stage-4 manifest", driver.glossary_out / GLOSSARY_MANIFEST_FILENAME),
         ("stage-4 trace", driver.glossary_out / GLOSSARY_TRACE_FILENAME),
-        ("stage-2 manifest", driver.preprocessed_out / PREPROCESS_MANIFEST_FILENAME),
-        ("stage-2 trace", driver.preprocessed_out / PREPROCESS_TRACE_FILENAME),
+        ("stage-3 manifest", driver.preprocessed_out / PREPROCESS_MANIFEST_FILENAME),
+        ("stage-3 trace", driver.preprocessed_out / PREPROCESS_TRACE_FILENAME),
         ("stage-5 manifest", driver.chunks_out / CHUNK_MANIFEST_FILENAME),
         ("stage-5 trace", driver.chunks_out / CHUNK_TRACE_FILENAME),
         ("stage-6 manifest", driver.chunk_glossary_out / CHUNK_GLOSSARY_MANIFEST_FILENAME),
         ("stage-6 trace", driver.chunk_glossary_out / CHUNK_GLOSSARY_TRACE_FILENAME),
-        ("stage-6b plan", driver.matter_out / "book-plan.json"),
-        ("stage-6b manifest", driver.matter_out / MATTER_MANIFEST_FILENAME),
-        ("stage-6b trace", driver.matter_out / MATTER_TRACE_FILENAME),
-        ("stage-7 manifest", driver.translations_out / TRANSLATION_MANIFEST_FILENAME),
-        ("stage-7 trace", driver.translations_out / TRANSLATION_TRACE_FILENAME),
-        ("stage-8 manifest", driver.translated_chapters_out / ASSEMBLY_MANIFEST_FILENAME),
-        ("stage-8 trace", driver.translated_chapters_out / ASSEMBLY_TRACE_FILENAME),
+        ("stage-7 plan", driver.matter_out / "book-plan.json"),
+        ("stage-7 manifest", driver.matter_out / MATTER_MANIFEST_FILENAME),
+        ("stage-7 trace", driver.matter_out / MATTER_TRACE_FILENAME),
+        ("stage-8 manifest", driver.translations_out / TRANSLATION_MANIFEST_FILENAME),
+        ("stage-8 trace", driver.translations_out / TRANSLATION_TRACE_FILENAME),
+        ("stage-9 manifest", driver.translated_chapters_out / ASSEMBLY_MANIFEST_FILENAME),
+        ("stage-9 trace", driver.translated_chapters_out / ASSEMBLY_TRACE_FILENAME),
         (
-            "stage-9 manifest",
+            "stage-10 manifest",
             driver.postprocess_out / "_postprocess_manifest.json",
         ),
-        ("stage-9 trace", driver.postprocess_out / "_postprocess_trace.json"),
-        ("stage-10 manifest", driver.translated_book_out.parent / "_bind_manifest.json"),
-        ("stage-10 trace", driver.translated_book_out.parent / "_bind_trace.json"),
-        ("stage-11 manifest", driver.epub_out.parent / EPUB_MANIFEST_FILENAME),
-        ("stage-11 trace", driver.epub_out.parent / EPUB_TRACE_FILENAME),
+        ("stage-10 trace", driver.postprocess_out / "_postprocess_trace.json"),
+        ("stage-11 manifest", driver.translated_book_out.parent / "_bind_manifest.json"),
+        ("stage-11 trace", driver.translated_book_out.parent / "_bind_trace.json"),
+        ("stage-12 manifest", driver.epub_out.parent / EPUB_MANIFEST_FILENAME),
+        ("stage-12 trace", driver.epub_out.parent / EPUB_TRACE_FILENAME),
     ]
     return [(label, path) for label, path in candidates if path.is_file()]
 

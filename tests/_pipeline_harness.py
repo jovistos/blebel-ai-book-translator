@@ -66,35 +66,35 @@ SPLIT_MAP: tuple[dict[str, Any], ...] = (
 
 #: Stage labels in pipeline order. The test asserts every one produced a result.
 STAGE_NAMES: tuple[str, ...] = (
-    "0-convert",
-    "1-split",
-    "2-preprocess",
-    "3-dictionary",
+    "1-convert",
+    "2-split",
+    "3-preprocess",
+    "4-dictionary",
     "4-glossary",
     "5-chunk",
     "6-chunk-glossary",
-    "6b-matter",
-    "7-translate",
-    "8-assembly",
-    "9-postprocess",
-    "10-bind",
-    "11-epub",
+    "7-matter",
+    "8-translate",
+    "9-assembly",
+    "10-postprocess",
+    "11-bind",
+    "12-epub",
 )
 
 #: Every stage writes one of these. The test checks the whole set is present.
 MANIFEST_FILES: tuple[str, ...] = (
-    "00-markdown/_convert_manifest.json",
-    "01-chapters/_manifest.json",
-    "01-chapters/_agent_trace.json",
-    "02-preprocessed/_preprocess_manifest.json",
-    "03-reduced/_reduced_manifest.json",
+    "01-markdown/_convert_manifest.json",
+    "02-chapters/_manifest.json",
+    "02-chapters/_agent_trace.json",
+    "03-preprocessed/_preprocess_manifest.json",
+    "04-reduced/_reduced_manifest.json",
     "04-glossary/_glossary_manifest.json",
     "05-chunks/_chunk_manifest.json",
     "06-chunk-glossary/_chunk_glossary_manifest.json",
-    "06b-matter/_matter_manifest.json",
-    "07-translations/_translation_manifest.json",
-    "08-translated-chapters/_translated_chapters_manifest.json",
-    "09-postprocessed-chapters/_postprocess_manifest.json",
+    "07-matter/_matter_manifest.json",
+    "08-translations/_translation_manifest.json",
+    "09-translated-chapters/_translated_chapters_manifest.json",
+    "10-postprocessed-chapters/_postprocess_manifest.json",
     "_bind_manifest.json",
     "_epub_manifest.json",
 )
@@ -383,7 +383,7 @@ def _require_ok(stage: str, result: Any) -> Any:
 def run_fixture_pipeline(
     work: Path, monkeypatch: pytest.MonkeyPatch
 ) -> tuple[Path, dict[str, Any]]:
-    """Run stages 0 -> 11 into ``work`` and return the book folder and results."""
+    """Run stages 1 -> 12 into ``work`` and return the book folder and results."""
     work = work.resolve()
     _freeze_stage_clock(monkeypatch)
     input_dir = work / "input"
@@ -394,36 +394,36 @@ def run_fixture_pipeline(
     book = work / "out" / "fixture"
     results: dict[str, Any] = {}
 
-    # Stage 0: TXT -> 00-markdown/<slug>.md. No docling, no OCR, no network.
+    # Stage 1: TXT -> 01-markdown/<slug>.md. No docling, no OCR, no network.
     conversion = _require_ok(
-        "0-convert", run_conversion(source, book / "00-markdown")
+        "1-convert", run_conversion(source, book / "01-markdown")
     )
-    results["0-convert"] = conversion
+    results["1-convert"] = conversion
     markdown = Path(conversion.markdown_path)
 
-    # Stage 1: the real graph, with only the chat model doubled. The monkeypatch
+    # Stage 2: the real graph, with only the chat model doubled. The monkeypatch
     # is the same seam a provider client uses; no stage code is bypassed.
     monkeypatch.setattr(
         agent_graph, "make_llm", lambda _settings: ScriptedModel(_split_responder)
     )
-    results["1-split"] = _require_ok(
-        "1-split",
-        run_split(str(markdown), str(book / "01-chapters"), max_attempts=3),
+    results["2-split"] = _require_ok(
+        "2-split",
+        run_split(str(markdown), str(book / "02-chapters"), max_attempts=3),
     )
 
-    results["2-preprocess"] = _require_ok(
-        "2-preprocess",
+    results["3-preprocess"] = _require_ok(
+        "3-preprocess",
         run_preprocess(
-            str(book / "01-chapters"),
+            str(book / "02-chapters"),
             model=ScriptedModel(_preprocess_responder),
         ),
     )
 
-    # Stage 3: real funnel; only the NER backend is a deterministic double.
-    results["3-dictionary"] = _require_ok(
-        "3-dictionary",
+    # Stage 4: real funnel; only the NER backend is a deterministic double.
+    results["4-dictionary"] = _require_ok(
+        "4-dictionary",
         run_dictionary(
-            str(book / "02-preprocessed"),
+            str(book / "03-preprocessed"),
             language="en",
             backend=FixtureNer("en"),
         ),
@@ -432,7 +432,7 @@ def run_fixture_pipeline(
     results["4-glossary"] = _require_ok(
         "4-glossary",
         run_glossary(
-            str(book / "02-preprocessed"),
+            str(book / "03-preprocessed"),
             str(book / "04-glossary"),
             extractor=FixtureExtractor(),
             source_language="en",
@@ -445,7 +445,7 @@ def run_fixture_pipeline(
     results["5-chunk"] = _require_ok(
         "5-chunk",
         run_chunking(
-            str(book / "02-preprocessed"), chunk_size=200, tokenizer="word"
+            str(book / "03-preprocessed"), chunk_size=200, tokenizer="word"
         ),
     )
 
@@ -456,10 +456,10 @@ def run_fixture_pipeline(
         ),
     )
 
-    results["6b-matter"] = _require_ok(
-        "6b-matter",
+    results["7-matter"] = _require_ok(
+        "7-matter",
         run_matter(
-            str(book / "01-chapters"),
+            str(book / "02-chapters"),
             str(book / "05-chunks"),
             book_model=ScriptedModel(_matter_book_responder),
             chunk_model=ScriptedModel(_matter_chunk_responder),
@@ -470,8 +470,8 @@ def run_fixture_pipeline(
         ),
     )
 
-    results["7-translate"] = _require_ok(
-        "7-translate",
+    results["8-translate"] = _require_ok(
+        "8-translate",
         run_translation(
             str(book / "05-chunks"),
             translator=FixtureTranslator(),
@@ -480,36 +480,36 @@ def run_fixture_pipeline(
         ),
     )
 
-    results["8-assembly"] = _require_ok(
-        "8-assembly", run_assembly(str(book / "05-chunks"))
+    results["9-assembly"] = _require_ok(
+        "9-assembly", run_assembly(str(book / "05-chunks"))
     )
 
     # The published-contents lookup is the only network-shaped dependency stage
-    # 9 has. It stays mandatory (the default), but the search function itself is
+    # 10 has. It stays mandatory (the default), but the search function itself is
     # a fixed in-process result, so the run is offline and deterministic.
     monkeypatch.setattr(
         "book_translator.stages.agent.tools.websearch.search_web", _fixture_web_search
     )
-    results["9-postprocess"] = _require_ok(
-        "9-postprocess",
+    results["10-postprocess"] = _require_ok(
+        "10-postprocess",
         run_postprocess(
-            str(book / "08-translated-chapters"),
+            str(book / "09-translated-chapters"),
             book_model=ScriptedModel(_postprocess_book_responder),
             chapter_model=ScriptedModel(_postprocess_chapter_responder),
         ),
     )
 
-    results["10-bind"] = _require_ok(
-        "10-bind", run_bind(str(book / "09-postprocessed-chapters"))
+    results["11-bind"] = _require_ok(
+        "11-bind", run_bind(str(book / "10-postprocessed-chapters"))
     )
 
-    # Stage 11 says "the newest chapter mtime is the publication date". Pin the
+    # Stage 12 says "the newest chapter mtime is the publication date". Pin the
     # mtimes so two runs (and two machines) package byte-identical EPUBs.
-    postprocessed = book / "09-postprocessed-chapters"
+    postprocessed = book / "10-postprocessed-chapters"
     for path in sorted(postprocessed.rglob("*")):
         if path.is_file():
             os.utime(path, (FIXED_MTIME, FIXED_MTIME))
-    results["11-epub"] = _require_ok("11-epub", run_epub(str(postprocessed)))
+    results["12-epub"] = _require_ok("12-epub", run_epub(str(postprocessed)))
 
     return book, results
 

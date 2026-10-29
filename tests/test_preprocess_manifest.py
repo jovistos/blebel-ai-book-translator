@@ -1,8 +1,8 @@
-"""Stage 2's manifest is a chapter manifest, not a private progress log.
+"""Stage 3's manifest is a chapter manifest, not a private progress log.
 
-``02-preprocessed/`` has no stage-1 ``_manifest.json``, so the rest of the
+``03-preprocessed/`` has no stage-2 ``_manifest.json``, so the rest of the
 pipeline reads it through the same ``load_split_manifest``/``discover_chapters``
-pair. That only works while the stage-2 record keeps the fields those readers
+pair. That only works while the stage-3 record keeps the fields those readers
 need: filename and order, title, source line range, and both hashes.
 """
 
@@ -19,8 +19,8 @@ from book_translator.stages.preprocess_agent.runner import (
 )
 
 
-def test_the_cleaned_manifest_reads_back_like_a_stage_one_manifest(tmp_path: Path):
-    raw = tmp_path / "01-chapters"
+def test_the_cleaned_manifest_reads_back_like_a_stage_two_manifest(tmp_path: Path):
+    raw = tmp_path / "02-chapters"
     raw.mkdir()
     source = raw / "01-chapter.md"
     source.write_text("## 18\n\nMarko je ušao.\n", encoding="utf-8")
@@ -43,7 +43,7 @@ def test_the_cleaned_manifest_reads_back_like_a_stage_one_manifest(tmp_path: Pat
         ),
         encoding="utf-8",
     )
-    out = tmp_path / "02-preprocessed"
+    out = tmp_path / "03-preprocessed"
     out.mkdir()
     (out / "01-chapter.md").write_text("Marko je ušao.\n", encoding="utf-8")
 

@@ -30,26 +30,26 @@ def add_parser(sub: Any) -> None:
     p_bind = sub.add_parser(
         "bind",
         aliases=["full-book", "compile"],
-        help="stage 10: concatenate the postprocessed chapters into one Markdown book",
+        help="stage 11: concatenate the postprocessed chapters into one Markdown book",
     )
     parents.add_book(p_bind, required=False)
     p_bind.add_argument(
         "--out",
         "-o",
         default=None,
-        help="the chapter folder (default: the cleaned data/output/<book>/02-preprocessed "
-        "when stage 2 wrote it, else data/output/<book>/01-chapters)",
+        help="the chapter folder (default: the cleaned data/output/<book>/03-preprocessed "
+        "when stage 3 wrote it, else data/output/<book>/02-chapters)",
     )
     p_bind.add_argument(
         "--postprocessed-in",
         default=None,
-        help="stage 9's output folder (default: data/output/<book>/09-postprocessed-chapters)",
+        help="stage 10's output folder (default: data/output/<book>/10-postprocessed-chapters)",
     )
     p_bind.add_argument(
         "--book-out",
         default=None,
         help="where the single Markdown book goes "
-        "(default: data/output/<book>/10-translated-book.md)",
+        "(default: data/output/<book>/11-translated-book.md)",
     )
     p_bind.add_argument(
         "--no-manifest",
@@ -67,7 +67,7 @@ def add_parser(sub: Any) -> None:
 
 
 def cmd_bind(args: argparse.Namespace) -> int:
-    """Stage 10: concatenate the postprocessed chapters into one Markdown book."""
+    """Stage 11: concatenate the postprocessed chapters into one Markdown book."""
     from book_translator.stages.binding import run_bind
 
     if args.postprocessed_in:

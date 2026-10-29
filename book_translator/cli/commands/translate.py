@@ -45,17 +45,17 @@ def add_parser(sub: Any) -> None:
     """Register this command's parser (the help text is snapshot-tested)."""
     p_tr = sub.add_parser(
         "translate",
-        help="stage 7: translate every chunk in reading order, with the glossary "
-        "rows it mentions, into 07-translations/ (English -> Serbian by default) and "
-        "keep the whole prompt of each call in 07-translation-prompts/",
+        help="stage 8: translate every chunk in reading order, with the glossary "
+        "rows it mentions, into 08-translations/ (English -> Serbian by default) and "
+        "keep the whole prompt of each call in 08-translation-prompts/",
     )
     parents.add_book(p_tr, required=False)
     p_tr.add_argument(
         "--out",
         "-o",
         default=None,
-        help="the chapter folder (default: the cleaned data/output/<book>/02-preprocessed "
-        "when stage 2 wrote it, else data/output/<book>/01-chapters); "
+        help="the chapter folder (default: the cleaned data/output/<book>/03-preprocessed "
+        "when stage 3 wrote it, else data/output/<book>/02-chapters); "
         "the chunks, glossary and translation folders are derived from the book folder",
     )
     p_tr.add_argument(
@@ -86,13 +86,13 @@ def add_parser(sub: Any) -> None:
     p_tr.add_argument(
         "--translations-out",
         default=None,
-        help="where the translated chunks land (default: data/output/<book>/07-translations)",
+        help="where the translated chunks land (default: data/output/<book>/08-translations)",
     )
     p_tr.add_argument(
         "--prompts-out",
         default=None,
         help="where the per-chunk prompt/input records land "
-        "(default: data/output/<book>/07-translation-prompts)",
+        "(default: data/output/<book>/08-translation-prompts)",
     )
     p_tr.add_argument(
         "--source-language",
@@ -109,7 +109,7 @@ def add_parser(sub: Any) -> None:
     p_tr.add_argument(
         "--book-title",
         default=None,
-        help="the title the prompt uses (default: the source filename from stage 1)",
+        help="the title the prompt uses (default: the source filename from stage 2)",
     )
     p_tr.add_argument(
         "--max-attempts",
@@ -173,7 +173,7 @@ def add_parser(sub: Any) -> None:
         "--include-matter",
         action="store_true",
         help="also translate the front/back matter chunks, with this stage's prompt "
-        "(the old behaviour; stage 6b normally localizes them first)",
+        "(the old behaviour; stage 7 normally localizes them first)",
     )
     p_tr.add_argument(
         "--no-manifest",
@@ -195,7 +195,7 @@ def add_parser(sub: Any) -> None:
         help="model that translates the body chunks: 'deepseek' (the cloud default) "
         "or 'lmstudio' (your local OpenAI-compatible server, "
         "http://127.0.0.1:1234/v1 by default; the loaded model is auto-detected). "
-        "This choice affects stage 7 only — front/back matter and the other stages "
+        "This choice affects stage 8 only — front/back matter and the other stages "
         "keep the shared SPLITTER_* settings",
     )
     p_tr.add_argument("--model", default=None, help="the model id (e.g. the id LM Studio shows)")
@@ -205,7 +205,7 @@ def add_parser(sub: Any) -> None:
         "--temperature",
         type=float,
         default=None,
-        help="sampling temperature for stage 7 (default: the config file, else 0.0)",
+        help="sampling temperature for stage 8 (default: the config file, else 0.0)",
     )
     parents.add_llm_flags(p_tr)
     p_tr.add_argument("--json", action="store_true", help="machine-readable result")
@@ -213,8 +213,8 @@ def add_parser(sub: Any) -> None:
     p_tr.add_argument(
         "--text-in",
         default=None,
-        help="chapter text folder to read (default: 02-preprocessed/ when it covers "
-        "the window, else 01-chapters/); overrides --out",
+        help="chapter text folder to read (default: 03-preprocessed/ when it covers "
+        "the window, else 02-chapters/); overrides --out",
     )
     p_tr.set_defaults(func=cmd_translate)
 
@@ -371,7 +371,7 @@ class _TranslationBar:
 
 
 def cmd_translate(args: argparse.Namespace) -> int:
-    """Stage 7: translate each chunk in reading order, with its glossary rows."""
+    """Stage 8: translate each chunk in reading order, with its glossary rows."""
     from book_translator.stages.chunk_glossary.runner import resolve_chunks_dir
     from book_translator.stages.translation import run_translation
     from book_translator.stages.translation.runner import resolve_chunk_glossary_dir

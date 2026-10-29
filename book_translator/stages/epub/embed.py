@@ -10,6 +10,7 @@ from book_translator.core.constants import (
     EPUB_IMAGES_DIRNAME,
     IMAGES_DIRNAME,
     MARKDOWN_DIRNAME,
+    TRANSLATIONS_DIRNAME,
 )
 from book_translator.core.errors import ToolError
 
@@ -43,7 +44,7 @@ def embed_images(
             filename = Path(src).name
             for candidate_dir in (
                 base_dir.parent / MARKDOWN_DIRNAME / IMAGES_DIRNAME,
-                base_dir.parent / "07-translations" / IMAGES_DIRNAME,
+                base_dir.parent / TRANSLATIONS_DIRNAME / IMAGES_DIRNAME,
                 base_dir.parent / IMAGES_DIRNAME,
                 base_dir / IMAGES_DIRNAME,
             ):
@@ -57,7 +58,7 @@ def embed_images(
             if not path.is_file():
                 errors.append(
                     f"{name}: picture not found: {src} "
-                    "(run `convert` with images, or restore 00-markdown/images/)"
+                    "(run `convert` with images, or restore 01-markdown/images/)"
                 )
                 return f'<span class="image-missing">[{escape(src)}]</span>'
             data = path.read_bytes()
@@ -112,7 +113,7 @@ def resolve_cover(cover: str | Path, source: Path) -> Path:
     if candidate.is_file():
         return candidate
     pictures = source.parent / MARKDOWN_DIRNAME / IMAGES_DIRNAME
-    trans_pictures = source.parent / "07-translations" / IMAGES_DIRNAME
+    trans_pictures = source.parent / TRANSLATIONS_DIRNAME / IMAGES_DIRNAME
     for option in (
         pictures / candidate.name,
         pictures / str(cover),

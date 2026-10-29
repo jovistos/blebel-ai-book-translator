@@ -264,7 +264,7 @@ def test_a_failed_split_still_writes_its_trace(monkeypatch, tmp_path, plain):
     real_build = runner.build_graph
     monkeypatch.setattr(runner, "build_graph", lambda settings=None: real_build(model=silent))
 
-    out_dir = tmp_path / "01-chapters"
+    out_dir = tmp_path / "02-chapters"
     result = runner.run_split(str(plain), str(out_dir), max_attempts=2, recursion_limit=30)
 
     assert not result.ok

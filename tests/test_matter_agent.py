@@ -71,7 +71,7 @@ def _book(tmp_path: Path, chapters: dict[str, str] | None = None) -> tuple[Path,
         "03-beleske.md": BACK,
     }
     book = tmp_path / "book"
-    folder = book / "01-chapters"
+    folder = book / "02-chapters"
     folder.mkdir(parents=True)
     for name, text in chapters.items():
         (folder / name).write_text(text, encoding="utf-8")
@@ -272,7 +272,7 @@ def test_matter_localization_must_keep_every_image_reference(tmp_path: Path):
     book = discover_matter_sections(chapters, chunks)
     back = next(section for section in book if section.kind == "back")
     validation = validate_matter_plan(book, _plan())
-    image = "![Image](../00-markdown/images/portrait.png)"
+    image = "![Image](../01-markdown/images/portrait.png)"
     source = BACK + f"\n{image}\n"
 
     dropped = validate_matter_translation(
@@ -405,7 +405,7 @@ def test_the_body_translation_stage_skips_matter_chunks(tmp_path: Path):
 
     result = run_translation(
         str(chunks),
-        str(tmp_path / "07-translations"),
+        str(tmp_path / "08-translations"),
         chunk_glossary_path=str(glossary),
         source_language="en",
         target_language="sr",
@@ -428,7 +428,7 @@ def test_the_body_translation_stage_needs_no_glossary_when_only_matter_remains(t
 
     result = run_translation(
         str(chunks),
-        str(tmp_path / "07-translations"),
+        str(tmp_path / "08-translations"),
         chunk_glossary_path=str(tmp_path / "missing"),
         source_language="en",
         target_language="sr",

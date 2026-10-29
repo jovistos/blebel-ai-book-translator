@@ -13,7 +13,7 @@ from book_translator.stages.matter.synthesize import ensure_matter_sections
 
 def _book(tmp_path: Path, *, with_front: bool = False) -> tuple[Path, Path]:
     book = tmp_path / "book"
-    chapters = book / "01-chapters"
+    chapters = book / "02-chapters"
     chunks = book / "05-chunks"
     chapters.mkdir(parents=True)
     chunks.mkdir(parents=True)

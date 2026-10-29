@@ -23,7 +23,7 @@ from book_translator.documents.images import (
     strip_images,
 )
 
-MARKDOWN = "![Image](../00-markdown/images/rabbit.png)"
+MARKDOWN = "![Image](../01-markdown/images/rabbit.png)"
 HTML = '<img src="images/hat.jpg" alt="A hat" />'
 
 
@@ -48,7 +48,7 @@ def test_all_caps_alt_text_does_not_turn_a_picture_into_a_heading():
     from book_translator.documents.markdown import is_plain_heading_candidate
 
     assert is_plain_heading_candidate("ALICE")
-    assert not is_plain_heading_candidate("![ALICE](../00-markdown/images/rabbit.png)")
+    assert not is_plain_heading_candidate("![ALICE](../01-markdown/images/rabbit.png)")
 
 
 def test_protect_and_restore_are_byte_for_byte_reversible():

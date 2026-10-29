@@ -30,7 +30,7 @@ def add_parser(sub: Any) -> None:
     p_epub = sub.add_parser(
         "epub",
         aliases=["ebook"],
-        help="stage 11: package the postprocessed chapters as an EPUB 3 book "
+        help="stage 12: package the postprocessed chapters as an EPUB 3 book "
         "(images embedded, reader navigation instead of the printed TOC)",
     )
     parents.add_book(p_epub, required=False)
@@ -38,34 +38,34 @@ def add_parser(sub: Any) -> None:
         "--out",
         "-o",
         default=None,
-        help="the chapter folder (default: the cleaned data/output/<book>/02-preprocessed "
-        "when stage 2 wrote it, else data/output/<book>/01-chapters)",
+        help="the chapter folder (default: the cleaned data/output/<book>/03-preprocessed "
+        "when stage 3 wrote it, else data/output/<book>/02-chapters)",
     )
     p_epub.add_argument(
         "--postprocessed-in",
         default=None,
-        help="stage 9's output folder (default: data/output/<book>/09-postprocessed-chapters)",
+        help="stage 10's output folder (default: data/output/<book>/10-postprocessed-chapters)",
     )
     p_epub.add_argument(
         "--epub-out",
         default=None,
-        help="where the EPUB goes (default: data/output/<book>/11-translated-book.epub)",
+        help="where the EPUB goes (default: data/output/<book>/12-translated-book.epub)",
     )
     p_epub.add_argument(
         "--title",
         default=None,
-        help="override the book title (default: the title stage 6b recorded)",
+        help="override the book title (default: the title stage 7 recorded)",
     )
     p_epub.add_argument(
         "--author",
         default=None,
-        help="override the author (default: the author stage 6b recorded)",
+        help="override the author (default: the author stage 7 recorded)",
     )
     p_epub.add_argument(
         "--language",
         default=None,
         help="override the book language, an ISO 639 code (default: the target "
-        "language stage 6b recorded)",
+        "language stage 7 recorded)",
     )
     p_epub.add_argument(
         "--identifier",
@@ -79,7 +79,7 @@ def add_parser(sub: Any) -> None:
         "--cover",
         default=None,
         help="cover picture — a path, or a file name inside the book's "
-        "00-markdown/images/ folder",
+        "01-markdown/images/ folder",
     )
     p_epub.add_argument(
         "--no-manifest",
@@ -97,7 +97,7 @@ def add_parser(sub: Any) -> None:
 
 
 def cmd_epub(args: argparse.Namespace) -> int:
-    """Stage 11: package the postprocessed chapters as an EPUB 3 book."""
+    """Stage 12: package the postprocessed chapters as an EPUB 3 book."""
     from book_translator.stages.epub import run_epub
 
     if args.postprocessed_in:

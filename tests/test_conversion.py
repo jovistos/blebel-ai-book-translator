@@ -74,10 +74,10 @@ def test_classify_source_rejects_an_unknown_extension_and_a_missing_file(tmp_pat
     assert is_markdown_source("a.md") and not is_markdown_source("a.pdf")
 
 
-def test_converted_markdown_path_uses_the_book_slug_and_00_markdown(tmp_path):
+def test_converted_markdown_path_uses_the_book_slug_and_01_markdown(tmp_path):
     assert converted_markdown_path(
         "data/input/My Book.pdf", output_root=tmp_path
-    ) == tmp_path / "My-Book" / "00-markdown" / "My-Book.md"
+    ) == tmp_path / "My-Book" / "01-markdown" / "My-Book.md"
 
 
 # --------------------------------------------------------------------------- #
@@ -254,10 +254,10 @@ def _tiny_epub(
 
 
 def test_a_real_epub_extracts_its_images_and_links_them(tmp_path):
-    """The one integration test for stage 0's image export (tiny fixture)."""
+    """The one integration test for stage 1's image export (tiny fixture)."""
     pytest.importorskip("docling")
     source = _tiny_epub(tmp_path / "picture.epub")
-    markdown_dir = tmp_path / "book" / "00-markdown"
+    markdown_dir = tmp_path / "book" / "01-markdown"
 
     result = run_conversion(source, markdown_dir)
 
@@ -267,12 +267,12 @@ def test_a_real_epub_extracts_its_images_and_links_them(tmp_path):
     assert result.images_dir == str(markdown_dir / "images")
 
     markdown = Path(result.markdown_path).read_text(encoding="utf-8")
-    assert "![Image](../00-markdown/images/" in markdown
+    assert "![Image](../01-markdown/images/" in markdown
     # The reference resolves from the Markdown file *and* from a stage folder.
     reference = markdown.split("](", 1)[1].split(")", 1)[0]
     assert (markdown_dir / reference).is_file()
-    (tmp_path / "book" / "01-chapters").mkdir()
-    assert (tmp_path / "book" / "01-chapters" / reference).is_file()
+    (tmp_path / "book" / "02-chapters").mkdir()
+    assert (tmp_path / "book" / "02-chapters" / reference).is_file()
 
 
 def test_epub_presentation_tags_are_stripped_before_docling(tmp_path):
@@ -322,7 +322,7 @@ def test_a_small_caps_heading_is_converted_as_one_word(tmp_path):
             "<p>Alice looked at the picture and smiled.</p>"
         ),
     )
-    markdown_dir = tmp_path / "book" / "00-markdown"
+    markdown_dir = tmp_path / "book" / "01-markdown"
 
     result = run_conversion(source, markdown_dir, images=False)
 
@@ -336,7 +336,7 @@ def test_a_small_caps_heading_is_converted_as_one_word(tmp_path):
 def test_image_extraction_can_be_switched_off(tmp_path):
     pytest.importorskip("docling")
     source = _tiny_epub(tmp_path / "picture.epub")
-    markdown_dir = tmp_path / "book" / "00-markdown"
+    markdown_dir = tmp_path / "book" / "01-markdown"
 
     result = run_conversion(source, markdown_dir, images=False)
 

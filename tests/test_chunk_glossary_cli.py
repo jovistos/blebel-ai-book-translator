@@ -57,7 +57,7 @@ def test_the_threshold_and_scorer_are_options():
 
 
 def test_an_empty_chunks_folder_is_a_setup_error(tmp_path: Path, capsys):
-    chapters = tmp_path / "book" / "01-chapters"
+    chapters = tmp_path / "book" / "02-chapters"
     chapters.mkdir(parents=True)
     (chapters / "01-a.md").write_text("Džordž.\n", encoding="utf-8")
     empty = tmp_path / "book" / "05-chunks"

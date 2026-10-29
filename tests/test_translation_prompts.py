@@ -1,4 +1,4 @@
-"""Offline tests for stage 7's prompts: what the model is actually told.
+"""Offline tests for stage 8's prompts: what the model is actually told.
 
 The prompt is the stage's product as much as the translation is — it is saved
 verbatim for debugging — so what is pinned here is its *content*: the languages,

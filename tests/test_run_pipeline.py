@@ -118,10 +118,10 @@ def install_matter(monkeypatch, *, ok: bool = True):
                     encoding="utf-8",
                 )
                 written += 1
-        prompts = Path(kwargs.get("prompts_dir") or out.parent / "06b-matter-prompts")
+        prompts = Path(kwargs.get("prompts_dir") or out.parent / "07-matter-prompts")
         prompts.mkdir(parents=True, exist_ok=True)
         (prompts / "one.json").write_text("{}", encoding="utf-8")
-        stage = Path(kwargs.get("matter_path") or out.parent / "06b-matter")
+        stage = Path(kwargs.get("matter_path") or out.parent / "07-matter")
         stage.mkdir(parents=True, exist_ok=True)
         (stage / "book-plan.json").write_text("{}", encoding="utf-8")
         manifest = stage / "_matter_manifest.json"
@@ -163,7 +163,7 @@ def install_matter(monkeypatch, *, ok: bool = True):
 
 
 def install_translate(monkeypatch, *, ok: bool = True):
-    """Replace stage 7, so no test ever calls a paid model."""
+    """Replace stage 8, so no test ever calls a paid model."""
     from book_translator.stages.translation import TranslationResult
 
     calls: list[dict] = []
@@ -171,7 +171,7 @@ def install_translate(monkeypatch, *, ok: bool = True):
     def fake_run_translation(chunks_path, output_dir=None, **kwargs):
         calls.append({"chunks_path": str(chunks_path), "output_dir": output_dir, **kwargs})
         out = Path(output_dir or chunks_path)
-        prompts = Path(kwargs.get("prompts_dir") or out.parent / "07-translation-prompts")
+        prompts = Path(kwargs.get("prompts_dir") or out.parent / "08-translation-prompts")
         manifest = out / "_translation_manifest.json"
         trace = out / "_translation_trace.json"
         dry_run = bool(kwargs.get("dry_run"))
@@ -245,7 +245,7 @@ def run(script, monkeypatch):
 
 
 def install_split(monkeypatch, *, ok: bool = True, writes: dict[str, str] | None = None):
-    """Replace stage 1: optionally write chapter files, like a real run would."""
+    """Replace stage 3: optionally write chapter files, like a real run would."""
     calls: list[Path] = []
 
     def fake_split(source_path, output_dir, **kwargs):
@@ -278,7 +278,7 @@ def install_split(monkeypatch, *, ok: bool = True, writes: dict[str, str] | None
 
 
 def install_preprocess(monkeypatch, *, ok: bool = True, writes: dict[str, str] | None = None):
-    """Replace stage 2: report each chapter through the progress hook.
+    """Replace stage 3: report each chapter through the progress hook.
 
     ``writes`` makes the stub behave like the real phase: it leaves the cleaned
     chapters and ``_preprocess_manifest.json`` on disk, which is what the later
@@ -371,7 +371,7 @@ def install_dictionary(
     writes: dict[str, str] | None = None,
     glossary: bool = True,
 ):
-    """Replace stage 3 (both halves), so no test loads a tagger or calls a model."""
+    """Replace stage 4 (both halves), so no test loads a tagger or calls a model."""
     calls: list[Path] = []
 
     def fake_run_dictionary(chapters_path, output_dir=None, **kwargs):
@@ -387,7 +387,7 @@ def install_dictionary(
             out.mkdir(parents=True, exist_ok=True)
             # The real phase writes both reductions; stage 4 reads the second, so
             # the stub has to leave it on disk too.
-            unique = out.parent / "03-reduced-unique"
+            unique = out.parent / "04-reduced-unique"
             unique.mkdir(parents=True, exist_ok=True)
             for name, kept in records.items():
                 (out / name).write_text(kept, encoding="utf-8")
@@ -435,7 +435,7 @@ def test_every_phase_runs_in_order_and_the_log_keeps_the_detail(
     install_dictionary(monkeypatch, writes={"01-prvo-poglavlje.md": "Prvi deo teksta.\n"})
     preprocess_calls = install_preprocess(monkeypatch)
 
-    # Stage 2 is on by default; the explicit flag keeps this test pinned to the
+    # Stage 3 is on by default; the explicit flag keeps this test pinned to the
     # phase order regardless of how the module-level switch is set.
     code = run(str(SAMPLE), "--output-root", str(tmp_path / "out"), "--with-preprocess")
     captured = capsys.readouterr()
@@ -463,7 +463,7 @@ def test_every_phase_runs_in_order_and_the_log_keeps_the_detail(
     assert "# argv:" in log
     assert "SCAN" in log and "DICTIONARY" in log and "PREPROCESS" in log and "CHUNK" in log
     assert "CHUNK_GLOSSARY" in log
-    assert preprocess_calls == [tmp_path / "out" / SAMPLE.stem / "01-chapters"]
+    assert preprocess_calls == [tmp_path / "out" / SAMPLE.stem / "02-chapters"]
     assert (tmp_path / "out" / SAMPLE.stem / "05-chunks" / "_chunk_manifest.json").is_file()
 
 
@@ -484,7 +484,7 @@ def test_stage_zero_converts_a_txt_source_before_recon(
     assert "[3/3] SPLIT" in captured.out
     assert "text-copy" in captured.out
 
-    markdown = tmp_path / "out" / "book" / "00-markdown" / "book.md"
+    markdown = tmp_path / "out" / "book" / "01-markdown" / "book.md"
     assert markdown.read_text(encoding="utf-8") == source.read_text(encoding="utf-8")
 
 
@@ -507,7 +507,7 @@ def test_stage_zero_dry_run_keeps_the_converted_text_out_of_the_output_folder(
 
     assert code == 0
     assert "converted into a temporary folder" in captured.out
-    assert not (tmp_path / "out" / "book" / "00-markdown").exists()
+    assert not (tmp_path / "out" / "book" / "01-markdown").exists()
 
 
 @requires_sample
@@ -579,7 +579,7 @@ def test_a_rejected_split_stops_before_stage_two(script, tmp_path, monkeypatch, 
 
 
 def test_map_replays_a_supplied_map_without_a_model(script, tmp_path, monkeypatch, capsys, run):
-    """``--map`` runs stage 1 from a file: no provider, no key, byte-for-byte output."""
+    """``--map`` runs stage 2 from a file: no provider, no key, byte-for-byte output."""
     import book_translator.core.settings as settings_module
 
     def explode(*_, **__):  # pragma: no cover - the agent path would call this
@@ -618,7 +618,7 @@ def test_map_replays_a_supplied_map_without_a_model(script, tmp_path, monkeypatc
     assert code == 0
     assert "a supplied map routes" in captured.out
     assert "no agent turns" in captured.out
-    chapters = tmp_path / "out" / source.stem / "01-chapters"
+    chapters = tmp_path / "out" / source.stem / "02-chapters"
     manifest = json.loads((chapters / "_manifest.json").read_text(encoding="utf-8"))
     assert manifest["chapter_count"] == 5
     blob = b"".join((chapters / f["filename"]).read_bytes() for f in manifest["files"])
@@ -671,12 +671,12 @@ def test_json_prints_one_machine_readable_summary(script, tmp_path, monkeypatch,
         "chunk_glossary",
     ]
     assert payload["phases"][1]["result"]["chapter_count"] == 1
-    assert payload["reduced_dir"].endswith("03-reduced")
-    assert payload["unique_dir"].endswith("03-reduced-unique")
+    assert payload["reduced_dir"].endswith("04-reduced")
+    assert payload["unique_dir"].endswith("04-reduced-unique")
     assert payload["chunks_dir"].endswith("05-chunks")
     assert payload["chunk_glossary_dir"].endswith("06-chunk-glossary")
     assert payload["log"].endswith("pipeline.log")
-    assert dictionary_calls == [tmp_path / "out" / SAMPLE.stem / "01-chapters"]
+    assert dictionary_calls == [tmp_path / "out" / SAMPLE.stem / "02-chapters"]
 
 
 @requires_sample
@@ -698,7 +698,7 @@ def test_a_failed_chapter_stops_stage_two(script, tmp_path, monkeypatch, capsys,
 def test_stage_two_is_on_by_default_and_can_be_dropped(
     script, tmp_path, monkeypatch, capsys, run
 ):
-    """Stage 2 repairs the chapters before anything reads them; --no-preprocess drops it."""
+    """Stage 3 repairs the chapters before anything reads them; --no-preprocess drops it."""
     install_split(monkeypatch, writes=DAMAGED)
     install_dictionary(monkeypatch)
     preprocess_calls = install_preprocess(monkeypatch)
@@ -708,7 +708,7 @@ def test_stage_two_is_on_by_default_and_can_be_dropped(
 
     assert code == 0
     assert "[4/7] PREPROCESS" in captured.out
-    assert preprocess_calls == [tmp_path / "out" / SAMPLE.stem / "01-chapters"]
+    assert preprocess_calls == [tmp_path / "out" / SAMPLE.stem / "02-chapters"]
     assert "DONE" in captured.out
 
     dropped = tmp_path / "dropped"
@@ -719,7 +719,7 @@ def test_stage_two_is_on_by_default_and_can_be_dropped(
     assert code == 0
     assert "PREPROCESS" not in captured.out
     assert "preprocess switched off" in captured.out
-    # Stage 2 is dropped, so six phases are selected: scan is third, chunk glossary last.
+    # Stage 3 is dropped, so six phases are selected: scan is third, chunk glossary last.
     assert "[3/6] SCAN" in captured.out
     assert "[4/6] DICTIONARY" in captured.out
     assert "[5/6] CHUNK" in captured.out
@@ -732,7 +732,7 @@ def test_stage_two_is_on_by_default_and_can_be_dropped(
 def test_the_cleaned_text_is_what_stages_three_to_five_read(
     script, tmp_path, monkeypatch, capsys, run
 ):
-    """Stage 2 is not a dead end: the dictionary, glossary and chunker read it."""
+    """Stage 3 is not a dead end: the dictionary, glossary and chunker read it."""
     install_split(monkeypatch, writes=DAMAGED)
     dictionary_calls = install_dictionary(
         monkeypatch, writes={"01-prvo-poglavlje.md": "Prvi deo teksta.\n"}
@@ -748,11 +748,11 @@ def test_the_cleaned_text_is_what_stages_three_to_five_read(
     code = run(str(SAMPLE), "--output-root", str(out))
     captured = capsys.readouterr()
 
-    cleaned_dir = out / SAMPLE.stem / "02-preprocessed"
+    cleaned_dir = out / SAMPLE.stem / "03-preprocessed"
     assert code == 0
     assert dictionary_calls == [cleaned_dir]
     assert glossary_calls == [cleaned_dir]
-    assert "cleaned by stage 2" in captured.out
+    assert "cleaned by stage 3" in captured.out
     manifest = json.loads(
         (out / SAMPLE.stem / "05-chunks" / "_chunk_manifest.json").read_text(
             encoding="utf-8"
@@ -777,17 +777,17 @@ def test_the_cleaned_text_is_what_stages_three_to_five_read(
         "--output-root",
         str(raw_out),
         "--text-in",
-        str(raw_out / SAMPLE.stem / "01-chapters"),
+        str(raw_out / SAMPLE.stem / "02-chapters"),
     )
     captured = capsys.readouterr()
     assert code == 0
-    assert raw_calls == [raw_out / SAMPLE.stem / "01-chapters"]
+    assert raw_calls == [raw_out / SAMPLE.stem / "02-chapters"]
     manifest = json.loads(
         (raw_out / SAMPLE.stem / "05-chunks" / "_chunk_manifest.json").read_text(
             encoding="utf-8"
         )
     )
-    assert manifest["chapters_path"] == str(raw_out / SAMPLE.stem / "01-chapters")
+    assert manifest["chapters_path"] == str(raw_out / SAMPLE.stem / "02-chapters")
 
     # A window the cleaned folder does not cover falls back to the raw text.
     partial = tmp_path / "partial"
@@ -804,7 +804,7 @@ def test_the_cleaned_text_is_what_stages_three_to_five_read(
     )
     captured = capsys.readouterr()
     assert code == 0
-    assert partial_calls == [partial / SAMPLE.stem / "01-chapters"]
+    assert partial_calls == [partial / SAMPLE.stem / "02-chapters"]
     assert "cleaned text does not cover this window" in captured.out
 
 
@@ -823,7 +823,7 @@ def test_stage_three_is_on_by_default_and_can_be_dropped(
     assert "DICTIONARY" in captured.out
     assert "language" in captured.out
     assert "ner time" in captured.out
-    assert dictionary_calls == [tmp_path / "out" / SAMPLE.stem / "01-chapters"]
+    assert dictionary_calls == [tmp_path / "out" / SAMPLE.stem / "02-chapters"]
 
     dropped = tmp_path / "dropped"
     install_dictionary(monkeypatch)  # a fresh call list, patched over the old one
@@ -910,7 +910,7 @@ def test_a_missing_tagger_skips_stage_three_without_failing_the_run(
     assert "skipped — the optional tagger is not installed" in captured.out
     assert "pip install classla" in captured.out
     # The closing report points at the install command instead of claiming output.
-    assert "install stage 3's tagger" in captured.out
+    assert "install stage 4's tagger" in captured.out
     assert "holds the reduced chapters" not in captured.out
 
 
@@ -939,7 +939,7 @@ def install_glossary(monkeypatch, *, ok: bool = True):
         return GlossaryResult(
             ok=ok,
             chapters_path=str(chapters_path),
-            sentences_dir=str(Path(chapters_path).parent / "03-reduced-unique"),
+            sentences_dir=str(Path(chapters_path).parent / "04-reduced-unique"),
             output_dir=str(output_dir or chapters_path),
             source_language="en",
             target_language="sr",
@@ -993,7 +993,7 @@ def test_the_dictionary_phase_builds_the_glossary_by_default(
     assert "[6/6] CHUNK_GLOSSARY" in captured.out
     assert "glossary — one chapter at a time" in captured.out
     assert "entries" in captured.out
-    assert glossary_calls == [tmp_path / "out" / SAMPLE.stem / "01-chapters"]
+    assert glossary_calls == [tmp_path / "out" / SAMPLE.stem / "02-chapters"]
     assert "stage-4 glossary" in captured.out
 
     # ...and --no-glossary keeps the phase deterministic (no model, no key).
@@ -1074,7 +1074,7 @@ class _FakePreprocessApp:
 
 
 def _chapter_folder(tmp_path: Path) -> Path:
-    folder = tmp_path / "01-chapters"
+    folder = tmp_path / "02-chapters"
     folder.mkdir()
     (folder / "01-a.md").write_text("## A\n\ntext\n", encoding="utf-8")
     (folder / "02-b.md").write_text("## B\n\ntext\n", encoding="utf-8")
@@ -1177,7 +1177,7 @@ def test_a_raising_progress_hook_never_breaks_the_run(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# stage 7: opt-in translation, with its own limit and debug folder
+# stage 8: opt-in translation, with its own limit and debug folder
 # --------------------------------------------------------------------------- #
 @requires_sample
 def test_translate_is_opt_in_and_runs_only_with_the_flag(
@@ -1196,9 +1196,9 @@ def test_translate_is_opt_in_and_runs_only_with_the_flag(
 
     assert code == 0
     assert calls == []
-    assert "stage 7 (translation) is switched off" in captured.out
+    assert "stage 8 (translation) is switched off" in captured.out
     assert "TRANSLATE" not in captured.out
-    assert not (out / SAMPLE.stem / "07-translations").exists()
+    assert not (out / SAMPLE.stem / "08-translations").exists()
 
     calls = install_translate(monkeypatch)
     code = run(
@@ -1215,8 +1215,8 @@ def test_translate_is_opt_in_and_runs_only_with_the_flag(
     assert calls[0]["source_language"] == "en"
     assert calls[0]["target_language"] == "sr"
     assert calls[0]["limit"] is None
-    assert (out / SAMPLE.stem / "07-translations" / "_translation_manifest.json").is_file()
-    assert (out / SAMPLE.stem / "07-translation-prompts").is_dir()
+    assert (out / SAMPLE.stem / "08-translations" / "_translation_manifest.json").is_file()
+    assert (out / SAMPLE.stem / "08-translation-prompts").is_dir()
 
 
 @requires_sample
@@ -1242,8 +1242,8 @@ def test_the_matter_stage_runs_before_translation(
     assert captured.out.index(" MATTER") < captured.out.index(" TRANSLATE")
     assert matter_calls[0]["source_language"] == "en"
     assert matter_calls[0]["target_language"] == "sr"
-    assert (out / SAMPLE.stem / "06b-matter" / "_matter_manifest.json").is_file()
-    assert (out / SAMPLE.stem / "06b-matter-prompts").is_dir()
+    assert (out / SAMPLE.stem / "07-matter" / "_matter_manifest.json").is_file()
+    assert (out / SAMPLE.stem / "07-matter-prompts").is_dir()
 
     matter_calls = install_matter(monkeypatch)
     code = run(
@@ -1417,7 +1417,7 @@ def install_translate_for_chunks(monkeypatch):
         for entry in selected:
             name = str(entry["filename"])
             (out / name).write_text(f"PREVEDENO:{name}\n", encoding="utf-8")
-        prompts = Path(kwargs.get("prompts_dir") or out.parent / "07-translation-prompts")
+        prompts = Path(kwargs.get("prompts_dir") or out.parent / "08-translation-prompts")
         prompts.mkdir(parents=True, exist_ok=True)
         (prompts / "one.json").write_text("{}", encoding="utf-8")
         manifest = out / "_translation_manifest.json"
@@ -1513,7 +1513,7 @@ def test_first_chapters_limits_every_stage_after_split(
     assert seen["translate"][0]["limit"] is None
     assert seen["assembly"][0]["first_chapters"] == 1
 
-    translated = out / SAMPLE.stem / "08-translated-chapters"
+    translated = out / SAMPLE.stem / "09-translated-chapters"
     assert (translated / "01-prvo-poglavlje.md").is_file()
     assert not (translated / "02-drugo-poglavlje.md").exists()
 
@@ -1601,4 +1601,4 @@ def test_increasing_the_chapter_window_resumes_with_skip_if_present(
     assert seen["translate"][-1]["resume"] is True
     assert seen["assembly"][-1]["first_chapters"] == 2
     assert seen["assembly"][-1]["skip_if_present"] is True
-    assert (out / SAMPLE.stem / "08-translated-chapters" / "02-drugo-poglavlje.md").is_file()
+    assert (out / SAMPLE.stem / "09-translated-chapters" / "02-drugo-poglavlje.md").is_file()

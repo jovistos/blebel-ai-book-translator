@@ -18,7 +18,7 @@ def add_parser(sub: Any) -> None:
     """Register this command's parser (the help text is snapshot-tested)."""
     p_open = sub.add_parser(
         "openings",
-        help="final phase of stages 2 and 9: audit every chapter's first lines and "
+        help="final phase of stages 3 and 10: audit every chapter's first lines and "
         "remove the safe leftovers (no LLM)",
     )
     parents.add_book(p_open, required=False)
@@ -26,15 +26,15 @@ def add_parser(sub: Any) -> None:
         "--chapters-in",
         default=None,
         help="the chapter folder to audit (default: the book's most advanced stage "
-        "folder: 09-postprocessed-chapters/ → 08-translated-chapters/ → "
-        "02-preprocessed/ → 01-chapters/)",
+        "folder: 10-postprocessed-chapters/ → 09-translated-chapters/ → "
+        "03-preprocessed/ → 02-chapters/)",
     )
     p_open.add_argument(
         "--keep-blank-slot",
         action="store_true",
-        help="stage-2 semantics: a removed line leaves an empty line, so line numbers "
+        help="stage-3 semantics: a removed line leaves an empty line, so line numbers "
         "keep pointing at the same text (default: the line is removed and the blank "
-        "around it collapsed, which is stage 9's behaviour)",
+        "around it collapsed, which is stage 10's behaviour)",
     )
     p_open.add_argument(
         "--dry-run",

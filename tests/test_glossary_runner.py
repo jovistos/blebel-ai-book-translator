@@ -113,7 +113,7 @@ def make_book(
     chapters = chapters or CHAPTERS
     kinds = kinds if kinds is not None else KINDS
     root = tmp_path / name
-    folder = root / "01-chapters"
+    folder = root / "02-chapters"
     folder.mkdir(parents=True, exist_ok=True)
     entries = []
     for index, (filename, text) in enumerate(chapters.items(), start=1):
@@ -136,7 +136,7 @@ def make_book(
         ),
         encoding="utf-8",
     )
-    unique = root / "03-reduced-unique"
+    unique = root / "04-reduced-unique"
     unique.mkdir(parents=True, exist_ok=True)
     for filename, text in (reduced if reduced is not None else chapters).items():
         (unique / filename).write_text(text, encoding="utf-8")
@@ -553,7 +553,7 @@ def test_resume_starts_over_when_the_chapter_folder_changes(tmp_path):
     run_glossary(str(folder), str(out), extractor=first)
     assert read_json(out / "_glossary_manifest.json")["chapters_path"] == str(folder)
 
-    cleaned = folder.parent / "02-preprocessed"
+    cleaned = folder.parent / "03-preprocessed"
     cleaned.mkdir()
     for path in folder.glob("*.md"):
         shutil.copy(path, cleaned / path.name)
@@ -710,9 +710,9 @@ def test_a_pending_chapter_resolves_settings_once(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------- #
 def test_the_reduced_fallback_covers_a_book_whose_unique_folder_was_never_written(tmp_path):
     folder = make_book(tmp_path)
-    for child in (folder.parent / "03-reduced-unique").glob("*.md"):
+    for child in (folder.parent / "04-reduced-unique").glob("*.md"):
         child.unlink()
-    reduced = folder.parent / "03-reduced"
+    reduced = folder.parent / "04-reduced"
     reduced.mkdir()
     (reduced / "01-chapter-1.md").write_text("Alexandra Potter lives in London.\n", encoding="utf-8")
 
@@ -726,7 +726,7 @@ def test_the_reduced_fallback_covers_a_book_whose_unique_folder_was_never_writte
 
 def test_sentences_reduced_reads_the_bigger_folder(tmp_path):
     folder = make_book(tmp_path)
-    reduced = folder.parent / "03-reduced"
+    reduced = folder.parent / "04-reduced"
     reduced.mkdir()
     (reduced / "01-chapter-1.md").write_text("Everything with a name.\n", encoding="utf-8")
     assert resolve_sentences_dir(folder, sentences_dir=None, sentences="reduced") == reduced
@@ -734,7 +734,7 @@ def test_sentences_reduced_reads_the_bigger_folder(tmp_path):
 
 def test_without_either_reduction_folder_the_run_says_so(tmp_path):
     folder = make_book(tmp_path)
-    for name in ("03-reduced-unique", "03-reduced"):
+    for name in ("04-reduced-unique", "04-reduced"):
         target = folder.parent / name
         if target.exists():
             for child in target.glob("*.md"):
@@ -749,7 +749,7 @@ def test_without_either_reduction_folder_the_run_says_so(tmp_path):
 
 def test_a_missing_sentence_file_fails_only_that_chapter(tmp_path):
     folder = make_book(tmp_path)
-    (folder.parent / "03-reduced-unique" / "02-chapter-2.md").unlink()
+    (folder.parent / "04-reduced-unique" / "02-chapter-2.md").unlink()
     extractor = FakeExtractor(lambda s, u: [entry("Potter", "Poter")])
     result = run_glossary(str(folder), str(folder.parent / "04-glossary"), extractor=extractor)
 

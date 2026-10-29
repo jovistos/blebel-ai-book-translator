@@ -109,10 +109,10 @@ def resolve_source(
     dry_run: bool = False,
     scratch_dir: str | Path | None = None,
 ) -> SourcePlan:
-    """Resolve the book argument and plan stage 0.
+    """Resolve the book argument and plan stage 1.
 
     A Markdown source is read directly. A non-Markdown source is converted into
-    the canonical ``00-markdown/`` on a real run, and into a temporary folder on
+    the canonical ``01-markdown/`` on a real run, and into a temporary folder on
     a dry run, so the later deterministic phases still have text to inspect
     without leaving a book artifact behind.
     """
@@ -241,7 +241,7 @@ def resolve_text_source(
         return TextSource(paths.chapters_dir, "raw chapters (--no-preprocess)", cleaned=False)
     cleaned = cleaned_covers_window(paths, chapter_limit)
     if cleaned is not None:
-        return TextSource(cleaned, "cleaned by stage 2", cleaned=True)
+        return TextSource(cleaned, "cleaned by stage 3", cleaned=True)
     if has_chapter_files(paths.preprocessed_dir):
         return TextSource(
             paths.chapters_dir,

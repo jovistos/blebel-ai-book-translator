@@ -106,7 +106,7 @@ PROVIDERS: dict[str, dict[str, str]] = {
     },
 }
 
-#: The two backends stage 7 offers. DeepSeek is the cloud default; LM Studio is
+#: The two backends stage 8 offers. DeepSeek is the cloud default; LM Studio is
 #: the model the user is hosting locally on its OpenAI-compatible endpoint.
 TRANSLATION_PROVIDERS: dict[str, dict[str, str]] = {
     "deepseek": {
@@ -126,15 +126,15 @@ TRANSLATION_CHOICES = tuple(TRANSLATION_PROVIDERS)
 DEFAULT_TRANSLATION_PROVIDER = "deepseek"
 
 #: Every pipeline part that calls a model, in pipeline order. ``dictionary`` is
-#: the glossary extraction half of the dictionary phase (stage 4).
+#: the glossary extraction half of the glossary phase (stage 4).
 STAGES: dict[str, str] = {
-    "split": "stage 1 — the routing agent",
-    "preprocess": "stage 2 — the per-chapter cleaning agent",
-    "dictionary": "stages 3–4 — the glossary extractor",
-    "matter": "stage 6b — the front/back matter agent",
-    "matter_image": "stage 6b — multimodal matter image recreation",
-    "translate": "stage 7 — the chunk translator",
-    "postprocess": "stage 9 — the headings/TOC agent",
+    "split": "stage 2 — the routing agent",
+    "preprocess": "stage 3 — the per-chapter cleaning agent",
+    "dictionary": "stage 4 — the glossary extractor",
+    "matter": "stage 7 — the front/back matter agent",
+    "matter_image": "stage 7 — multimodal matter image recreation",
+    "translate": "stage 8 — the chunk translator",
+    "postprocess": "stage 10 — the headings/TOC agent",
 }
 
 #: The stage ``resolve_settings()`` selects when the caller does not name one.
@@ -727,7 +727,7 @@ class ProviderSource:
 
 #: The provider lookup order. ``specific`` sources belong to this one stage, so
 #: an unsupported name from one of them is an error; a broad source is ignored
-#: instead, which lets a global ``SPLITTER_PROVIDER`` coexist with a stage 7 that
+#: instead, which lets a global ``SPLITTER_PROVIDER`` coexist with a stage 8 that
 #: only offers deepseek/lmstudio.
 PROVIDER_SOURCES: tuple[ProviderSource, ...] = (
     ProviderSource("override", "--llm <stage>.provider", True, _provider_override),
@@ -926,7 +926,7 @@ def resolve_settings(
     ``overrides`` are that stage's parsed ``--llm`` values (see
     :func:`stage_overrides`); ``shared`` holds the pipeline's global flags so they
     only reach a stage whose provider they were written for. ``allowed`` restricts
-    the provider choice (stage 7 passes its two choices). ``require_key=False`` is
+    the provider choice (stage 8 passes its two choices). ``require_key=False`` is
     used by the banners, which must not fail on a missing credential.
     """
     load_dotenv_files()
@@ -1075,7 +1075,7 @@ def resolve_translation_settings(
     shared: Mapping[str, Any] | None = None,
     require_key: bool = True,
 ) -> LLMSettings:
-    """Build stage 7's connection: DeepSeek, or the local LM Studio server.
+    """Build stage 8's connection: DeepSeek, or the local LM Studio server.
 
     The provider is restricted to :data:`TRANSLATION_PROVIDERS`. For LM Studio the
     model is resolved as explicit → ``TRANSLATION_MODEL`` / ``LMSTUDIO_MODEL`` →

@@ -1,4 +1,4 @@
-"""Offline tests for stage 7's two model choices: DeepSeek and LM Studio.
+"""Offline tests for stage 8's two model choices: DeepSeek and LM Studio.
 
 The translation stage is deliberately narrower than the rest of the pipeline: it
 offers exactly these two providers, and its ``TRANSLATION_*`` settings do not let

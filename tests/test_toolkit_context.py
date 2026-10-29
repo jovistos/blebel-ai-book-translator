@@ -22,14 +22,14 @@ from book_translator.toolkit.postprocess import (
 def test_from_state_collects_the_run_context():
     ctx = ToolContext.from_state(
         {
-            "chapters_path": "/books/08-translated-chapters",
-            "chapter_path": "/books/08-translated-chapters/01-a.md",
+            "chapters_path": "/books/09-translated-chapters",
+            "chapter_path": "/books/09-translated-chapters/01-a.md",
             "is_first_front_chunk": True,
         }
     )
 
-    assert ctx.chapters_path == "/books/08-translated-chapters"
-    assert ctx.chapter_path == "/books/08-translated-chapters/01-a.md"
+    assert ctx.chapters_path == "/books/09-translated-chapters"
+    assert ctx.chapter_path == "/books/09-translated-chapters/01-a.md"
     assert ctx.is_first_front_chunk is True
     assert ctx.is_first_section_chunk is False
     assert ctx.chapters_dir is not None

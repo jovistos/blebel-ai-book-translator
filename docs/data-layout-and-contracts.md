@@ -15,26 +15,26 @@ data/
 │   └── Another Book.md
 └── output/
     └── Book-Title---Author/
-        ├── 00-markdown/                      <- Stage 0: Converted Markdown & illustrations
+        ├── 01-markdown/                      <- Stage 1: Converted Markdown & illustrations
         │   ├── Book-Title---Author.md
         │   ├── images/
         │   │   ├── img-001.png
         │   │   └── img-002.jpg
         │   └── _convert_manifest.json
-        ├── 01-chapters/                      <- Stage 1: Verbatim chapter slices
+        ├── 02-chapters/                      <- Stage 2: Verbatim chapter slices
         │   ├── 00-front-matter.md
         │   ├── 01-chapter-1.md
         │   ├── ...
         │   ├── 99-back-matter.md
         │   ├── _split_manifest.json
         │   └── _agent_trace.json
-        ├── 02-preprocessed/                  <- Stage 2: Cleaned chapters
+        ├── 03-preprocessed/                  <- Stage 3: Cleaned chapters
         │   ├── 01-chapter-1.md
         │   ├── _preprocess_manifest.json
         │   └── _preprocess_trace.json
-        ├── 03-reduced/                       <- Stage 3: Entity sentences
+        ├── 04-reduced/                       <- Stage 4: Entity sentences
         │   └── 01-chapter-1.md
-        ├── 03-reduced-unique/                <- Stage 3: First mentions only
+        ├── 04-reduced-unique/                <- Stage 4: First mentions only
         │   └── 01-chapter-1.md
         ├── 04-glossary/                      <- Stage 4: Book terminology
         │   ├── glossary.json
@@ -47,29 +47,29 @@ data/
         ├── 06-chunk-glossary/                <- Stage 6: Per-chunk terms
         │   ├── 00001-01-chapter-1-0000.json
         │   └── _chunk_glossary_manifest.json
-        ├── 06b-matter/                       <- Stage 6b: Matter plan & metadata
+        ├── 07-matter/                       <- Stage 7: Matter plan & metadata
         │   ├── matter_plan.json
         │   ├── _matter_manifest.json         <- Chunk metadata & image recreation records
         │   └── _matter_trace.json            <- Full logs including multimodal image operations
-        ├── 06b-matter-prompts/               <- Stage 6b: Agent prompts & logs
-        ├── 07-translations/                  <- Stage 6b & 7: Translated chunks & images
-        │   ├── images/                       <- Stage 6b: Multimodal recreated images (*_translated.*)
+        ├── 07-matter-prompts/               <- Stage 7: Agent prompts & logs
+        ├── 08-translations/                  <- Stage 7 & 8: Translated chunks & images
+        │   ├── images/                       <- Stage 7: Multimodal recreated images (*_translated.*)
         │   │   └── cover_translated.jpg
         │   ├── 00000-00-front-matter-0000.md
         │   ├── 00001-01-chapter-1-0000.md
         │   └── _translation_manifest.json
-        ├── 07-translation-prompts/           <- Stage 7: Exact prompt and response audits
+        ├── 08-translation-prompts/           <- Stage 8: Exact prompt and response audits
         │   ├── 00001-01-chapter-1-0000.json
         │   └── 00001-01-chapter-1-0000.prompt.md
-        ├── 08-translated-chapters/           <- Stage 8: Reassembled translated chapters
+        ├── 09-translated-chapters/           <- Stage 9: Reassembled translated chapters
         │   ├── 01-chapter-1.md
         │   └── _assembly_manifest.json
-        ├── 09-postprocessed-chapters/        <- Stage 9: Harmonized titles & TOC
+        ├── 10-postprocessed-chapters/        <- Stage 10: Harmonized titles & TOC
         │   ├── 00-table-of-contents.md
         │   ├── 01-chapter-1.md
         │   └── _postprocess_manifest.json
-        ├── 10-translated-book.md             <- Stage 10: Complete Markdown translation
-        └── 11-translated-book.epub           <- Stage 11: Reader-ready EPUB 3 publication
+        ├── 11-translated-book.md             <- Stage 11: Complete Markdown translation
+        └── 12-translated-book.epub           <- Stage 12: Reader-ready EPUB 3 publication
 ```
 
 ---
@@ -78,7 +78,7 @@ data/
 
 Every stage records a machine-readable manifest (`_<stage>_manifest.json`) capturing the input parameters, execution timestamps, source SHA-256 hashes, and output file manifests.
 
-### A. Stage 1 Split Manifest (`_split_manifest.json`)
+### A. Stage 2 Split Manifest (`_split_manifest.json`)
 Records how the source file was divided:
 ```json
 {
@@ -150,6 +150,6 @@ Supplies matched entities directly to translation prompts:
 ## 3. Auditing & Prompt Tracing
 
 `book-translator` guarantees that no translation output is an inscrutable "black box":
-* **`07-translation-prompts/<chunk>.json`**: Contains the full payload sent to the LLM client, including system instructions, formatted terminology tables, preceding translation context, source markdown chunk, and raw model output.
-* **`07-translation-prompts/<chunk>.prompt.md`**: Human-readable markdown rendition of the prompt for rapid manual inspection.
+* **`08-translation-prompts/<chunk>.json`**: Contains the full payload sent to the LLM client, including system instructions, formatted terminology tables, preceding translation context, source markdown chunk, and raw model output.
+* **`08-translation-prompts/<chunk>.prompt.md`**: Human-readable markdown rendition of the prompt for rapid manual inspection.
 * **`_agent_trace.json`**: Records every LangGraph tool invocation, argument payload, and validation rejection during agent execution.
