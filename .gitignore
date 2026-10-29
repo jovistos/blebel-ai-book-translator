@@ -28,7 +28,7 @@ venv/
 .venv_*/
 env/
 
-# Stage 3 model weights (CLASSLA / stanza / lingua), when kept inside the repo
+# Stage 4 model weights (CLASSLA / stanza / lingua), when kept inside the repo
 # instead of the default ~/classla_resources and ~/stanza_resources.
 .models/
 
@@ -102,3 +102,5 @@ desktop.ini
 /debug_*.py
 /logs/
 *.log
+cheetsheet.txt
+cheatsheet.txt
