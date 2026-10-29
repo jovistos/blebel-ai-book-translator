@@ -1950,11 +1950,16 @@ the same kind of stage: a deterministic package build whose whole vocabulary is
 
 ## Install
 
-Python 3.11+ is required. Setup and installation:
+Python 3.11 – 3.13 is required (**Python 3.14+ is not supported** due to upstream PyTorch/Stanza/protobuf C-extension incompatibilities). Setup and installation:
 
 ```bash
-python3 -m venv .venv_book_translator && source .venv_book_translator/bin/activate
-pip install -r requirements.txt
+# Create venv using Python 3.11, 3.12, or 3.13 explicitly
+python3.13 -m venv .venv_book_translator
+# or with an Anaconda/Miniconda Python 3.13 binary:
+# /home/<user>/anaconda3/bin/python3 -m venv .venv_book_translator
+
+source .venv_book_translator/bin/activate
+pip install --no-deps -r requirements.txt -e .
 ```
 
 All dependencies across the pipeline (docling for conversion, CLASSLA and stanza for NER tagging, chonkie and rapidfuzz for chunking, markdown-it-py for EPUB packaging, and test/dev tools) are pinned and included in `requirements.txt`.

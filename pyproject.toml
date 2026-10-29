@@ -7,7 +7,7 @@ name = "book-translator"
 dynamic = ["version"]
 description = "Turn one long book into a translated EPUB through staged, verifiable agents."
 readme = "README-book-translator.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11, <3.14"
 keywords = ["book", "translation", "epub", "langgraph", "ocr"]
 classifiers = [
     "Environment :: Console",

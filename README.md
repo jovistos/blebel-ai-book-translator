@@ -4,7 +4,7 @@
 
 <br/>
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB.svg?style=flat&logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![Python 3.11 - 3.13](https://img.shields.io/badge/python-3.11_--_3.13-3776AB.svg?style=flat&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-emerald.svg?style=flat)](LICENSE)
 [![LangGraph Multi-Agent](https://img.shields.io/badge/LangGraph-Agents-8b5cf6.svg?style=flat)](https://github.com/langchain-ai/langgraph)
 [![Local LLM: LM Studio](https://img.shields.io/badge/LM%20Studio-Offline%20Ready-blueviolet.svg?style=flat)](https://lmstudio.ai/)
@@ -117,19 +117,26 @@ flowchart TD
 
 ### 1. Requirements & Installation
 
-BleBel requires **Python 3.11+**.
+BleBel requires **Python 3.11, 3.12, or 3.13**.
+
+> [!IMPORTANT]
+> **Python 3.14+ is not currently supported.** Key upstream dependencies (`torch`, `stanza`, `protobuf`) rely on C-extensions that are incompatible with Python 3.14's strict metaclass C-API (`TypeError: Metaclasses with custom tp_new are not supported`). If your system `python3` defaults to 3.14+, explicitly invoke `python3.13`, `python3.12`, or an Anaconda/Miniconda Python 3.13 binary.
 
 ```bash
 # Clone the repository
 git clone https://github.com/your-org/BleBelTranslateBook.git
 cd BleBelTranslateBook
 
-# Create and activate a virtual environment
-python3 -m venv .venv_book_translator
+# Create and activate a virtual environment (use python3.13/3.12 explicitly)
+python3.13 -m venv .venv_book_translator
+# Or if python3 is already 3.11-3.13: python3 -m venv .venv_book_translator
+# Or with Anaconda/Miniconda: /path/to/anaconda3/bin/python3 -m venv .venv_book_translator
+
 source .venv_book_translator/bin/activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install all dependencies and the local package in one command
+# (--no-deps bypasses classla's outdated torch<=2.6 pin, as requirements.txt is already fully frozen)
+pip install --no-deps -r requirements.txt -e .
 ```
 
 ### 2. Configure Credentials

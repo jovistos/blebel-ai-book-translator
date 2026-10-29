@@ -6,7 +6,7 @@ This guide covers setting up a local development environment, running the compre
 
 ## 1. Development Environment Setup
 
-`book-translator` requires Python 3.11+.
+`book-translator` requires Python 3.11, 3.12, or 3.13 (**Python 3.14+ is not supported** due to PyTorch/Stanza/protobuf C-API constraints).
 
 ```bash
 # Clone the repository
@@ -14,11 +14,12 @@ git clone git@github.com:your-org/BleBelTranslateBook.git
 cd BleBelTranslateBook
 
 # Create a virtual environment (named .venv_book_translator by convention)
-python3 -m venv .venv_book_translator
+# Explicitly use Python 3.13, 3.12, or 3.11
+python3.13 -m venv .venv_book_translator
 source .venv_book_translator/bin/activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install all dependencies and local package in one command
+pip install --no-deps -r requirements.txt -e .
 ```
 
 All required runtime and development dependencies (testing, linting, typing, conversion, dictionary NER, chunking, and EPUB packaging) are pinned and included in `requirements.txt`.
