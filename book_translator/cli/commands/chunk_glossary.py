@@ -19,7 +19,6 @@ from book_translator.core.constants import (
 from book_translator.core.errors import MissingDependencyError, ToolError
 from book_translator.core.report import human_seconds
 from book_translator.documents.chapters import (
-    chapters_dir,
     chunk_glossary_dir,
     chunks_dir,
     glossary_dir,
@@ -31,9 +30,10 @@ from book_translator.documents.window import (
 
 from .. import parents
 from ..common import (
+    _command_paths,
+    _command_text_dir,
     _parse_entity_types,
     _print_json,
-    _resolve_text_dir,
 )
 
 
@@ -177,13 +177,7 @@ def cmd_chunk_glossary(args: argparse.Namespace) -> int:
     from book_translator.stages.chunk_glossary import run_chunk_glossary
     from book_translator.stages.chunk_glossary.runner import resolve_chunks_dir
 
-    chapters_path = chapters_dir(_resolve_text_dir(
-            args.book,
-            args.in_dir,
-            args.out,
-            getattr(args, "output_root", None),
-            getattr(args, "text_in", None),
-        ))
+    chapters_path = _command_text_dir(args, _command_paths(args))
     chunks_path = (
         resolve_chunks_dir(Path(args.chunks_in).expanduser())
         if args.chunks_in

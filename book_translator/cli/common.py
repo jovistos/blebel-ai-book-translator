@@ -273,25 +273,13 @@ _CHAPTER_STAGE_FOLDERS = (
 
 def _resolve_openings_dir(args: argparse.Namespace) -> Path:
     """The folder to audit: an explicit one, or the book's most advanced stage."""
+    from ..pipeline.paths import StagePaths
+    from ..pipeline.sources import resolve_openings_input
+
     if getattr(args, "chapters_in", None):
-        path = Path(args.chapters_in).expanduser()
-        if path.is_file():
-            path = path.parent
-        # A stage folder is taken as given (the caller chose that stage); a book
-        # folder is descended into, preferring the most advanced stage present.
-        if path.name not in _CHAPTER_STAGE_FOLDERS:
-            for name in _CHAPTER_STAGE_FOLDERS:
-                candidate = path / name
-                if has_chapter_files(candidate):
-                    return candidate
-        return path
-    chapters = _resolve_chapters_dir(args.book, args.in_dir, None, getattr(args, "output_root", None))
-    for candidate in (
-        postprocessed_chapters_dir(chapters),
-        translated_chapters_dir(chapters),
-        preprocessed_dir(chapters),
-        chapters,
-    ):
-        if has_chapter_files(candidate):
-            return candidate
-    return chapters
+        return resolve_openings_input(args)
+    chapters = _resolve_chapters_dir(
+        args.book, args.in_dir, None, getattr(args, "output_root", None)
+    )
+    resolved = resolve_openings_input(args, StagePaths.from_base(chapters))
+    return resolved if has_chapter_files(resolved) else chapters

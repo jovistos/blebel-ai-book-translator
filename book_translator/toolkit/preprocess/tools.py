@@ -29,7 +29,7 @@ from typing import Any
 
 from langchain_core.tools import tool
 
-from book_translator.stages.agent.tools.registry import preprocess_stage
+from book_translator.toolkit.registry import preprocess_stage
 from book_translator.stages.preprocess.apply import apply_cleaning_plan, text_of
 from book_translator.stages.preprocess.corpus import scan_corpus_damage
 from book_translator.stages.preprocess.damage import damage_digest, scan_chapter_damage

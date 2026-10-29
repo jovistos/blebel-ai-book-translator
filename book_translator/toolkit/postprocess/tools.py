@@ -32,7 +32,7 @@ from typing import Annotated, Any
 
 from langchain_core.tools import InjectedToolArg, tool
 
-from book_translator.stages.agent.tools.registry import postprocess_stage
+from book_translator.toolkit.registry import postprocess_stage
 from book_translator.stages.postprocess.inspect import (
     inspect_heading_context as inspect_heading_context_fn,
 )
@@ -569,7 +569,7 @@ def verify_postprocessed_chapters(
 
 def book_tools() -> list[Any]:
     """The tools the book-plan graph binds (definition order)."""
-    from book_translator.stages.agent.tools.registry import tool_by_name
+    from book_translator.toolkit.registry import tool_by_name
 
     return [
         tool for name in BOOK_TOOL_NAMES if (tool := tool_by_name(name)) is not None
@@ -578,7 +578,7 @@ def book_tools() -> list[Any]:
 
 def chapter_tools() -> list[Any]:
     """The tools the chapter-plan graph binds (definition order)."""
-    from book_translator.stages.agent.tools.registry import tool_by_name
+    from book_translator.toolkit.registry import tool_by_name
 
     return [
         tool for name in CHAPTER_TOOL_NAMES if (tool := tool_by_name(name)) is not None

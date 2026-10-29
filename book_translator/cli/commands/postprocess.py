@@ -13,7 +13,6 @@ from book_translator.core.constants import (
 )
 from book_translator.core.errors import ConfigError, ToolError
 from book_translator.documents.chapters import (
-    chapters_dir,
     has_translated_chapter_files,
     postprocessed_chapters_dir,
     translated_chapters_dir,
@@ -21,10 +20,11 @@ from book_translator.documents.chapters import (
 
 from .. import parents
 from ..common import (
+    _command_paths,
+    _command_text_dir,
     _model_settings,
     _print_json,
     _print_openings_line,
-    _resolve_text_dir,
     _window_label,
 )
 
@@ -123,13 +123,7 @@ def cmd_postprocess(args: argparse.Namespace) -> int:
             _resolve_chunks(Path(args.chunks_in).expanduser())
         )
     else:
-        chapters_path = chapters_dir(_resolve_text_dir(
-            args.book,
-            args.in_dir,
-            args.out,
-            getattr(args, "output_root", None),
-            getattr(args, "text_in", None),
-        ))
+        chapters_path = _command_text_dir(args, _command_paths(args))
         source_path = translated_chapters_dir(chapters_path)
     if not has_translated_chapter_files(source_path):
         print(

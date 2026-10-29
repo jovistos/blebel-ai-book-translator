@@ -29,6 +29,7 @@ from book_translator.core.constants import (
     MIN_MATTER_LENGTH_RATIO,
 )
 from book_translator.documents.images import image_refs, is_image_line
+from book_translator.documents.text import preserve_trailing_newlines
 from book_translator.stages.matter.images import is_translated_image_match
 from book_translator.stages.translation.translator import clean_translation
 
@@ -132,12 +133,6 @@ def clean_markdown(text: str) -> str:
     while spaced and not spaced[-1].strip():
         spaced.pop()
     return "\n".join(spaced)
-
-
-def preserve_trailing_newlines(text: str, source: str) -> str:
-    """Keep the source chunk's trailing-newline shape after translation."""
-    count = len(source) - len(source.rstrip("\n"))
-    return text.rstrip("\n") + ("\n" * count if count else "")
 
 
 def _title_and_credit(plan: dict[str, Any]) -> tuple[str, str]:

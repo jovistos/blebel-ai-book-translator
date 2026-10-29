@@ -96,6 +96,36 @@ def short_args(args: dict[str, Any], limit: int = 80) -> str:
     return out if len(out) <= limit else out[: limit - 1] + "…"
 
 
+def preserve_trailing_newlines(translation: str, source: str) -> str:
+    """Give ``translation`` the source chunk's trailing newlines.
+
+    Chunks are concatenated in filename order, so the *edges* matter: a chunk
+    that ended with a blank line must still end with one in the translation, or
+    two paragraphs merge when the files are joined.
+    """
+    stripped = translation.rstrip("\n")
+    if not stripped:
+        return translation
+    trailing = source[len(source.rstrip("\n")) :]
+    return stripped + trailing
+
+
+def book_title_from_source(
+    source_file: str | Path,
+    fallback_dir: str | Path,
+    explicit: str = "",
+) -> str:
+    """The book's name for prompts: explicit override, source filename, or stage parent folder."""
+    if explicit.strip():
+        return explicit.strip()
+    src = str(source_file or "").strip()
+    name = Path(src).name if src else Path(fallback_dir).parent.name
+    for suffix in (".md", ".txt", ".markdown"):
+        if name.lower().endswith(suffix):
+            name = name[: -len(suffix)]
+    return name.replace("_", " ").strip()
+
+
 def summarise_payload(payload: str) -> str:
     """One-line, content-free summary of a tool result for the run log."""
     try:

@@ -190,10 +190,12 @@ def resolve_postprocessed_input(ns: Any, paths: StagePaths) -> Path:
     return explicit if explicit is not None else paths.postprocess_dir
 
 
-def resolve_openings_input(ns: Any, paths: StagePaths) -> Path:
+def resolve_openings_input(ns: Any, paths: StagePaths | None = None) -> Path:
     """The folder ``openings`` audits: explicit, or the book's most advanced one."""
     explicit = _path(getattr(ns, "chapters_in", None))
     if explicit is None:
+        if paths is None:
+            paths = StagePaths.for_command(ns)
         return most_advanced_chapters(paths)
     if explicit.is_file():
         explicit = explicit.parent

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -38,24 +37,23 @@ from ..core.constants import (
     TRANSLATION_MANIFEST_FILENAME,
     TRANSLATION_TRACE_FILENAME,
 )
-from ..core.report import human_bytes, human_seconds
+from ..core.report import (
+    BackgroundTicker,
+    estimate_eta,
+    human_bytes,
+    human_seconds,
+    render_bar,
+)
 from ..core.settings import LLM_CONFIG_FILENAME, llm_config_path
 from ..documents.io import load_lines, source_size_bytes
 from ..paths import book_slug
 from .console import RULE
+from .paths import rel
 from .report import PhaseRecord, PhaseState
 
 if TYPE_CHECKING:
     from .console import Console
     from .driver import PipelineDriver
-
-
-def rel(path: str | Path) -> str:
-    """A human-readable path string relative to cwd when possible."""
-    try:
-        return str(Path(path).relative_to(Path.cwd()))
-    except ValueError:
-        return str(path)
 
 
 def print_banner(driver: PipelineDriver, phases: list[str]) -> None:
@@ -626,8 +624,13 @@ class GlossaryProgressBar:
     def __init__(self, console: Console) -> None:
         self.console = console
         self.state: dict[str, Any] = {}
-        self.stop_event = threading.Event()
-        self.thread: threading.Thread | None = None
+        self.ticker = BackgroundTicker(
+            "glossary-bar",
+            on_tick=lambda: self.console.bar(self._line()) if self.state.get("active") else None,
+            on_heartbeat=lambda: self.console.stream_line(self._line()) if self.state.get("active") else None,
+            is_tty=lambda: self.console.bar_enabled,
+            heartbeat_seconds=self.HEARTBEAT_SECONDS,
+        )
 
     def on_start(self, chapter: dict[str, Any]) -> None:
         self.state.update(
@@ -638,15 +641,11 @@ class GlossaryProgressBar:
                 "total": int(chapter.get("total") or 0),
             }
         )
-        if self.thread is None or not self.thread.is_alive():
+        if not self.state.get("active"):
             self.state["started"] = time.monotonic()
             self.state["durations"] = []
             self.state["active"] = True
-            self.stop_event.clear()
-            self.thread = threading.Thread(
-                target=self._loop, name="glossary-bar", daemon=True
-            )
-            self.thread.start()
+        self.ticker.start()
 
     def on_chapter(self, chapter: dict[str, Any], done: int, total: int) -> None:
         now = time.monotonic()
@@ -672,16 +671,8 @@ class GlossaryProgressBar:
         now = time.monotonic()
         elapsed = now - float(self.state.get("started") or now)
         durations = self.state.get("durations") or []
-        average = (
-            sum(durations) / len(durations)
-            if durations
-            else (elapsed / done if done else None)
-        )
-        remaining = max(total - done, 0)
-        eta = average * remaining if average is not None else None
-        width = 22
-        filled = min(width, int(width * done / total)) if total else 0
-        bar = "█" * filled + "░" * (width - filled)
+        eta = estimate_eta(done, total, elapsed, durations)
+        bar = render_bar(done, total)
         parts = [
             f"  {bar} {done:>2}/{total}",
             f"{human_seconds(elapsed)} elapsed",
@@ -693,26 +684,9 @@ class GlossaryProgressBar:
             parts.append(f"now {current} ({chapter_elapsed:.0f}s)")
         return " · ".join(parts)
 
-    def _loop(self) -> None:
-        last_heartbeat = 0.0
-        while not self.stop_event.wait(1.0):
-            if not self.state.get("active"):
-                continue
-            line = self._line()
-            if self.console.bar_enabled:
-                self.console.bar(line)
-                continue
-            now = time.monotonic()
-            if now - last_heartbeat >= self.HEARTBEAT_SECONDS:
-                last_heartbeat = now
-                self.console.stream_line(line)
-
     def stop(self) -> None:
         self.state["active"] = False
-        self.stop_event.set()
-        if self.thread is not None and self.thread.is_alive():
-            self.thread.join(timeout=2.0)
-        self.thread = None
+        self.ticker.stop()
         self.console.clear_bar()
 
 
@@ -726,6 +700,9 @@ class PipelineReporter:
 
     def banner(self, phases: list[str]) -> None:
         print_banner(self.driver, phases)
+
+    def checkpoint_pause(self, name: str, record: PhaseRecord) -> bool:
+        return checkpoint_pause(self.driver, name, record)
 
     def finish(self, total: float, aborted: bool) -> int:
         print_finish_header(
@@ -746,10 +723,152 @@ class PipelineReporter:
         return 1 if aborted else 0
 
 
+def checkpoint_pause(driver: Any, name: str, record: PhaseRecord) -> bool:
+    """Interactive checkpoint pause allowing human review and intervention."""
+    import json
+
+    driver.console.emit("")
+    rich_c = getattr(driver.console, "_rich_console", None)
+    if getattr(driver.console, "is_rich", False) and rich_c is not None:
+        from rich.panel import Panel
+        from rich.table import Table
+
+        if name == "glossary":
+            glossary_file = driver.glossary_out / "glossary.json"
+            glossary_csv = driver.glossary_out / "glossary.csv"
+            csv_path_display = str(glossary_csv.resolve())
+            terms_count = 0
+            sample_rows: list[dict[str, Any]] = []
+            if glossary_file.exists():
+                try:
+                    data = json.loads(glossary_file.read_text(encoding="utf-8"))
+                    entries = data if isinstance(data, list) else data.get("entries", [])
+                    terms_count = len(entries)
+                    sample_rows = entries[:15]
+                except Exception:
+                    pass
+
+            tbl = Table(
+                title=f"Checkpoint: Stage 4 Glossary ({terms_count} terms generated)",
+                border_style="cyan",
+            )
+            tbl.add_column("Term", style="bold")
+            tbl.add_column("Category", style="dim")
+            tbl.add_column("Translation", style="bold green")
+            tbl.add_column("Context", style="dim")
+            for e in sample_rows:
+                tbl.add_row(
+                    str(e.get("term", "")),
+                    str(e.get("category", "")),
+                    str(e.get("translation", "")),
+                    str(e.get("context", ""))[:50],
+                )
+            rich_c.print(tbl)
+            rich_c.print(
+                Panel(
+                    f"[bold yellow]Checkpoint Pause: Stage 4 Glossary Complete[/bold yellow]\n\n"
+                    f"Please check out the CSV file with the dictionary entries:\n"
+                    f"  [bold cyan]{csv_path_display}[/bold cyan]\n\n"
+                    f"You can open and edit this CSV file to change any translations.\n"
+                    f"Your changes will be automatically applied to the rest of the translation process.\n\n"
+                    f"[bold][c][/bold] Continue to chunking / translation (applies CSV edits)\n"
+                    f"[bold][e][/bold] Pause to edit glossary CSV in your editor\n"
+                    f"[bold][a][/bold] Abort pipeline",
+                    border_style="yellow",
+                )
+            )
+        elif name == "matter":
+            title_file = driver.matter_out / "title.json"
+            fm_file = driver.matter_out / "00-front-matter.md"
+            content_preview = ""
+            if title_file.exists():
+                content_preview += (
+                    f"Title metadata: {title_file.read_text(encoding='utf-8')[:200]}\n"
+                )
+            if fm_file.exists():
+                content_preview += (
+                    f"Front matter preview:\n{fm_file.read_text(encoding='utf-8')[:300]}\n..."
+                )
+
+            rich_c.print(
+                Panel(
+                    f"[bold yellow]Checkpoint: Stage 7 Matter Localized[/bold yellow]\n\n"
+                    f"{content_preview}\n\n"
+                    f"[bold][c][/bold] Continue to chunk translation\n"
+                    f"[bold][a][/bold] Abort pipeline",
+                    border_style="yellow",
+                )
+            )
+        elif name == "postprocess":
+            rich_c.print(
+                Panel(
+                    f"[bold yellow]Checkpoint: Stage 9 Headings Postprocessed[/bold yellow]\n"
+                    f"Postprocessed folder: [cyan]{rel(driver.postprocess_out)}[/cyan]\n\n"
+                    f"[bold][c][/bold] Continue to bind into final book & EPUB\n"
+                    f"[bold][a][/bold] Abort pipeline",
+                    border_style="yellow",
+                )
+            )
+    else:
+        print(f"\n--- Checkpoint: {name} completed ---")
+        if name == "glossary":
+            glossary_csv = driver.glossary_out / "glossary.csv"
+            print("Please check out the CSV file with the dictionary entries:")
+            print(f"  {glossary_csv.resolve()}")
+            print("You can open and edit this CSV file to change translations.")
+            print("Your changes will be applied in the rest of the translation process.")
+        print("[c] Continue / [e] Edit file / [a] Abort")
+
+    def _apply_glossary_sync() -> None:
+        if name == "glossary":
+            from book_translator.stages.glossary.artifacts import sync_glossary_from_csv
+
+            try:
+                updated, added = sync_glossary_from_csv(driver.glossary_out)
+                if updated or added:
+                    driver.console.info(
+                        f"  ✓ Applied {updated} translation update(s) and {added} new term(s) from glossary.csv"
+                    )
+            except Exception as exc:
+                driver.console.warning(f"  · warning: could not sync glossary.csv: {exc}")
+
+    while True:
+        try:
+            choice = input("Select [c/e/a] (default 'c'): ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return False
+        if choice in {"", "c", "continue", "y", "yes"}:
+            _apply_glossary_sync()
+            return True
+        if choice in {"a", "abort", "n", "no", "q", "quit"}:
+            return False
+        if choice in {"e", "edit"}:
+            if name == "glossary":
+                csv_target = driver.glossary_out / "glossary.csv"
+                target_path = (
+                    csv_target
+                    if csv_target.exists()
+                    else (driver.glossary_out / "glossary.json")
+                )
+            else:
+                target_path = driver.book_dir
+            print(
+                f"You can now edit: {target_path.resolve() if hasattr(target_path, 'resolve') else target_path}"
+            )
+            try:
+                input("Press [Enter] when finished editing to resume...")
+            except (EOFError, KeyboardInterrupt):
+                return False
+            _apply_glossary_sync()
+            return True
+        print("Invalid choice. Please enter 'c', 'e', or 'a'.")
+
+
 __all__ = [
     "GlossaryProgressBar",
     "PipelineReporter",
     "build_summary_json",
+    "checkpoint_pause",
     "derive_phase_state",
     "find_artifact_files",
     "print_artifacts",

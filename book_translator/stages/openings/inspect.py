@@ -53,6 +53,14 @@ from book_translator.documents.markdown import (
     page_number_of,
 )
 from book_translator.documents.text import excerpt, norm
+from book_translator.stages.postprocess.titles import (
+    FILENAME_CHAPTER_RE as _FILENAME_CHAPTER_RE,
+    FILENAME_NUMBER_RE as _FILENAME_NUMBER_RE,
+    LABELLED_NUMBER_RE as _LABELLED_NUMBER_RE,
+    LABEL_RE as _LABEL_RE,
+    NUMBERED_TITLE_RE as _NUMBERED_TITLE_RE,
+    SENTENCE_END_RE as _SENTENCE_END_RE,
+)
 
 #: Issue kinds (the tuple is the contract the reports and tools are built on).
 EMPTY_CHAPTER = "empty_chapter"
@@ -76,51 +84,11 @@ OPENING_ISSUES: tuple[str, ...] = (
 FIX_REMOVE = "remove"
 OPENING_FIXES: tuple[str, ...] = (FIX_REMOVE,)
 
-#: Words that open a chapter/section label (multilingual, like the splitter).
-_LABEL_WORDS = (
-    "poglavlje",
-    "glava",
-    "giava",
-    "chapter",
-    "deo",
-    "dio",
-    "part",
-    "uvod",
-    "predgovor",
-    "pogovor",
-    "prolog",
-    "epilog",
-    "bele[sš]ke",
-    "beleske",
-    "notes",
-    r"acknowledg\w*",
-    "sadr[zž]aj",
-    "contents",
-)
-_LABEL_RE = re.compile(
-    r"^\s*(?:#+\s*)?(?:" + "|".join(_LABEL_WORDS) + r")\b",
-    re.IGNORECASE,
-)
 #: ``Poglavlje`` alone: a label, but no number and no chapter name.
 _LABEL_ONLY_RE = re.compile(
     r"^(?:poglavlje|glava|giava|chapter|deo|dio|part)\s*[.:\-\u2013\u2014]?$",
     re.IGNORECASE,
 )
-#: ``Poglavlje 4`` / ``CHAPTER IV`` / ``GLAVA DRUGA``: label plus its number.
-_LABELLED_NUMBER_RE = re.compile(
-    r"^\s*(?:#+\s*)?(?:poglavlje|glava|giava|chapter|deo|dio|part)\s+"
-    r"([0-9]+|[IVXLCDM]+)\b",
-    re.IGNORECASE,
-)
-#: ``2. Poglavlje`` / ``4. Title``: a numbered heading without a label word.
-_NUMBERED_TITLE_RE = re.compile(r"^(?:#+\s*)?(\d{1,3})\s*[.)]\s+\S")
-#: ``02-chapter-2.md`` / ``12-chapter-12-slug.md``.
-_FILENAME_CHAPTER_RE = re.compile(r"^\d+[-_ ]*chapter[-_ ]*(\d+)", re.IGNORECASE)
-#: ``05-chapter-2.md`` already matched above; ``07-uvod.md`` falls back to its prefix.
-_FILENAME_NUMBER_RE = re.compile(r"^(\d{1,3})[-_ ]")
-#: A plain line ending like a sentence is prose, never a title. Question and
-#: exclamation marks are allowed (``Šta vam je na umu?`` is a real title).
-_SENTENCE_END_RE = re.compile(r"[.\u2026]\s*$")
 _ROMAN_RE = re.compile(r"^[IVXLCDM]+$", re.IGNORECASE)
 _ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
 

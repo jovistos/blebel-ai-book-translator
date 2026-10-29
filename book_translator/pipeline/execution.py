@@ -49,17 +49,14 @@ from book_translator.stages.conversion import (
 )
 from book_translator.stages.preprocess.corpus import scan_corpus_damage
 
+from .paths import rel
+
 ROOT = repo_root()
+
 
 def has_chapters(path: Path) -> bool:
     return has_chapter_files(path)
 
-def rel(path: str | Path) -> str:
-    resolved = Path(path).expanduser()
-    try:
-        return str(resolved.resolve().relative_to(ROOT))
-    except ValueError:
-        return str(resolved)
 
 class PhaseFailed(RuntimeError):
     def __init__(self, message: str, summary: str = 'failed') -> None:
@@ -585,18 +582,19 @@ class PhaseExecutionMixin:
             or "nothing",
         )
 
-        self._bar_state = {"active": False, "total": 0, "done": 0, "current": ""}
+        bar = self.reporter.glossary_bar
+        bar.state = {"active": False, "total": 0, "done": 0, "current": ""}
         try:
             runtime = self._stage_runtime(
                 settings_factory=lambda: self.settings_for("dictionary"),
-                progress=self._on_glossary_chapter,
-                chapter_start=self._on_glossary_start,
+                progress=bar.on_chapter,
+                chapter_start=bar.on_start,
                 chapter_limit=self.chapter_limit,
                 sentences_dir=str(sentences_path),
             )
             result = self.options.stage.call("glossary", runtime)()
         finally:
-            self._stop_glossary_bar()
+            bar.stop()
 
         categories = result.categories or {}
         tokens = result.tokens or {}
@@ -686,102 +684,6 @@ class PhaseExecutionMixin:
             overrides=self._llm_overrides.get("translate"),
             allowed=TRANSLATION_CHOICES,
         )
-
-    # -- live progress for the glossary ------------------------------------ #
-    #: Seconds between heartbeat lines when stdout is not a terminal (a piped or
-    #: logged run), and the redraw interval when it is one.
-    GLOSSARY_HEARTBEAT_SECONDS = 10.0
-
-    def _on_glossary_start(self, chapter: dict[str, Any]) -> None:
-        """A chapter's model call is about to start: say which one, and tick."""
-        self._bar_state.update(
-            {
-                "current": str(chapter.get("filename") or ""),
-                "chapter_started": time.monotonic(),
-                "done": int(chapter.get("done") or 0),
-                "total": int(chapter.get("total") or 0),
-            }
-        )
-        if self._bar_thread is None or not self._bar_thread.is_alive():
-            self._bar_state["started"] = time.monotonic()
-            self._bar_state["durations"] = []
-            self._bar_state["active"] = True
-            self._bar_stop.clear()
-            self._bar_thread = threading.Thread(
-                target=self._glossary_bar_loop, name="glossary-bar", daemon=True
-            )
-            self._bar_thread.start()
-
-    def _on_glossary_chapter(self, chapter: dict[str, Any], done: int, total: int) -> None:
-        """One chapter is in the dictionary: one durable line, then the bar resumes."""
-        state = self._bar_state
-        now = time.monotonic()
-        elapsed = now - float(state.get("chapter_started") or now)
-        durations = state.setdefault("durations", [])
-        durations.append(elapsed)
-        state["done"], state["total"], state["current"] = done, total, ""
-        tokens = chapter.get("tokens") or {}
-        self.console.clear_bar()
-        self.console.info(
-            f"  [{done:>2}/{total}] {chapter.get('filename') or '?'!s:<44} "
-            f"{int(chapter.get('added') or 0):>3} new · "
-            f"{int(chapter.get('repeats') or 0):>2} locked · "
-            f"{int(chapter.get('conflicts') or 0):>2} conflict · "
-            f"{int(tokens.get('total_tokens') or 0):>7,} tok · {elapsed:5.1f}s"
-        )
-
-    def _glossary_bar_line(self) -> str:
-        state = self._bar_state
-        total = int(state.get("total") or 0)
-        if total <= 0:
-            return "  starting the glossary run…"
-        done = int(state.get("done") or 0)
-        now = time.monotonic()
-        elapsed = now - float(state.get("started") or now)
-        durations = state.get("durations") or []
-        average = (
-            sum(durations) / len(durations)
-            if durations
-            else (elapsed / done if done else None)
-        )
-        remaining = max(total - done, 0)
-        eta = average * remaining if average is not None else None
-        width = 22
-        filled = min(width, int(width * done / total)) if total else 0
-        bar = "█" * filled + "░" * (width - filled)
-        parts = [
-            f"  {bar} {done:>2}/{total}",
-            f"{human_seconds(elapsed)} elapsed",
-            f"ETA ~{human_seconds(eta)}" if eta is not None else "ETA …",
-        ]
-        current = str(state.get("current") or "")
-        if current:
-            chapter_elapsed = now - float(state.get("chapter_started") or now)
-            parts.append(f"now {current} ({chapter_elapsed:.0f}s)")
-        return " · ".join(parts)
-
-    def _glossary_bar_loop(self) -> None:
-        last_heartbeat = 0.0
-        while not self._bar_stop.wait(1.0):
-            if not self._bar_state.get("active"):
-                continue
-            line = self._glossary_bar_line()
-            if self.console.bar_enabled:
-                self.console.bar(line)
-                continue
-            now = time.monotonic()
-            if now - last_heartbeat >= self.GLOSSARY_HEARTBEAT_SECONDS:
-                last_heartbeat = now
-                self.console.stream_line(line)
-
-    def _stop_glossary_bar(self) -> None:
-        self._bar_state["active"] = False
-        self._bar_stop.set()
-        thread = self._bar_thread
-        if thread is not None and thread.is_alive():
-            thread.join(timeout=2.0)
-        self._bar_thread = None
-        self.console.clear_bar()
 
     # -- phase 5: preprocess ----------------------------------------------- #
     def phase_preprocess(self) -> tuple[str, dict[str, Any]]:

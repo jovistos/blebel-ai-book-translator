@@ -36,7 +36,13 @@ import zipfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from book_translator.core.artifacts import read_json, sha256_file, timestamp, write_json, write_text
+from book_translator.core.artifacts import (
+    read_manifest,
+    sha256_file,
+    timestamp,
+    write_manifest,
+    write_text,
+)
 from book_translator.core.constants import (
     CHAPTER_IMAGE_PREFIX,
     CONVERT_MANIFEST_FILENAME,
@@ -665,12 +671,11 @@ def _write_manifest(
         "images_dir": Path(result.images_dir).name if result.images_dir else None,
         "created": timestamp(),
     }
-    write_json(manifest_path, payload, trailing_newline=True)
+    write_manifest(manifest_path.parent, manifest_path.name, payload)
 
 
 def _load_manifest(path: Path) -> dict:
-    payload = read_json(path, default={})
-    return payload if isinstance(payload, dict) else {}
+    return read_manifest(path.parent, path.name)
 
 
 def _manifest_matches(

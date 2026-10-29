@@ -19,10 +19,14 @@ from book_translator.core.constants import (
     TRANSLATION_METHODS,
 )
 from book_translator.core.errors import ConfigError, MissingDependencyError, ToolError
-from book_translator.core.report import human_seconds
+from book_translator.core.report import (
+    BackgroundTicker,
+    estimate_eta,
+    human_seconds,
+    render_bar,
+)
 from book_translator.core.settings import TRANSLATION_CHOICES
 from book_translator.documents.chapters import (
-    chapters_dir,
     chunks_dir,
     glossary_dir,
     has_chunk_files,
@@ -35,9 +39,10 @@ from book_translator.documents.window import (
 
 from .. import parents
 from ..common import (
+    _command_paths,
+    _command_text_dir,
     _model_settings,
     _print_json,
-    _resolve_text_dir,
 )
 
 
@@ -240,8 +245,6 @@ class _TranslationBar:
         self.total = max(0, int(total))
         self.tty = sys.stdout.isatty()
         self._lock = threading.Lock()
-        self._stop = threading.Event()
-        self._thread: threading.Thread | None = None
         self._width = 0
         self._started = time.monotonic()
         self._done = 0
@@ -249,6 +252,13 @@ class _TranslationBar:
         self._current = ""
         self._current_started = self._started
         self._durations: list[float] = []
+        self._ticker = BackgroundTicker(
+            "translate-bar",
+            on_tick=self._draw,
+            on_heartbeat=lambda: print(self._line(), flush=True),
+            is_tty=lambda: self.tty,
+            heartbeat_seconds=self.HEARTBEAT_SECONDS,
+        )
 
     # -- the hooks the runner calls ---------------------------------------- #
     def start(self, info: dict) -> None:
@@ -262,12 +272,8 @@ class _TranslationBar:
             # resumed run's earlier spend; a finished chunk then adds its own.
             prior = int((info.get("tokens") or {}).get("total_tokens") or 0)
             self._tokens = max(self._tokens, prior)
-        if self.tty and (self._thread is None or not self._thread.is_alive()):
-            self._stop.clear()
-            self._thread = threading.Thread(
-                target=self._loop, name="translate-bar", daemon=True
-            )
-            self._thread.start()
+        if self.tty:
+            self._ticker.start()
 
     def finish(self, record: dict, done: int, total: int) -> None:
         """One chunk is finished (translated, reused or failed)."""
@@ -288,11 +294,7 @@ class _TranslationBar:
             self._draw()
 
     def close(self) -> None:
-        self._stop.set()
-        thread = self._thread
-        if thread is not None and thread.is_alive():
-            thread.join(timeout=2.0)
-        self._thread = None
+        self._ticker.stop()
         if self.tty:
             self._clear()
 
@@ -326,15 +328,9 @@ class _TranslationBar:
             current = self._current
             current_elapsed = time.monotonic() - self._current_started
             durations = list(self._durations)
-        fill = min(self.WIDTH, int(self.WIDTH * done / total)) if total else 0
-        bar = "█" * fill + "░" * (self.WIDTH - fill)
+        bar = render_bar(done, total, self.WIDTH)
         elapsed = time.monotonic() - self._started
-        average = (
-            sum(durations) / len(durations)
-            if durations
-            else (elapsed / done if done else None)
-        )
-        eta = average * max(total - done, 0) if average is not None else None
+        eta = estimate_eta(done, total, elapsed, durations)
         parts = [
             f"  {bar} {done:>3}/{total}",
             f"{elapsed:.0f}s elapsed",
@@ -358,17 +354,6 @@ class _TranslationBar:
                 print("\r" + " " * self._width + "\r", end="", file=sys.stdout, flush=True)
                 self._width = 0
 
-    def _loop(self) -> None:
-        last_heartbeat = 0.0
-        while not self._stop.wait(1.0):
-            if self.tty:
-                self._draw()
-                continue
-            now = time.monotonic()
-            if now - last_heartbeat >= self.HEARTBEAT_SECONDS:
-                last_heartbeat = now
-                print(self._line(), flush=True)
-
 
 def cmd_translate(args: argparse.Namespace) -> int:
     """Stage 8: translate each chunk in reading order, with its glossary rows."""
@@ -376,13 +361,7 @@ def cmd_translate(args: argparse.Namespace) -> int:
     from book_translator.stages.translation import run_translation
     from book_translator.stages.translation.runner import resolve_chunk_glossary_dir
 
-    chapters_path = chapters_dir(_resolve_text_dir(
-            args.book,
-            args.in_dir,
-            args.out,
-            getattr(args, "output_root", None),
-            getattr(args, "text_in", None),
-        ))
+    chapters_path = _command_text_dir(args, _command_paths(args))
     chunks_path = (
         resolve_chunks_dir(Path(args.chunks_in).expanduser())
         if args.chunks_in

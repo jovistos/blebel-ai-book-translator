@@ -768,6 +768,8 @@ def _resolve_provider(
             continue
         name = name.lower()
         if allowed is not None and name not in allowed:
+            if source.key == "override" and name in PROVIDERS:
+                return name, True
             if source.specific:
                 raise ConfigError(
                     f"unknown {stage} provider {name!r} (from {source.label}); choose "

@@ -38,6 +38,10 @@ from book_translator.documents.manifest import (
     load_chunk_manifest,
     load_split_manifest,
 )
+from book_translator.documents.text import (
+    book_title_from_source,
+    preserve_trailing_newlines,
+)
 from book_translator.stages.chunk_glossary.matching import clean_term, load_glossary, match_key
 
 from .records import (
@@ -105,14 +109,7 @@ def _source_file(chunks_path: Path) -> str:
 
 def _book_title(chunks_path: Path, book_title: str = "") -> str:
     """The book's name for the prompt: explicit, the source file, or the folder."""
-    if book_title.strip():
-        return book_title.strip()
-    source_file = _source_file(chunks_path)
-    name = Path(source_file).name if source_file else chunks_path.parent.name
-    for suffix in (".md", ".txt", ".markdown"):
-        if name.lower().endswith(suffix):
-            name = name[: -len(suffix)]
-    return name.replace("_", " ").strip()
+    return book_title_from_source(_source_file(chunks_path), chunks_path, book_title)
 
 
 def load_chunk_glossary_rows(path: str | Path) -> list[GlossaryRow] | None:
@@ -353,22 +350,6 @@ def _finish_record(record: ChunkTranslation, translation: str) -> None:
 # --------------------------------------------------------------------------- #
 # output helpers
 # --------------------------------------------------------------------------- #
-def preserve_trailing_newlines(translation: str, source: str) -> str:
-    """Give the translation the source chunk's trailing newlines.
-
-    Chunks are concatenated in filename order, so the *edges* matter: a chunk
-    that ended with a blank line must still end with one in the translation, or
-    two paragraphs merge when the files are joined. The model's own trailing
-    newlines are normalised to the source's, which is the only count that keeps
-    the reconstruction identical in shape.
-    """
-    stripped = translation.rstrip("\n")
-    if not stripped:
-        return translation
-    trailing = source[len(source.rstrip("\n")) :]
-    return stripped + trailing
-
-
 def prompt_filename(chunk_filename: str) -> str:
     """``00001-x.md`` -> ``00001-x.md.prompt.md`` (the human-readable prompt)."""
     name = Path(str(chunk_filename or "")).name or "chunk.md"

@@ -126,13 +126,12 @@ def write_chunk_glossary(
     return write_json(path, payload)
 
 
-def write_chunk_glossary_manifest(
-    out_dir: str | Path,
+def chunk_glossary_manifest_payload(
     result: ChunkGlossaryResult,
     records: Sequence[ChunkGlossary] | None = None,
-) -> Path:
-    """Write ``_chunk_glossary_manifest.json``: the book-level index."""
-    payload = {
+) -> dict[str, Any]:
+    """Build the payload for ``_chunk_glossary_manifest.json``."""
+    return {
         "stage": "chunk-glossary",
         "ok": result.ok,
         "dry_run": result.dry_run,
@@ -156,7 +155,30 @@ def write_chunk_glossary_manifest(
         "chunks": [record.record() for record in records] if records is not None else result.chunks,
         "errors": result.errors,
     }
-    return write_manifest(out_dir, CHUNK_GLOSSARY_MANIFEST_FILENAME, payload)
+
+
+def chunk_glossary_trace_payload(
+    result: ChunkGlossaryResult,
+    records: Sequence[ChunkGlossary] | None = None,
+) -> dict[str, Any]:
+    """Build the payload for ``_chunk_glossary_trace.json``."""
+    payload = result.to_dict()
+    if records is not None:
+        payload["detail"] = [record.to_dict() for record in records]
+    return payload
+
+
+def write_chunk_glossary_manifest(
+    out_dir: str | Path,
+    result: ChunkGlossaryResult,
+    records: Sequence[ChunkGlossary] | None = None,
+) -> Path:
+    """Write ``_chunk_glossary_manifest.json``: the book-level index."""
+    return write_manifest(
+        out_dir,
+        CHUNK_GLOSSARY_MANIFEST_FILENAME,
+        chunk_glossary_manifest_payload(result, records),
+    )
 
 
 def write_chunk_glossary_trace(
@@ -165,16 +187,19 @@ def write_chunk_glossary_trace(
     records: Sequence[ChunkGlossary] | None = None,
 ) -> Path:
     """Write the audit trail: the same run plus each chunk's terms and log."""
-    payload = result.to_dict()
-    if records is not None:
-        payload["detail"] = [record.to_dict() for record in records]
-    return write_trace(out_dir, CHUNK_GLOSSARY_TRACE_FILENAME, payload)
+    return write_trace(
+        out_dir,
+        CHUNK_GLOSSARY_TRACE_FILENAME,
+        chunk_glossary_trace_payload(result, records),
+    )
 
 
 
 __all__ = [
     "_totals",
+    "chunk_glossary_manifest_payload",
     "chunk_glossary_payload",
+    "chunk_glossary_trace_payload",
     "write_chunk_glossary",
     "write_chunk_glossary_manifest",
     "write_chunk_glossary_trace",

@@ -12,7 +12,6 @@ from book_translator.core.constants import (
 )
 from book_translator.core.errors import ToolError
 from book_translator.documents.chapters import (
-    chapters_dir,
     has_postprocessed_chapter_files,
     postprocessed_chapters_dir,
     translated_epub_path,
@@ -20,8 +19,9 @@ from book_translator.documents.chapters import (
 
 from .. import parents
 from ..common import (
+    _command_paths,
+    _command_text_dir,
     _print_json,
-    _resolve_text_dir,
 )
 
 
@@ -107,13 +107,7 @@ def cmd_epub(args: argparse.Namespace) -> int:
         if (source_path / POSTPROCESSED_CHAPTERS_DIRNAME).is_dir():
             source_path = source_path / POSTPROCESSED_CHAPTERS_DIRNAME
     else:
-        chapters_path = chapters_dir(_resolve_text_dir(
-            args.book,
-            args.in_dir,
-            args.out,
-            getattr(args, "output_root", None),
-            getattr(args, "text_in", None),
-        ))
+        chapters_path = _command_text_dir(args, _command_paths(args))
         source_path = postprocessed_chapters_dir(chapters_path)
     if not has_postprocessed_chapter_files(source_path):
         print(

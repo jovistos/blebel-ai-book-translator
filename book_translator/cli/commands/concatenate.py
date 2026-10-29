@@ -12,7 +12,6 @@ from book_translator.core.constants import (
 )
 from book_translator.core.errors import ToolError
 from book_translator.documents.chapters import (
-    chapters_dir,
     chunks_dir,
     has_chunk_files,
     has_translation_files,
@@ -23,8 +22,9 @@ from book_translator.stages.assembly import run_assembly
 
 from .. import parents
 from ..common import (
+    _command_paths,
+    _command_text_dir,
     _print_json,
-    _resolve_text_dir,
 )
 
 
@@ -101,13 +101,7 @@ def cmd_concatenate(args: argparse.Namespace) -> int:
         chunks_path = resolve_chunks_dir(Path(args.chunks_in).expanduser())
         chapters_path = chunks_path.parent / CHAPTERS_DIRNAME
     else:
-        chapters_path = chapters_dir(_resolve_text_dir(
-            args.book,
-            args.in_dir,
-            args.out,
-            getattr(args, "output_root", None),
-            getattr(args, "text_in", None),
-        ))
+        chapters_path = _command_text_dir(args, _command_paths(args))
         chunks_path = chunks_dir(chapters_path)
     if not has_chunk_files(chunks_path):
         print(

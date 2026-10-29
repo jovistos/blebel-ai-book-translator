@@ -75,10 +75,15 @@ def finish_chunk_glossary(
     write_manifest: bool,
     dry_run: bool,
 ) -> ChunkGlossaryResult:
+    from book_translator.core.constants import (
+        CHUNK_GLOSSARY_MANIFEST_FILENAME,
+        CHUNK_GLOSSARY_TRACE_FILENAME,
+    )
+    from book_translator.core.store import ArtifactStore
     from .artifacts import (
         _totals,
-        write_chunk_glossary_manifest,
-        write_chunk_glossary_trace,
+        chunk_glossary_manifest_payload,
+        chunk_glossary_trace_payload,
     )
 
     totals = _totals(records)
@@ -124,11 +129,14 @@ def finish_chunk_glossary(
         processed_count=len(setup.pending),
         skipped_count=len(setup.reused_records),
     )
-    if write_manifest and not dry_run:
-        result.manifest_path = str(
-            write_chunk_glossary_manifest(setup.out_dir, result, records)
-        )
-        result.trace_path = str(
-            write_chunk_glossary_trace(setup.out_dir, result, records)
-        )
+    store = ArtifactStore(
+        setup.out_dir,
+        CHUNK_GLOSSARY_MANIFEST_FILENAME,
+        CHUNK_GLOSSARY_TRACE_FILENAME,
+        enabled=write_manifest and not dry_run,
+    )
+    store.write_manifest(chunk_glossary_manifest_payload(result, records))
+    store.attach(result)
+    store.write_trace(chunk_glossary_trace_payload(result, records))
+    store.attach(result)
     return cast(ChunkGlossaryResult, context.finish(result))

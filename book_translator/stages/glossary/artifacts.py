@@ -84,11 +84,9 @@ def _has_markdown(folder: Path) -> bool:
 
 def _book_title(source_file: str, chapters_path: Path) -> str:
     """The book's name, for the prompt: the source filename without its suffix."""
-    name = Path(source_file).name if source_file else chapters_path.parent.name
-    for suffix in (".md", ".txt", ".markdown"):
-        if name.lower().endswith(suffix):
-            name = name[: -len(suffix)]
-    return name.replace("_", " ").strip()
+    from book_translator.documents.text import book_title_from_source
+
+    return book_title_from_source(source_file, chapters_path)
 
 
 def chunk_sentences(sentences: Sequence[str], limit: int) -> list[list[str]]:
@@ -444,62 +442,56 @@ def sync_glossary_from_csv(glossary_dir_or_file: Path | str) -> tuple[int, int]:
         for e in raw_entries:
             book.lock(GlossaryTerm.from_dict(e))
 
-        lines = [
-            f"# Glossary — {data.get('book_title') or 'the book'}",
-            "",
-            f"{data.get('source_language', 'en')} → {data.get('target_language', 'sr')} · "
-            f"{len(book)} entr{'y' if len(book) == 1 else 'ies'} · "
-            f"built by {data.get('provider') or '—'}/{data.get('model') or '—'} from "
-            f"{data.get('chapter_count', 0)} chapter(s)",
-            "",
-        ]
-        tokens = data.get("tokens") or {}
-        if tokens:
-            lines.extend(
-                [
-                    f"Tokens: {tokens.get('total_tokens', 0):,} total "
-                    f"({tokens.get('input_tokens', 0):,} in, "
-                    f"{tokens.get('output_tokens', 0):,} out)",
-                    "",
-                ]
-            )
-        by_category: dict[str, list[GlossaryTerm]] = {}
-        for entry in book:
-            by_category.setdefault(entry.category, []).append(entry)
-        for category, entries in by_category.items():
-            lines.append(f"## {category}")
-            lines.append("")
-            lines.append("| Term | Translation | First seen |")
-            lines.append("| --- | --- | --- |")
-            for entry in entries:
-                t = entry.term.replace("|", "\\|")
-                tr = entry.translation.replace("|", "\\|")
-                lines.append(f"| {t} | {tr} | {entry.chapter_filename} |")
-            lines.append("")
-        write_text(md_file, "\n".join(lines))
+        write_text(
+            md_file,
+            render_glossary_markdown(
+                book,
+                book_title=str(data.get("book_title") or ""),
+                source_language=str(data.get("source_language") or "en"),
+                target_language=str(data.get("target_language") or "sr"),
+                provider=str(data.get("provider") or ""),
+                model=str(data.get("model") or ""),
+                chapter_count=int(data.get("chapter_count") or 0),
+                tokens=data.get("tokens") or {},
+                include_tokens_Only_if_present=True,
+            ),
+        )
 
     return updated_count, added_count
 
 
-def write_glossary_markdown(out_dir: Path, result: GlossaryResult, book: GlossaryBook) -> Path:
-    """The human-readable view: a table per category, in the order categories fill.
-
-    Meant to be read in a diff or an editor while the book is being translated —
-    ``glossary.json`` is the machine's copy, this is the reviewer's.
-    """
+def render_glossary_markdown(
+    book: GlossaryBook,
+    *,
+    book_title: str = "",
+    source_language: str = "en",
+    target_language: str = "sr",
+    provider: str = "",
+    model: str = "",
+    chapter_count: int = 0,
+    tokens: dict[str, Any] | None = None,
+    include_tokens_Only_if_present: bool = False,
+) -> str:
+    """Render the human-readable Markdown glossary table per category."""
     lines = [
-        f"# Glossary — {result.book_title or 'the book'}",
+        f"# Glossary — {book_title or 'the book'}",
         "",
-        f"{result.source_language} → {result.target_language} · "
+        f"{source_language} → {target_language} · "
         f"{len(book)} entr{'y' if len(book) == 1 else 'ies'} · "
-        f"built by {result.provider or '—'}/{result.model or '—'} from "
-        f"{result.body_chapter_count} chapter(s)",
-        "",
-        f"Tokens: {result.tokens.get('total_tokens', 0):,} total "
-        f"({result.tokens.get('input_tokens', 0):,} in, "
-        f"{result.tokens.get('output_tokens', 0):,} out)",
+        f"built by {provider or '—'}/{model or '—'} from "
+        f"{chapter_count} chapter(s)",
         "",
     ]
+    tok = tokens or {}
+    if tok or not include_tokens_Only_if_present:
+        lines.extend(
+            [
+                f"Tokens: {tok.get('total_tokens', 0):,} total "
+                f"({tok.get('input_tokens', 0):,} in, "
+                f"{tok.get('output_tokens', 0):,} out)",
+                "",
+            ]
+        )
     by_category: dict[str, list[GlossaryTerm]] = {}
     for entry in book:
         by_category.setdefault(entry.category, []).append(entry)
@@ -513,7 +505,28 @@ def write_glossary_markdown(out_dir: Path, result: GlossaryResult, book: Glossar
             translation = entry.translation.replace("|", "\\|")
             lines.append(f"| {term} | {translation} | {entry.chapter_filename} |")
         lines.append("")
-    return write_text(Path(out_dir) / GLOSSARY_MARKDOWN_FILENAME, "\n".join(lines))
+    return "\n".join(lines)
+
+
+def write_glossary_markdown(out_dir: Path, result: GlossaryResult, book: GlossaryBook) -> Path:
+    """The human-readable view: a table per category, in the order categories fill.
+
+    Meant to be read in a diff or an editor while the book is being translated —
+    ``glossary.json`` is the machine's copy, this is the reviewer's.
+    """
+    return write_text(
+        Path(out_dir) / GLOSSARY_MARKDOWN_FILENAME,
+        render_glossary_markdown(
+            book,
+            book_title=result.book_title,
+            source_language=result.source_language,
+            target_language=result.target_language,
+            provider=result.provider,
+            model=result.model,
+            chapter_count=result.body_chapter_count,
+            tokens=result.tokens,
+        ),
+    )
 
 
 def write_glossary_manifest(

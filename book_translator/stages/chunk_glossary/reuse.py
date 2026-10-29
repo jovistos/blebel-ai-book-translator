@@ -5,14 +5,19 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
+from book_translator.core.constants import (
+    CHUNK_GLOSSARY_MANIFEST_FILENAME,
+    CHUNK_GLOSSARY_TRACE_FILENAME,
+)
 from book_translator.core.run import RunContext
+from book_translator.core.store import ArtifactStore
 from book_translator.documents.chunks import ChunkInput
 from book_translator.documents.manifest import load_chunk_glossary_manifest
 
 from .artifacts import (
     _totals,
-    write_chunk_glossary_manifest,
-    write_chunk_glossary_trace,
+    chunk_glossary_manifest_payload,
+    chunk_glossary_trace_payload,
 )
 from .models import ChunkGlossary, ChunkGlossaryResult
 from .result import build_chunk_glossary_result
@@ -92,12 +97,16 @@ def finish_reused(
         skipped_count=len(records),
         skipped=True,
     )
-    if write_manifest and not dry_run:
-        result.manifest_path = str(
-            write_chunk_glossary_manifest(out_dir, result, records)
-        )
-        result.trace_path = str(write_chunk_glossary_trace(out_dir, result, records))
-    return result
+    store = ArtifactStore(
+        out_dir,
+        CHUNK_GLOSSARY_MANIFEST_FILENAME,
+        CHUNK_GLOSSARY_TRACE_FILENAME,
+        enabled=write_manifest and not dry_run,
+    )
+    store.write_manifest(chunk_glossary_manifest_payload(result, records))
+    store.attach(result)
+    store.write_trace(chunk_glossary_trace_payload(result, records))
+    return store.attach(result)
 
 
 __all__ = ["finish_reused"]

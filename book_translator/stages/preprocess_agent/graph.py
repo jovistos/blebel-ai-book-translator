@@ -20,7 +20,7 @@ from typing import Any
 from book_translator.core.constants import DEFAULT_PREPROCESS_ATTEMPTS
 from book_translator.core.settings import LLMSettings, resolve_settings
 from book_translator.stage_graph import StageSpec, TailStep, build_stage_graph
-from book_translator.stages.agent.tools.registry import PREPROCESS_WRITE_TOOLS
+from book_translator.toolkit.registry import PREPROCESS_WRITE_TOOLS
 from book_translator.toolkit.preprocess import PREPROCESS_TOOL_BY_NAME
 
 from .llm import make_preprocess_llm

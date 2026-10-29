@@ -51,6 +51,7 @@ from ..paths import (
     book_output_dir,
     default_input_dir,
     default_output_dir,
+    repo_root,
     resolve_book_path,
     resolve_output_dir,
 )
@@ -404,4 +405,13 @@ class StagePaths:
         return f"StagePaths(book_dir={self.book_dir}, base={self.base})"
 
 
-__all__ = ["OVERRIDE_KEYS", "StagePaths"]
+def rel(path: str | Path) -> str:
+    """A path relative to the repository root when it lives inside it."""
+    resolved = Path(path).expanduser()
+    try:
+        return str(resolved.resolve().relative_to(repo_root()))
+    except ValueError:
+        return str(resolved)
+
+
+__all__ = ["OVERRIDE_KEYS", "StagePaths", "rel"]

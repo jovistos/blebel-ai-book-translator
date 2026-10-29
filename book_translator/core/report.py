@@ -16,14 +16,86 @@ payload does not need the agent runtime.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import threading
+import time
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
 
 # --------------------------------------------------------------------------- #
-# numbers
+# numbers & progress bars
 # --------------------------------------------------------------------------- #
+def render_bar(done: int, total: int, width: int = 22) -> str:
+    """Render a fixed-width ``█░`` progress bar."""
+    filled = min(width, int(width * done / total)) if total > 0 else 0
+    return "█" * filled + "░" * (width - filled)
+
+
+def estimate_eta(
+    done: int,
+    total: int,
+    elapsed: float,
+    durations: Sequence[float] = (),
+) -> float | None:
+    """Estimate remaining seconds from per-unit durations or overall average."""
+    average = (
+        sum(durations) / len(durations)
+        if durations
+        else (elapsed / done if done > 0 else None)
+    )
+    return average * max(total - done, 0) if average is not None else None
+
+
+class BackgroundTicker:
+    """Runs a 1-second daemon progress loop with a periodic non-TTY heartbeat."""
+
+    def __init__(
+        self,
+        name: str,
+        *,
+        on_tick: Callable[[], None],
+        on_heartbeat: Callable[[], None] | None = None,
+        is_tty: Callable[[], bool] | bool = True,
+        heartbeat_seconds: float = 10.0,
+    ) -> None:
+        self.name = name
+        self._on_tick = on_tick
+        self._on_heartbeat = on_heartbeat
+        self._is_tty = is_tty
+        self.heartbeat_seconds = heartbeat_seconds
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self._thread is None or not self._thread.is_alive():
+            self._stop.clear()
+            self._thread = threading.Thread(
+                target=self._loop, name=self.name, daemon=True
+            )
+            self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        thread = self._thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=2.0)
+        self._thread = None
+
+    def _tty(self) -> bool:
+        return self._is_tty() if callable(self._is_tty) else bool(self._is_tty)
+
+    def _loop(self) -> None:
+        last_heartbeat = 0.0
+        while not self._stop.wait(1.0):
+            if self._tty():
+                self._on_tick()
+                continue
+            if self._on_heartbeat is not None:
+                now = time.monotonic()
+                if now - last_heartbeat >= self.heartbeat_seconds:
+                    last_heartbeat = now
+                    self._on_heartbeat()
 def human_seconds(seconds: float) -> str:
     """``0.0213`` -> ``21 ms``; ``389.42`` -> ``6m 29.4s``."""
     value = max(0.0, float(seconds or 0.0))
@@ -118,9 +190,12 @@ def summarize_payload(name: str, payload: Mapping[str, Any]) -> StageSummary:
 
 
 __all__ = [
+    "BackgroundTicker",
     "StageSummary",
+    "estimate_eta",
     "human_bytes",
     "human_count",
     "human_seconds",
+    "render_bar",
     "summarize_payload",
 ]

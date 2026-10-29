@@ -59,12 +59,13 @@ from book_translator.stages.conversion import (
 from .console import Console
 from .execution import PhaseExecutionMixin, PhaseFailed
 from .options import StageRuntime
-from .paths import StagePaths
+from .paths import StagePaths, rel
 from .phases import NEEDS_CHAPTERS, TITLES
 from .report import PhaseRecord, PhaseState
 from .reporter import (
     PipelineReporter,
     build_summary_json,
+    checkpoint_pause,
     derive_phase_state,
     find_artifact_files,
     print_artifacts,
@@ -72,17 +73,10 @@ from .reporter import (
     print_next_steps,
     print_phase_table,
 )
-from .sources import resolve_sources
+from .sources import resolve_chunk_source, resolve_sources, resolve_text_source
 
 ROOT = repo_root()
 
-def rel(path: str | Path) -> str:
-    """A path relative to the repository root when it lives inside it."""
-    resolved = Path(path).expanduser()
-    try:
-        return str(resolved.resolve().relative_to(ROOT))
-    except ValueError:
-        return str(resolved)
 
 def has_chapters(path: Path) -> bool:
     """True when ``path`` holds at least one chapter file."""
@@ -130,9 +124,6 @@ class PipelineDriver(PhaseExecutionMixin):
         # ``--llm <stage>.<field>=VALUE``: parsed once, applied per phase.
         self._llm_overrides = parse_llm_overrides(getattr(args, "llm", None))
         self._progress_lock = threading.Lock()
-        self._bar_stop = threading.Event()
-        self._bar_thread: threading.Thread | None = None
-        self._bar_state: dict[str, Any] = {"active": False, "total": 0, "done": 0}
         self._last_tick = self.started
         self._count_width = 1
         self._name_width = 24
@@ -402,63 +393,20 @@ class PipelineDriver(PhaseExecutionMixin):
         return None
 
     def _cleaned_window(self) -> Path | None:
-        """Stage 2's folder when it covers exactly the chapters this run reads.
+        """Stage 3's folder when it covers exactly the chapters this run reads."""
+        from .sources import cleaned_covers_window
 
-        ``--first-chapters`` makes stage 2 clean only the window, so
-        ``02-preprocessed/`` is a prefix of ``01-chapters/``, not a copy. It is
-        usable only when every chapter in the window has a cleaned file, the
-        stage-2 manifest was written for the current chapter set (same source
-        line counts) and neither the source chapter nor the cleaned file changed
-        since it was verified. Anything else falls back to the raw chapters
-        rather than silently cleaning some chapters and not others.
-        """
-        folder = self.preprocessed_out
-        if not folder.is_dir() or not has_chapter_files(folder):
-            return None
-        manifest = load_split_manifest(folder)
-        if not manifest or not manifest.get("ok") or manifest.get("dry_run"):
-            return None
-        entries = {
-            str(entry.get("filename")): entry
-            for entry in manifest.get("files") or []
-            if isinstance(entry, dict) and entry.get("filename")
-        }
-        if not entries:
-            return None
-        try:
-            chapters = discover_chapters(self.chapters_dir)
-        except (ToolError, OSError):
-            return None
-        window = chapters[: self.chapter_limit] if self.chapter_limit else chapters
-        if not window:
-            return None
-        for chapter in window:
-            entry = entries.get(chapter.filename)
-            if entry is None or not (folder / chapter.filename).is_file():
-                return None
-            recorded_lines = entry.get("source_lines")
-            if recorded_lines is not None and int(recorded_lines) != chapter.line_count:
-                return None
-            recorded_source = str(entry.get("source_sha256") or "")
-            if recorded_source and chapter.sha256 and recorded_source != chapter.sha256:
-                return None
-            recorded_clean = str(entry.get("sha256") or "")
-            if recorded_clean and file_sha256(folder / chapter.filename) != recorded_clean:
-                return None
-        return folder
+        return cleaned_covers_window(self.paths, self.chapter_limit)
 
     def _text_choice(self) -> tuple[Path, str]:
-        """The folder stages 3-5 read, plus why it was chosen."""
-        if self.text_in is not None:
-            return chapters_dir(self.text_in), "explicit --text-in"
-        if not self.preprocess_enabled:
-            return self.chapters_dir, "raw chapters (--no-preprocess)"
-        cleaned = self._cleaned_window()
-        if cleaned is not None:
-            return cleaned, "cleaned by stage 3"
-        if has_chapter_files(self.preprocessed_out):
-            return self.chapters_dir, "cleaned text does not cover this window"
-        return self.chapters_dir, "raw chapters"
+        """The folder stages 4-5 read, plus why it was chosen."""
+        choice = resolve_text_source(
+            self.paths,
+            self.args,
+            chapter_limit=self.chapter_limit,
+            preprocess_enabled=self.preprocess_enabled,
+        )
+        return choice.path, choice.label
 
     def text_input(self) -> Path:
         """The chapter folder stages 4-5 read: the cleaned text when usable."""
@@ -466,9 +414,13 @@ class PipelineDriver(PhaseExecutionMixin):
 
     def chunk_input(self) -> Path:
         """Stage 5's input: ``--chunk-in`` wins, else the resolved text folder."""
-        if self.chunk_in is not None:
-            return chapters_dir(self.chunk_in)
-        return self.text_input()
+        choice = resolve_text_source(
+            self.paths,
+            self.args,
+            chapter_limit=self.chapter_limit,
+            preprocess_enabled=self.preprocess_enabled,
+        )
+        return resolve_chunk_source(self.paths, self.args, choice)
 
     def _kv_text_input(self, console: Any, input_dir: Path) -> None:
         """Report the text folder and, when relevant, why it is not the cleaned one."""
@@ -596,11 +548,16 @@ class PipelineDriver(PhaseExecutionMixin):
                 )
                 continue
 
-            if name == "bind" and not has_postprocessed_chapter_files(self.postprocess_out):
+            if (
+                name == "bind"
+                and not has_postprocessed_chapter_files(self.postprocess_out)
+                and not has_translated_chapter_files(self.translated_chapters_out)
+            ):
                 record.ok = True
-                record.summary = "skipped — no postprocessed chapters to bind"
+                record.summary = "skipped — no postprocessed or translated chapters to bind"
                 self.console.info(
-                    "  · skipped: no postprocessed chapters — run the postprocess phase first"
+                    "  · skipped: no postprocessed or translated chapters — run the "
+                    "translate/concatenate phases first"
                 )
                 continue
 
@@ -654,131 +611,7 @@ class PipelineDriver(PhaseExecutionMixin):
 
     def _checkpoint_pause(self, name: str, record: PhaseRecord) -> bool:
         """Interactive checkpoint pause allowing human review and intervention."""
-        import json
-
-        self.console.emit("")
-        rich_c = getattr(self.console, "_rich_console", None)
-        if getattr(self.console, "is_rich", False) and rich_c is not None:
-            from rich.panel import Panel
-            from rich.table import Table
-
-            if name == "glossary":
-                glossary_file = self.glossary_out / "glossary.json"
-                glossary_csv = self.glossary_out / "glossary.csv"
-                csv_path_display = str(glossary_csv.resolve())
-                terms_count = 0
-                sample_rows: list[dict[str, Any]] = []
-                if glossary_file.exists():
-                    try:
-                        data = json.loads(glossary_file.read_text(encoding="utf-8"))
-                        entries = data if isinstance(data, list) else data.get("entries", [])
-                        terms_count = len(entries)
-                        sample_rows = entries[:15]
-                    except Exception:
-                        pass
-
-                tbl = Table(title=f"Checkpoint: Stage 4 Glossary ({terms_count} terms generated)", border_style="cyan")
-                tbl.add_column("Term", style="bold")
-                tbl.add_column("Category", style="dim")
-                tbl.add_column("Translation", style="bold green")
-                tbl.add_column("Context", style="dim")
-                for e in sample_rows:
-                    tbl.add_row(
-                        str(e.get("term", "")),
-                        str(e.get("category", "")),
-                        str(e.get("translation", "")),
-                        str(e.get("context", ""))[:50],
-                    )
-                rich_c.print(tbl)
-                rich_c.print(
-                    Panel(
-                        f"[bold yellow]Checkpoint Pause: Stage 4 Glossary Complete[/bold yellow]\n\n"
-                        f"Please check out the CSV file with the dictionary entries:\n"
-                        f"  [bold cyan]{csv_path_display}[/bold cyan]\n\n"
-                        f"You can open and edit this CSV file to change any translations.\n"
-                        f"Your changes will be automatically applied to the rest of the translation process.\n\n"
-                        f"[bold][c][/bold] Continue to chunking / translation (applies CSV edits)\n"
-                        f"[bold][e][/bold] Pause to edit glossary CSV in your editor\n"
-                        f"[bold][a][/bold] Abort pipeline",
-                        border_style="yellow",
-                    )
-                )
-            elif name == "matter":
-                title_file = self.matter_out / "title.json"
-                fm_file = self.matter_out / "00-front-matter.md"
-                content_preview = ""
-                if title_file.exists():
-                    content_preview += f"Title metadata: {title_file.read_text(encoding='utf-8')[:200]}\n"
-                if fm_file.exists():
-                    content_preview += f"Front matter preview:\n{fm_file.read_text(encoding='utf-8')[:300]}\n..."
-
-                rich_c.print(
-                    Panel(
-                        f"[bold yellow]Checkpoint: Stage 7 Matter Localized[/bold yellow]\n\n"
-                        f"{content_preview}\n\n"
-                        f"[bold][c][/bold] Continue to chunk translation\n"
-                        f"[bold][a][/bold] Abort pipeline",
-                        border_style="yellow",
-                    )
-                )
-            elif name == "postprocess":
-                rich_c.print(
-                    Panel(
-                        f"[bold yellow]Checkpoint: Stage 9 Headings Postprocessed[/bold yellow]\n"
-                        f"Postprocessed folder: [cyan]{rel(self.postprocess_out)}[/cyan]\n\n"
-                        f"[bold][c][/bold] Continue to bind into final book & EPUB\n"
-                        f"[bold][a][/bold] Abort pipeline",
-                        border_style="yellow",
-                    )
-                )
-        else:
-            print(f"\n--- Checkpoint: {name} completed ---")
-            if name == "glossary":
-                glossary_csv = self.glossary_out / "glossary.csv"
-                print("Please check out the CSV file with the dictionary entries:")
-                print(f"  {glossary_csv.resolve()}")
-                print("You can open and edit this CSV file to change translations.")
-                print("Your changes will be applied in the rest of the translation process.")
-            print("[c] Continue / [e] Edit file / [a] Abort")
-
-        def _apply_glossary_sync() -> None:
-            if name == "glossary":
-                from book_translator.stages.glossary.artifacts import sync_glossary_from_csv
-
-                try:
-                    updated, added = sync_glossary_from_csv(self.glossary_out)
-                    if updated or added:
-                        self.console.info(
-                            f"  ✓ Applied {updated} translation update(s) and {added} new term(s) from glossary.csv"
-                        )
-                except Exception as exc:
-                    self.console.warning(f"  · warning: could not sync glossary.csv: {exc}")
-
-        while True:
-            try:
-                choice = input("Select [c/e/a] (default 'c'): ").strip().lower()
-            except (EOFError, KeyboardInterrupt):
-                return False
-            if choice in {"", "c", "continue", "y", "yes"}:
-                _apply_glossary_sync()
-                return True
-            elif choice in {"a", "abort", "n", "no", "q", "quit"}:
-                return False
-            elif choice in {"e", "edit"}:
-                if name == "glossary":
-                    csv_target = self.glossary_out / "glossary.csv"
-                    target_path = csv_target if csv_target.exists() else (self.glossary_out / "glossary.json")
-                else:
-                    target_path = self.book_dir
-                print(f"You can now edit: {target_path.resolve() if hasattr(target_path, 'resolve') else target_path}")
-                try:
-                    input("Press [Enter] when finished editing to resume...")
-                except (EOFError, KeyboardInterrupt):
-                    return False
-                _apply_glossary_sync()
-                return True
-            else:
-                print("Invalid choice. Please enter 'c', 'e', or 'a'.")
+        return checkpoint_pause(self, name, record)
 
 
 

@@ -21,7 +21,7 @@ from typing import Any
 from book_translator.core.constants import DEFAULT_POSTPROCESS_ATTEMPTS
 from book_translator.core.settings import LLMSettings, resolve_settings
 from book_translator.stage_graph import StageSpec, TailStep, build_stage_graph
-from book_translator.stages.agent.tools.registry import POSTPROCESS_WRITE_TOOLS
+from book_translator.toolkit.registry import POSTPROCESS_WRITE_TOOLS
 
 from .llm import make_book_llm, make_chapter_llm
 from .nodes import (

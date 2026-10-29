@@ -28,7 +28,7 @@ from typing import Annotated, Any
 
 from langchain_core.tools import InjectedToolArg, tool
 
-from book_translator.stages.agent.tools.registry import matter_stage
+from book_translator.toolkit.registry import matter_stage
 from book_translator.stages.matter.inspect import (
     MatterBook,
     MatterSection,
