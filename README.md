@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/banner.svg" alt="BleBelTranslateBook Banner" width="100%">
+<img src="assets/banner.jpg" alt="BleBelTranslateBook Banner" width="100%">
 
 <br/>
 
@@ -11,7 +11,7 @@
 [![Tests: 800+ Offline](https://img.shields.io/badge/tests-800%2B%20passed-10b981.svg?style=flat)](tests/)
 [![Architecture: Hybrid](https://img.shields.io/badge/Architecture-Agents%20%2B%20Funnels-blue.svg?style=flat)](#hybrid-pipeline-overview)
 
-**Turn full-length books into publisher-grade, consistent translations through staged, verifiable AI agents and deterministic funnels.**
+**Turn full-length books into consistent translations through staged, verifiable AI agents and deterministic funnels.**
 
 [Quickstart](#quickstart) •
 [Why Agents?](#the-messy-reality-of-books-why-agents-win) •
@@ -22,7 +22,7 @@
 
 <br/>
 
-<img src="assets/pipeline.svg" alt="BleBel Pipeline Architecture" width="100%">
+<img src="assets/pipeline.png" alt="BleBel Pipeline Architecture" width="100%">
 
 </div>
 
