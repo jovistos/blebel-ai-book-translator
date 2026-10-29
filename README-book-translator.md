@@ -9,16 +9,15 @@ pictures into `01-markdown/images/` and writes Markdown image references, so the
 illustrations travel through every later stage into the final translated book;
 `--no-images` keeps the old text-only conversion. A Markdown source skips stage 1
 entirely.
-Stages 1, 2, 6b and 9 each have their **own
+Stages 2, 3, 7 and 10 each have their **own
 specialised agent** with its **own toolset**, and the tools are grouped by the
-stage that uses them (plus a generic `shared` group used by all of them). Stage 3 has no
-agent at all: it is a deterministic funnel with an optional NER tagger. Stage 4
-has no agent and no tools either — it is a straight, ordered sequence of
-LLM calls with a Pydantic-validated answer. Stage 5 has no model at all: it cuts
-each chapter into translation-sized chunks with chonkie and proves they
-concatenate back byte for byte. Stage 6 uses no LLM either: it tags every chunk
-with the same NER backends, then fuzzy-matches each extracted term against the
-glossary and writes the terms a chunk mentions next to that chunk. **Stage 8 is
+stage that uses them (plus a generic `shared` group used by all of them). Stage 4 has no
+agent at all: it is a deterministic funnel with an optional NER tagger followed by a
+straight, ordered sequence of LLM calls with a Pydantic-validated answer for the glossary.
+Stage 5 has no model at all: it cuts each chapter into translation-sized chunks with
+chonkie and proves they concatenate back byte for byte. Stage 6 uses no LLM either: it tags
+every chunk with the same NER backends, then fuzzy-matches each extracted term against the
+glossary and writes the terms a chunk mentions next to that chunk. **Stage 7 is
 a separate agent that localizes the front and back matter before translation**:
 it uses **no dictionary**, searches the web for an existing published translation
 of the title, omits the original edition's imprint/ISBN/CIP material, credits
@@ -147,12 +146,12 @@ been tagged does the second phase begin: every collected term is scored against
 `glossary.json` with `rapidfuzz`, and the best candidate is accepted when it
 reaches the threshold (95 % by default, and a flag). The accepted terms are
 written next to the chunk, under the chunk's own name:
-`05-chunks/00001-01-predgovor-0000.md` → `06-chunk-glossary/00001-01-predgovor-0000.md.json`.
+`05-chunks/00011-04-chapter-i-down-the-rabbit-hole-0000.md` → `06-chunk-glossary/00011-04-chapter-i-down-the-rabbit-hole-0000.md.json`.
 The file carries the chunk's identity (global order, chapter, character and line
 spans) and a `matched_terms` list of `term` / `translation` / `category` rows, so a
 translation call can be sent with exactly the renderings that chunk must obey.
 
-Stage 8 localizes the **front and back matter** before stage 8, and it is the one
+Stage 7 localizes the **front and back matter** before stage 8, and it is the one
 translation stage that deliberately uses **no dictionary**. Front matter is not a
 chapter: its title may already have a published rendering in the target language,
 its imprint/copyright/ISBN page must not be carried into the translated edition
@@ -171,11 +170,11 @@ names, so stage 9 joins them with the body without a new rule, while the plan,
 manifest, trace and the whole prompt of every agent call are kept in `07-matter/`
 and `07-matter-prompts/`.
 
-Stage 8 additionally executes an end-to-end **multimodal matter image translation**
+Stage 7 additionally executes an end-to-end **multimodal matter image translation**
 phase: images referenced in matter chunks (such as original book covers, title
 plates, or frontispieces) are sent with book context (localized title, author,
 BleBel credit, and chapter text) to a multimodal vision + image generation model
-(`gemini-nano-banana-2.1`, requiring a multimodal model and `GEMINI_API_KEY`).
+(`gemini-nano-banana-2.1` / `gemini-3.1-flash-image`, requiring an image-capable multimodal model and `GEMINI_API_KEY`; text-only models like `gemini-3.8-flash` do not support image generation).
 The model recreates the artwork seamlessly from scratch with translated lettering
 natively embedded in the typography and artwork (avoiding patch overlays or bounding
 boxes), while leaving pure text-free art untouched. Recreated images land in
@@ -213,35 +212,47 @@ Nothing that is a *document* lives next to the code any more:
 ```
 data/
 ├── input/                                    # sources — read-only, gitignored
-│   └── Aleksandar_Loven_-_Ljubav_seks_i_vase_srce.md
+│   └── Alice's Adventures in Wonderland & Through the Looking-Glass and What Alice Found There.epub
 └── output/                                   # every generated artifact — gitignored
-    └── Aleksandar_Loven_-_Ljubav_seks_i_vase_srce/
+    └── Alice-s-Adventures-in-Wonderland-Through-the-Looking-Glass-and-What-Alice-Found-There/
         ├── 01-markdown/                         # stage 1 output — only for EPUB/PDF/TXT
-        │   ├── <book>.md                       # the converted source stage 1 reads
+        │   ├── Alice-s-Adventures-in-Wonderland-Through-the-Looking-Glass-and-What-Alice-Found-There.md
         │   ├── images/                         # pictures extracted from the EPUB/PDF
-        │   │   └── image_000001_<hash>.png     # referenced as ../01-markdown/images/…
+        │   │   └── image_000000_<hash>.png     # referenced as ../01-markdown/images/…
         │   └── _convert_manifest.json          # source hash, method, PDF text-layer evidence,
         │                                       #   image and image-reference counts
-        ├── 02-chapters/                         # stage 1 output
+        ├── 02-chapters/                         # stage 2 output
         │   ├── 00-front-matter.md
-        │   ├── 01-predgovor.md
+        │   ├── 01-introduction.md
+        │   ├── 02-a-note-on-the-text.md
+        │   ├── 03-preface-to-the-eighty-sixth-thousand.md
+        │   ├── 04-chapter-i-down-the-rabbit-hole.md
         │   ├── …
-        │   ├── 15-beleske.md
+        │   ├── 31-christmas-greetings-from-a-fairy-to-a-child.md
+        │   ├── 99-back-matter.md
         │   ├── _manifest.json                # filenames, line ranges, bytes, SHA-256
         │   └── _agent_trace.json             # the plan, validation report, token usage
-        ├── 03-preprocessed/                     # stage 2 output — same names, cleaned
-        │   ├── 00-front-matter.md               # (the text stages 3-5 read by default)
+        ├── 03-preprocessed/                     # stage 3 output — same names, cleaned
+        │   ├── 00-front-matter.md               # (the text stages 4-5 read by default)
+        │   ├── 01-introduction.md
+        │   ├── …
+        │   ├── 04-chapter-i-down-the-rabbit-hole.md
         │   ├── …
         │   ├── _preprocess_manifest.json     # per chapter: operations, fixes, provenance
         │   └── _preprocess_trace.json        # the full per-chapter audit trail
-        ├── 04-reduced/                          # stage 3 output — sentences worth mining
+        ├── 04-reduced/                          # stage 4 output — sentences worth mining
         │   ├── 00-front-matter.md
+        │   ├── 01-introduction.md
+        │   ├── …
+        │   ├── 04-chapter-i-down-the-rabbit-hole.md
         │   ├── …
         │   ├── _reduced_manifest.json        # per chapter: kept/dropped, entities, nouns
         │   └── _reduced_trace.json           # + examples of what each filter dropped
-        ├── 04-reduced-unique/                   # stage 3, second step — first mentions only
+        ├── 04-reduced-unique/                   # stage 4, second step — first mentions only
         │   ├── 00-front-matter.md
+        │   ├── 01-introduction.md
         │   ├── …
+        │   ├── 04-chapter-i-down-the-rabbit-hole.md
         │   └── (same filenames; no manifest of its own — see 04-reduced/)
         ├── 04-glossary/                         # stage 4 output — one book-wide dictionary
         │   ├── glossary.json                 # term / category / locked translation
@@ -250,54 +261,69 @@ data/
         │   └── _glossary_trace.json          # + every entry and raw answer
         ├── 05-chunks/                           # stage 5 output — flat, globally ordered
         │   ├── 00000-00-front-matter-0000.md # <global>-<chapter>-<index>.md
-        │   ├── 00001-01-predgovor-0000.md
+        │   ├── 00001-00-front-matter-0001.md
+        │   ├── 00003-01-introduction-0000.md
         │   ├── …
+        │   ├── 00011-04-chapter-i-down-the-rabbit-hole-0000.md
+        │   ├── …
+        │   ├── 00015-99-back-matter-0000.md
         │   ├── _chunk_manifest.json          # per chunk: chapter, order, spans, tokens, boundary
         │   └── _chunk_trace.json             # + per-chapter logs and the verification report
         ├── 06-chunk-glossary/                   # stage 6 output — one file per chunk
-        │   ├── 00000-00-front-matter-0000.md.json  # named after the chunk it describes
-        │   ├── 00001-01-predgovor-0000.md.json
+        │   ├── 00011-04-chapter-i-down-the-rabbit-hole-0000.md.json  # named after the chunk it describes
         │   ├── …
         │   ├── _chunk_glossary_manifest.json # per chunk: NER counts, matched terms
         │   └── _chunk_glossary_trace.json    # + every term, candidate and log
-        ├── 07-matter/                           # stage 8 — the plan and its audit trail
+        ├── 07-matter/                           # stage 7 — the plan and its audit trail
         │   ├── book-plan.json                # localized title, credit, omissions, sections
         │   ├── _matter_manifest.json         # per matter chunk: chars, omitted, tokens, hash
         │   └── _matter_trace.json            # + every chunk's log and verification
-        ├── 07-matter-prompts/                   # stage 8 debug — the whole agent input
+        ├── 07-matter-prompts/                   # stage 7 debug — the whole agent input
         │   ├── _book-plan.json               # the plan agent's full conversation
         │   ├── _book-plan.prompt.md
-        │   └── 00000-…-0000.md.json          # messages, plan, source, answer per chunk
-        ├── 08-translations/                     # stages 6b + 7 output — the translated chunks
-        │   ├── 00000-00-front-matter-0000.md # stage 8 (localized matter; same names)
-        │   ├── 00001-01-predgovor-0000.md
+        │   ├── 00000-00-front-matter-0000.md.json    # messages, plan, source, answer per chunk
+        │   └── 00000-00-front-matter-0000.md.prompt.md
+        ├── 08-translations/                     # stage 8 output — the translated chunks
+        │   ├── 00000-00-front-matter-0000.md # stage 7 (localized matter; same names)
+        │   ├── 00011-04-chapter-i-down-the-rabbit-hole-0000.md
         │   ├── …
+        │   ├── images/                       # recreated matter images (multimodal localized art)
+        │   │   └── image_000000_<hash>_translated.png
         │   ├── _translation_manifest.json    # per chunk: chars, tokens, attempts, hash
         │   └── _translation_trace.json       # + terms, logs and the run's totals
         ├── 08-translation-prompts/              # stage 8 debug — the whole input per call
-        │   ├── 00001-01-predgovor-0000.md.json        # system+user prompt, messages,
-        │   │                                          # glossary, source chunk, answer
-        │   └── 00001-01-predgovor-0000.md.prompt.md   # the same prompt, human-readable
+        │   ├── 00011-04-chapter-i-down-the-rabbit-hole-0000.md.json        # system+user prompt, messages,
+        │   │                                                               # glossary, source chunk, answer
+        │   └── 00011-04-chapter-i-down-the-rabbit-hole-0000.md.prompt.md   # the same prompt, human-readable
         ├── 09-translated-chapters/              # stage 9 output — one file per chapter
         │   ├── 00-front-matter.md            # same names as 02-chapters/, never over them
-        │   ├── 01-predgovor.md
+        │   ├── 01-introduction.md
+        │   ├── 02-a-note-on-the-text.md
+        │   ├── 03-preface-to-the-eighty-sixth-thousand.md
+        │   ├── 04-chapter-i-down-the-rabbit-hole.md
         │   ├── …
+        │   ├── 99-back-matter.md
         │   ├── _translated_chapters_manifest.json  # per chapter: chunks, chars, hash, state
         │   └── _translated_chapters_trace.json     # + every chapter's record and log
         ├── 10-postprocessed-chapters/           # stage 10 output — never edits its input
         │   ├── 00-front-matter.md            # same names; title/heading fixes applied
         │   ├── 00-table-of-contents.md       # only when a new TOC had to be created
-        │   ├── 01-predgovor.md
+        │   ├── 01-introduction.md
+        │   ├── 02-a-note-on-the-text.md
+        │   ├── 03-preface-to-the-eighty-sixth-thousand.md
+        │   ├── 04-chapter-i-down-the-rabbit-hole.md
         │   ├── …
+        │   ├── 99-back-matter.md
         │   ├── _postprocess_manifest.json    # plan, per-chapter decisions, TOC, hashes
         │   └── _postprocess_trace.json       # + every chapter's log and verification
         ├── 11-translated-book.md                # stage 11 — the whole book as one file
         │   # _bind_manifest.json / _bind_trace.json sit next to it
-        └── 12-translated-book.epub               # stage 12 — the same book, as EPUB 3
-            # _epub_manifest.json / _epub_trace.json sit next to it
+        ├── 12-translated-book.epub              # stage 12 — the same book, as EPUB 3
+        │   # _epub_manifest.json / _epub_trace.json sit next to it
+        └── pipeline.log                         # complete end-to-end run log
 ```
 
-Stage 2 never overwrites stage 1's files, and stage 3 never overwrites either:
+Stage 3 never overwrites stage 2's files, and stage 4 never overwrites either:
 `02-chapters/` stays exactly as the book came out of the splitter, so every repair
 and every reduction can be re-derived and re-checked. `04-reduced-unique/` is a
 subset of `04-reduced/`, and both are described by `04-reduced/_reduced_manifest.json`,
@@ -315,7 +341,7 @@ unambiguous and a consumer strips `.json` to find the text it describes. The
 book-level index is `_chunk_glossary_manifest.json`; the per-chunk files are the
 thing a translation prompt reads.
 
-Stage 8 writes its localized matter chunks into `08-translations/` as well, so
+Stage 7 writes its localized matter chunks into `08-translations/` as well, so
 `05-chunks/` and `08-translations/` still line up one to one and stage 9 needs no new
 join rule. Its own two siblings are the plan and the debug trail: `07-matter/` holds
 `book-plan.json`, the per-chunk manifest and the trace, while `07-matter-prompts/`
@@ -986,12 +1012,12 @@ character count breaks words, sentences and paragraphs. Stage 5 turns each
 chapter into files a translator can consume one at a time:
 
 ```
-02-chapters/01-predgovor.md
+02-chapters/01-introduction.md
    │  chonkie RecursiveChunker, preference order:
    │      paragraph  →  sentence  →  line  →  whitespace  →  hard cut
    ▼
-05-chunks/00000-01-predgovor-0000.md   exact slice [start_char:end_char)
-05-chunks/00001-01-predgovor-0001.md
+05-chunks/00003-01-introduction-0000.md   exact slice [start_char:end_char)
+05-chunks/00004-01-introduction-0001.md
 …
 05-chunks/_chunk_manifest.json         chapter, global order, spans, tokens, boundaries
 ```
@@ -1023,7 +1049,7 @@ The read side is part of the package:
 from book_translator.stages.chunking import reconstruct_book, reconstruct_chapter
 
 reconstruct_book("data/output/<book>/05-chunks")                    # == the whole book
-reconstruct_chapter("data/output/<book>/05-chunks", "01-predgovor.md")
+reconstruct_chapter("data/output/<book>/05-chunks", "01-introduction.md")
 ```
 
 **What the manifest keeps.** One record per chunk (`files`) and one per chapter
@@ -1063,10 +1089,10 @@ actually mention?* Stage 6 answers it, and it refuses to answer it one chunk at 
 time.
 
 ```
-05-chunks/00000-01-predgovor-0000.md ─┐
-05-chunks/00001-01-predgovor-0001.md ─┤  PHASE 1 — NER over every chunk
-…                                  ├─ stage 3's CLASSLA/stanza tagger
-05-chunks/00042-08-glav…-0013.md ─────┘  → per-chunk distinct PER/LOC/ORG/MISC terms
+05-chunks/00011-04-chapter-i-down-the-rabbit-hole-0000.md ─┐
+05-chunks/00012-04-chapter-i-down-the-rabbit-hole-0001.md ─┤  PHASE 1 — NER over every chunk
+…                                                          ├─ stage 3's CLASSLA/stanza tagger
+05-chunks/00014-04-chapter-i-down-the-rabbit-hole-0003.md ─┘  → per-chunk distinct PER/LOC/ORG/MISC terms
                                       (no glossary lookup yet)
                                               │
                                               ▼  only after the last chunk is tagged
@@ -1075,8 +1101,8 @@ time.
                                       glossary.json; ≥ threshold wins
                                               │
                                               ▼
-06-chunk-glossary/00000-01-predgovor-0000.md.json
-06-chunk-glossary/00001-01-predgovor-0001.md.json
+06-chunk-glossary/00011-04-chapter-i-down-the-rabbit-hole-0000.md.json
+06-chunk-glossary/00012-04-chapter-i-down-the-rabbit-hole-0001.md.json
 …
 06-chunk-glossary/_chunk_glossary_manifest.json
 06-chunk-glossary/_chunk_glossary_trace.json
@@ -1931,7 +1957,7 @@ the same kind of stage: a deterministic package build whose whole vocabulary is
 Python 3.11+ is required. Setup and installation:
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv_book_translator && source .venv_book_translator/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -2424,28 +2450,30 @@ data/output/<book-stem>/01-markdown/         # stage 1 — only for a non-Markdo
 ├── <book>.md                             # the converted source stage 1 reads
 └── _convert_manifest.json                # source hash, method, PDF text-layer evidence
 
-data/output/<book-stem>/02-chapters/          # stage 1
+data/output/<book-stem>/02-chapters/          # stage 2
 ├── 00-front-matter.md                     # cover/copyright/TOC, everything before chapter 1
-├── 01-predgovor.md
-├── 02-uvod.md
+├── 01-introduction.md
+├── 02-a-note-on-the-text.md
 ├── …
-├── 15-beleske.md
+├── 04-chapter-i-down-the-rabbit-hole.md
+├── …
+├── 99-back-matter.md
 ├── _manifest.json                         # filenames, line ranges, byte counts, SHA-256
 └── _agent_trace.json                      # the plan, the validation report, the token usage
 
-data/output/<book-stem>/03-preprocessed/      # stage 2
-├── 00-front-matter.md … 15-beleske.md     # same names, cleaned
+data/output/<book-stem>/03-preprocessed/      # stage 3
+├── 00-front-matter.md … 99-back-matter.md     # same names, cleaned
 ├── _preprocess_manifest.json              # per chapter: operations, text fixes, provenance
 └── _preprocess_trace.json                 # the full per-chapter audit trail
 
-data/output/<book-stem>/04-reduced/           # stage 3
-├── 00-front-matter.md … 15-beleske.md     # same names: one raw kept sentence per line
+data/output/<book-stem>/04-reduced/           # stage 4
+├── 00-front-matter.md … 99-back-matter.md     # same names: one raw kept sentence per line
 ├── _reduced_manifest.json                 # kept/dropped, entity + noun totals, timings,
 │                                          #   and the per-chapter noun index a rerun reads
 └── _reduced_trace.json                    # + per-chapter seconds + examples of each drop
 
-data/output/<book-stem>/04-reduced-unique/    # stage 3, second step
-└── 00-front-matter.md … 15-beleske.md     # same names: first mentions only (a subset)
+data/output/<book-stem>/04-reduced-unique/    # stage 4, second step
+└── 00-front-matter.md … 99-back-matter.md     # same names: first mentions only (a subset)
 
 data/output/<book-stem>/04-glossary/          # stage 4
 ├── glossary.json                          # the dictionary: entries + languages + token total
@@ -2455,54 +2483,62 @@ data/output/<book-stem>/04-glossary/          # stage 4
 
 data/output/<book-stem>/05-chunks/            # stage 5 — flat, globally ordered
 ├── 00000-00-front-matter-0000.md          # <global>-<chapter>-<index>.md, an exact slice
-├── 00001-01-predgovor-0000.md
+├── 00003-01-introduction-0000.md
+├── …
+├── 00011-04-chapter-i-down-the-rabbit-hole-0000.md
 ├── …
 ├── _chunk_manifest.json                   # per chunk: chapter, order, char/line spans,
 │                                          #   tokens, boundary kind, hashes + the proof
 └── _chunk_trace.json                      # the same run, with each chapter's own log
 
 data/output/<book-stem>/06-chunk-glossary/   # stage 6 — one file per chunk
-├── 00000-00-front-matter-0000.md.json     # named after the chunk it describes
-├── 00001-01-predgovor-0000.md.json
+├── 00011-04-chapter-i-down-the-rabbit-hole-0000.md.json  # named after the chunk it describes
 ├── …
 ├── _chunk_glossary_manifest.json          # per chunk: NER counts + matched terms,
 │                                          #   the two phases and their timings
 └── _chunk_glossary_trace.json             # + every term, closest candidate and log
 
-data/output/<book-stem>/07-matter/           # stage 8 — plan and audit trail
+data/output/<book-stem>/07-matter/           # stage 7 — plan and audit trail
 ├── book-plan.json                         # localized title, credit, omissions, sections
 ├── _matter_manifest.json                  # per matter chunk: chars, omitted, tokens, hash
 └── _matter_trace.json                     # + every chunk's log and verification
 
-data/output/<book-stem>/07-matter-prompts/   # stage 8 — the whole agent input per call
+data/output/<book-stem>/07-matter-prompts/   # stage 7 — the whole agent input per call
 ├── _book-plan.json                        # the plan agent's full conversation
 ├── _book-plan.prompt.md
 └── 00000-00-front-matter-0000.md.json     # messages, plan, source, answer per chunk
 
-data/output/<book-stem>/08-translations/     # stages 6b + 7 — the translated chunks
+data/output/<book-stem>/08-translations/     # stage 8 — the translated chunks
 ├── 00000-00-front-matter-0000.md         # same names as 05-chunks/; concatenate to rebuild
-├── 00001-01-predgovor-0000.md
+├── 00011-04-chapter-i-down-the-rabbit-hole-0000.md
 ├── …
+├── images/                               # recreated matter images (multimodal localized art)
 ├── _translation_manifest.json             # per chunk: chars, sha, tokens, attempts, paths
 └── _translation_trace.json                # + terms, logs, raw answers and the run's totals
 
 data/output/<book-stem>/08-translation-prompts/   # stage 8 — the whole input of every call
-├── 00000-00-front-matter-0000.md.json     # system+user prompt, messages, glossary,
-│                                          #   source chunk text, answer (or error)
-└── 00000-00-front-matter-0000.md.prompt.md   # the same prompt, readable
+├── 00011-04-chapter-i-down-the-rabbit-hole-0000.md.json     # system+user prompt, messages, glossary,
+│                                                            #   source chunk text, answer (or error)
+└── 00011-04-chapter-i-down-the-rabbit-hole-0000.md.prompt.md   # the same prompt, readable
 
 data/output/<book-stem>/09-translated-chapters/   # stage 9 — one file per translated chapter
 ├── 00-front-matter.md                    # same names as 02-chapters/, never over them
-├── 01-predgovor.md
+├── 01-introduction.md
 ├── …
+├── 04-chapter-i-down-the-rabbit-hole.md
+├── …
+├── 99-back-matter.md
 ├── _translated_chapters_manifest.json    # per chapter: chunks, chars, sha, written/reused
 └── _translated_chapters_trace.json       # + every chapter's record and error
 
 data/output/<book-stem>/10-postprocessed-chapters/  # stage 10 — headings/TOC fixed
 ├── 00-front-matter.md
 ├── 00-table-of-contents.md               # created only when the book had no TOC
-├── 01-predgovor.md
+├── 01-introduction.md
 ├── …
+├── 04-chapter-i-down-the-rabbit-hole.md
+├── …
+├── 99-back-matter.md
 ├── _postprocess_manifest.json            # book plan, per-chapter decisions, TOC state
 └── _postprocess_trace.json               # + every chapter's log and verification
 

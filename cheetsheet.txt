@@ -1,5 +1,5 @@
 cd /home/jovis/Documents/WORK/BleBelTranslateBook
-source .venv_splitter/bin/activate
+source .venv_book_translator/bin/activate
 
 # Install dependencies:
 #   pip install -r requirements.txt
@@ -13,8 +13,8 @@ source .venv_splitter/bin/activate
 # Shared flags: --json (one object, no narration), --quiet (no narration),
 # --output-root (default data/output), --text-in (chapter text override).
 # --dry-run validates and writes nothing; it never calls a paid model.
-#   .venv_splitter/bin/python -m book_translator pipeline BOOK.md --json
-#   .venv_splitter/bin/python -m book_translator pipeline BOOK.md --dry-run --quiet
+#   .venv_book_translator/bin/python -m book_translator pipeline BOOK.md --json
+#   .venv_book_translator/bin/python -m book_translator pipeline BOOK.md --dry-run --quiet
 
 # which model each stage uses: book_translator.toml ([llm] + [llm.<stage>]).
 # Override one stage for one run without editing it:
@@ -26,24 +26,24 @@ source .venv_splitter/bin/activate
 # stage 1: EPUB/text-based PDF/TXT -> Markdown in data/output/<book>/01-markdown/
 # (TXT is copied; a PDF with no embedded text layer is rejected instead of OCR'd)
 # Pictures are extracted to 01-markdown/images/ by default; add --no-images to skip.
-.venv_splitter/bin/python -m book_translator convert "My Book.epub"
-.venv_splitter/bin/python -m book_translator convert "My Book.epub" --no-images
-.venv_splitter/bin/python -m book_translator convert "My Book.pdf" --dry-run
-.venv_splitter/bin/python scripts/run_pipeline.py "My Book.epub" --stop-after convert
+.venv_book_translator/bin/python -m book_translator convert "My Book.epub"
+.venv_book_translator/bin/python -m book_translator convert "My Book.epub" --no-images
+.venv_book_translator/bin/python -m book_translator convert "My Book.pdf" --dry-run
+.venv_book_translator/bin/python scripts/run_pipeline.py "My Book.epub" --stop-after convert
 
 # the whole pipeline over the first N chapters (split itself is always the full book);
 # --skip-if-present makes a later, larger N reuse the finished chapters and chunks.
 # Stage 3 (preprocess) is on by default and its cleaned 03-preprocessed/ folder is
 # what the dictionary, glossary and chunker read: add --no-preprocess to skip the
 # cleaning (and read 02-chapters/), or --text-in <folder> to choose explicitly.
-.venv_splitter/bin/python scripts/run_pipeline.py \
+.venv_book_translator/bin/python scripts/run_pipeline.py \
   "Dont You Forget About Me - Alexandra Potter.md" \
   --skip-if-present \
   --first-chapters 5 \
   --cpu
 
 # same run, and translate + assemble the first five chapters
-.venv_splitter/bin/python scripts/run_pipeline.py \
+.venv_book_translator/bin/python scripts/run_pipeline.py \
   "Dont You Forget About Me - Alexandra Potter.md" \
   --skip-if-present \
   --first-chapters 5 \
@@ -51,7 +51,7 @@ source .venv_splitter/bin/activate
   --cpu
 
 # translated chapters + heading postprocessing + one full book
-.venv_splitter/bin/python scripts/run_pipeline.py \
+.venv_book_translator/bin/python scripts/run_pipeline.py \
   "Dont You Forget About Me - Alexandra Potter.md" \
   --skip-if-present \
   --first-chapters 5 \
@@ -65,7 +65,7 @@ source .venv_splitter/bin/activate
 # For LM Studio, no model name is needed — it auto-detects whichever model is loaded!
 # The same override without editing the file:
 #   --llm translate.provider=lmstudio
-.venv_splitter/bin/python scripts/run_pipeline.py \
+.venv_book_translator/bin/python scripts/run_pipeline.py \
   "Dont You Forget About Me - Alexandra Potter.md" \
   --skip-if-present \
   --first-chapters 5 \
@@ -74,12 +74,12 @@ source .venv_splitter/bin/activate
   --cpu
 
 # stage 8 only, with the local model, over existing chunks
-.venv_splitter/bin/python -m book_translator translate \
+.venv_book_translator/bin/python -m book_translator translate \
   "Dont You Forget About Me - Alexandra Potter.md" \
   --translator lmstudio
 
 # stage 8 only, explicitly back on DeepSeek (the default)
-.venv_splitter/bin/python -m book_translator translate \
+.venv_book_translator/bin/python -m book_translator translate \
   "Dont You Forget About Me - Alexandra Potter.md" \
   --translator deepseek
 
@@ -87,13 +87,13 @@ source .venv_splitter/bin/activate
 # published title; credits BleBel; omits original-edition imprint material).
 # Missing 00-front-matter.md / 99-back-matter.md are created from the filename
 # ("Title - Author") and localized too.
-.venv_splitter/bin/python scripts/run_pipeline.py \
+.venv_book_translator/bin/python scripts/run_pipeline.py \
   "Dont You Forget About Me - Alexandra Potter.md" \
   --start-at matter \
   --cpu
 
 # stage 9 only, over an existing translation
-.venv_splitter/bin/python scripts/run_pipeline.py \
+.venv_book_translator/bin/python scripts/run_pipeline.py \
   "Dont You Forget About Me - Alexandra Potter.md" \
   --start-at concatenate \
   --first-chapters 5 \
@@ -101,35 +101,35 @@ source .venv_splitter/bin/activate
   --cpu
 
 # stage 10 only, then stage 11 only
-.venv_splitter/bin/python scripts/run_pipeline.py \
+.venv_book_translator/bin/python scripts/run_pipeline.py \
   "Dont You Forget About Me - Alexandra Potter.md" \
   --start-at postprocess \
   --first-chapters 5 \
   --skip-if-present \
   --cpu
 
-.venv_splitter/bin/python scripts/run_pipeline.py \
+.venv_book_translator/bin/python scripts/run_pipeline.py \
   "Dont You Forget About Me - Alexandra Potter.md" \
   --start-at bind \
   --cpu
 
 # standalone commands
-.venv_splitter/bin/python -m book_translator matter \
+.venv_book_translator/bin/python -m book_translator matter \
   "Dont You Forget About Me - Alexandra Potter.md" --resume
-.venv_splitter/bin/python -m book_translator postprocess \
+.venv_book_translator/bin/python -m book_translator postprocess \
   "Dont You Forget About Me - Alexandra Potter.md" --resume
 
 # the final opening audit of stages 3 and 10 (no LLM, no key). It walks the first
 # lines of every chapter, removes a stray copy of the chapter number under the
 # title, a duplicated title line or a leftover page number, and reports the rest.
 # Default folder: the book's most advanced stage (10 -> 09 -> 03 -> 02).
-.venv_splitter/bin/python -m book_translator openings \
+.venv_book_translator/bin/python -m book_translator openings \
   "Dont You Forget About Me - Alexandra Potter.md" --dry-run
-.venv_splitter/bin/python -m book_translator openings \
+.venv_book_translator/bin/python -m book_translator openings \
   "Dont You Forget About Me - Alexandra Potter.md"
 # a stage-3 folder: a removed line leaves an empty line, so line numbers stay valid
-.venv_splitter/bin/python -m book_translator openings \
+.venv_book_translator/bin/python -m book_translator openings \
   --chapters-in data/output/BOOK/03-preprocessed --keep-blank-slot
 
-.venv_splitter/bin/python -m book_translator bind \
+.venv_book_translator/bin/python -m book_translator bind \
   "Dont You Forget About Me - Alexandra Potter.md"

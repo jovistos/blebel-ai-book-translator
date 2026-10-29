@@ -13,9 +13,9 @@ Configuration is centralized in [book_translator.toml](file:///home/jovis/Docume
 | **`deepseek`** (Default) | Cloud | `deepseek-flash` | `https://api.deepseek.com/v1` | Set `DEEPSEEK_API_KEY` in `.env` |
 | **`lmstudio`** | Local / Offline | Auto-detected | `http://127.0.0.1:1234/v1` | **No key needed**. Run LM Studio locally |
 | **`openai`** | Cloud | `gpt-4.1-mini` | `https://api.openai.com/v1` | Set `OPENAI_API_KEY` in `.env` |
-| **`gemini`** | Cloud | `gemini-2.5-flash` | `https://generativelanguage.googleapis.com/v1beta/openai` | Set `GEMINI_API_KEY` in `.env` |
-| **`claude`** | Cloud | `anthropic/claude-3.5-haiku` | `https://openrouter.ai/api/v1` | Set `ANTHROPIC_API_KEY` or `OPENROUTER_API_KEY` |
-| **`ollama`** | Local / Offline | `llama3.1` | `http://127.0.0.1:11434/v1` | Local Ollama instance |
+| **`gemini`** | Cloud | `gemini-3.8-flash` | `https://generativelanguage.googleapis.com/v1beta/openai` | Set `GEMINI_API_KEY` in `.env` |
+| **`claude`** | Cloud | `anthropic/claude-haiku-5-5` | `https://openrouter.ai/api/v1` | Set `ANTHROPIC_API_KEY` or `OPENROUTER_API_KEY` |
+| **`ollama`** | Local / Offline | `qwen3:14b` | `http://127.0.0.1:11434/v1` | Local Ollama instance |
 
 > [!TIP]
 > **Zero Configuration for LM Studio:** When using LM Studio (`provider = "lmstudio"`), you do **not** need to specify a model name! The pipeline queries LM Studio's `/v1/models` endpoint and automatically uses whichever model you currently have loaded.
@@ -70,7 +70,8 @@ model = "deepseek-flash"
 [llm.matter]
 model = "deepseek-flash"
 # For multimodal matter image generation/recreation, set GEMINI_API_KEY in .env,
-# or set provider = "gemini" and model = "gemini-3.1-flash-image" here.
+# or set provider = "gemini" and model = "gemini-nano-banana-2.1" (or "gemini-3.1-flash-image")
+# under [llm.matter_image]. Note that general text models like Gemini 3.8 Flash do not generate images.
 
 # Translate stage using local LM Studio for zero-cost offline body translation:
 [llm.translate]
@@ -86,7 +87,7 @@ model = "deepseek-flash"
 > **Multimodal Model Required for Matter Image Translation (Stage 7):**  
 > Stage 7 not only formats front and back matter text, but also includes an end-to-end **multimodal image translation and recreation** phase. When images containing text (such as original book covers, illustrated title plates, or publisher frontispieces) are detected in matter chunks, they are sent to a multimodal vision + image generation model. The model reconstructs the full illustration from scratch with translated typography seamlessly integrated into the original artwork style (no bounding boxes or overlays).  
 > 
-> A **multimodal model with image generation capabilities is required for this step** (default: `gemini-3.1-flash-image` via Google Gemini). Ensure `GEMINI_API_KEY` is defined in your `.env` file, or configure `[llm.matter]` to use a multimodal provider and model (e.g. `provider = "gemini"`). If a text-only model is specified for matter text translation, the stage automatically resolves the multimodal image model from Gemini if `GEMINI_API_KEY` is present. Pure illustrations without text are recognized and kept untouched without calling the image generation model.
+> A **multimodal model with image generation capabilities is required for this step** (default: `gemini-nano-banana-2.1` / `gemini-3.1-flash-image` via Google Gemini). Note that general text/reasoning models like **Gemini 3.8 Flash** do not support native image generation. Ensure `GEMINI_API_KEY` is defined in your `.env` file, or configure `[llm.matter_image]` to use a multimodal image model. If a text-only model is specified for matter text translation, the stage automatically resolves the multimodal image model from Gemini if `GEMINI_API_KEY` is present. Pure illustrations without text are recognized and kept untouched without calling the image generation model.
 
 ---
 
@@ -123,7 +124,7 @@ book-translator-pipeline "Book.md" --llm translate.provider=lmstudio
 # Run split with Google Gemini and translation with DeepSeek
 book-translator-pipeline "Book.md" \
   --llm split.provider=gemini \
-  --llm split.model=gemini-2.5-flash \
+  --llm split.model=gemini-3.8-flash \
   --llm translate.provider=deepseek
 
 # Point to an alternate configuration profile

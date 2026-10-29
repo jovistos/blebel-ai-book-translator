@@ -1,4 +1,4 @@
-# Dependencies frozen from .venv_splitter
+# Dependencies frozen from .venv_book_translator
 --extra-index-url https://download.pytorch.org/whl/cu126
 
 accelerate==1.15.0

@@ -274,17 +274,17 @@ def cmd_wizard(args: argparse.Namespace) -> int:
             console.print("  [1] From book_translator.toml (Recommended — uses your config file)")
             console.print("  [2] DeepSeek (Cloud API)")
             console.print("  [3] LM Studio (Local / offline — auto-detects currently loaded model)")
-            console.print("  [4] OpenAI (gpt-4.1-mini / gpt-4o)")
-            console.print("  [5] Gemini (gemini-2.5-flash)")
-            console.print("  [6] Claude (Anthropic via OpenRouter / proxy)")
+            console.print("  [4] OpenAI (gpt-4.1-mini / gpt-4o / gpt-5)")
+            console.print("  [5] Gemini (gemini-3.8-flash)")
+            console.print("  [6] Claude (claude-haiku-5-5 via OpenRouter / proxy)")
         else:
             print("\nTranslation Engine Configuration:")
             print("  [1] From book_translator.toml (Recommended — uses your config file)")
             print("  [2] DeepSeek (Cloud API)")
             print("  [3] LM Studio (Local / offline — auto-detects currently loaded model)")
-            print("  [4] OpenAI (gpt-4.1-mini / gpt-4o)")
-            print("  [5] Gemini (gemini-2.5-flash)")
-            print("  [6] Claude (Anthropic via OpenRouter / proxy)")
+            print("  [4] OpenAI (gpt-4.1-mini / gpt-4o / gpt-5)")
+            print("  [5] Gemini (gemini-3.8-flash)")
+            print("  [6] Claude (claude-haiku-5-5 via OpenRouter / proxy)")
 
         t_choice = input("Select provider (1-6, default 1): ").strip()
         if t_choice == "2":

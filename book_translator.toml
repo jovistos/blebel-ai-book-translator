@@ -29,17 +29,20 @@
 #                   - Key: None needed for local execution.
 #
 #   3. "openai"     Official OpenAI Cloud API
-#                   - Models: "gpt-4.1-mini", "gpt-4o", "o3-mini"
+#                   - Models: "gpt-4.1-mini", "gpt-4o", "gpt-5", "o3-mini"
 #                   - Key: Set OPENAI_API_KEY in .env
 #
 #   4. "gemini"     Google Gemini via official OpenAI-compatible endpoint
 #                   - Endpoint: "https://generativelanguage.googleapis.com/v1beta/openai"
-#                   - Models: "gemini-2.5-flash", "gemini-2.5-pro"
+#                   - Models: "gemini-3.8-flash" (default for text/agents), "gemini-3.1-pro", "gemini-2.5-flash"
+#                   - Note: General text models like Gemini 3.8 Flash do NOT generate images!
+#                     Multimodal matter image recreation requires an image model like
+#                     "gemini-nano-banana-2.1" or "gemini-3.1-flash-image".
 #                   - Key: Set GEMINI_API_KEY (or GOOGLE_API_KEY) in .env
 #
 #   5. "claude"     Anthropic Claude (via OpenRouter or OpenAI-compatible proxy)
 #                   - Endpoint: "https://openrouter.ai/api/v1"
-#                   - Models: "anthropic/claude-3.5-haiku", "anthropic/claude-3.7-sonnet"
+#                   - Models: "anthropic/claude-haiku-5-5", "anthropic/claude-sonnet-5-5", "anthropic/claude-opus-5-5"
 #                   - Key: Set ANTHROPIC_API_KEY or OPENROUTER_API_KEY in .env
 #
 # -----------------------------------------------------------------------------
@@ -66,12 +69,12 @@ max_retries = 3
 
 # --- To switch ALL agents to Google Gemini: ---
 # provider = "gemini"
-# model = "gemini-2.5-flash"
+# model = "gemini-3.8-flash"
 # base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
 
 # --- To switch ALL agents to Anthropic Claude (via OpenRouter): ---
 # provider = "claude"
-# model = "anthropic/claude-3.5-haiku"
+# model = "anthropic/claude-haiku-5-5"
 # base_url = "https://openrouter.ai/api/v1"
 
 # --- To switch ALL agents to local LM Studio: ---
@@ -90,7 +93,7 @@ max_retries = 3
 model = "deepseek-flash"
 # Example override:
 # provider = "gemini"
-# model = "gemini-2.5-flash"
+# model = "gemini-3.8-flash"
 
 # Stage 2 — Preprocess Agent:
 # Inspects chapter headers, strips page numbers, and fixes conversion artifacts.
@@ -116,18 +119,21 @@ model = "deepseek-flash"
 # and BleBel credit seamlessly rendered in the native style and typography.
 #
 # This step requires a multimodal vision + image-generation model (e.g. Gemini
-# with "gemini-nano-banana-2.1", requiring GEMINI_API_KEY in .env).
-# If a text-only model like DeepSeek is configured below for matter text localization,
-# the matter stage will automatically resolve a multimodal model via Gemini if
+# with "gemini-nano-banana-2.1" or "gemini-3.1-flash-image", requiring GEMINI_API_KEY in .env).
+# Note: General text models like Gemini 3.8 Flash do NOT generate images!
+# If a text-only model like DeepSeek or Gemini 3.8 Flash is configured below for matter text localization,
+# the matter stage will automatically resolve a multimodal image model via Gemini if
 # GEMINI_API_KEY is present. You can also configure Gemini directly for this stage:
 [llm.matter]
 model = "deepseek-flash"
-# To use Gemini directly for the entire matter stage:
+# To use Gemini directly for the entire matter stage with an image-capable model:
 # provider = "gemini"
-# model = "gemini-3.1-flash-lite-image"
+# model = "gemini-3.1-flash-image"
 
 # Multimodal Matter Image Agent:
 # Dedicated default image recreation model for front/back matter images & covers.
+# (Requires an image-capable model: gemini-nano-banana-2.1 / gemini-3.1-flash-image;
+# text models like gemini-3.8-flash cannot generate images)
 [llm.matter_image]
 provider = "gemini"
 model = "gemini-nano-banana-2.1"

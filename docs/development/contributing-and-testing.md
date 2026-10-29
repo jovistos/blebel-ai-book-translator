@@ -13,9 +13,9 @@ This guide covers setting up a local development environment, running the compre
 git clone git@github.com:your-org/BleBelTranslateBook.git
 cd BleBelTranslateBook
 
-# Create a virtual environment (named .venv_splitter by convention)
-python3 -m venv .venv_splitter
-source .venv_splitter/bin/activate
+# Create a virtual environment (named .venv_book_translator by convention)
+python3 -m venv .venv_book_translator
+source .venv_book_translator/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt

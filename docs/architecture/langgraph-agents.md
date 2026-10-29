@@ -165,7 +165,7 @@ sequenceDiagram
 * **Cover First:** A cover picture in the first front-matter chunk is never pushed below the title page; the localized title and credit follow the cover.
 * **Title Verification:** Uses DuckDuckGo search to see if the book was already published in Serbian/Croatian/target language (e.g. ensuring "The Great Gatsby" translates to "Veliki Getsbi").
 * **Imprint Pruning:** Removes original edition publisher addresses, printer details, ISBN numbers, and CIP cataloging records that do not apply to the new translated edition.
-* **Multimodal Matter Image Translation (Multimodal Model Required):** Recreates front/back matter images (e.g., covers, title plates, frontispieces) from scratch with translated typography seamlessly integrated into the original illustration and artistic style. A multimodal model (such as `gemini-3.1-flash-image` via Google Gemini) is required for this phase. Pure illustrations without text are preserved untouched.
+* **Multimodal Matter Image Translation (Multimodal Model Required):** Recreates front/back matter images (e.g., covers, title plates, frontispieces) from scratch with translated typography seamlessly integrated into the original illustration and artistic style. A multimodal model (such as `gemini-nano-banana-2.1` or `gemini-3.1-flash-image` via Google Gemini) is required for this phase, as text models like Gemini 3.8 Flash do not support image generation. Pure illustrations without text are preserved untouched.
 
 ---
 

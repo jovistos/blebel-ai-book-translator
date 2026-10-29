@@ -29,7 +29,7 @@ Front and back matter frequently feature images containing source-language typog
 5. **Path Rewriting & Preservation:** The generated image is saved to `data/output/<book>/08-translations/images/<stem>_translated.<ext>` (and mirrored to `01-markdown/images/`). The Markdown chunk is automatically updated to reference the translated image.
 6. **Model Requirement:**
    > [!IMPORTANT]
-   > **Multimodal Model Required:** An image-capable multimodal model (such as `gemini-3.1-flash-image` via Google Gemini) is **required** for this step. Ensure `GEMINI_API_KEY` is configured in your `.env` file or specify a multimodal model under `[llm.matter]` in `book_translator.toml`. If a text-only model is used for text matter translation, the pipeline automatically spins up the multimodal image model when `GEMINI_API_KEY` is present.
+   > **Multimodal Model Required:** An image-capable multimodal model (such as `gemini-nano-banana-2.1` or `gemini-3.1-flash-image` via Google Gemini) is **required** for this step. Note that general text models like Gemini 3.8 Flash do not support image generation. Ensure `GEMINI_API_KEY` is configured in your `.env` file or specify an image-capable model under `[llm.matter_image]` in `book_translator.toml`. If a text-only model is used for text matter translation, the pipeline automatically spins up the multimodal image model when `GEMINI_API_KEY` is present.
 
 ### Artifacts Written
 * `data/output/<book>/08-translations/00000-00-front-matter-*.md`

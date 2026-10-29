@@ -130,13 +130,13 @@ classDiagram
 
 1. **DeepSeek (Cloud Default):** Fast, economical, high-quality reasoning (`deepseek-flash`, `deepseek-v4-pro`).
 2. **LM Studio (Local / Completely Offline):** Local OpenAI-compatible server at `http://127.0.0.1:1234/v1`. Auto-detects whatever model is loaded; no model name required.
-3. **OpenAI:** `gpt-4.1-mini`, `gpt-4o`, `o3-mini`.
-4. **Google Gemini:** Direct endpoint (`gemini-3.8-flash`, `gemini-3.1-flash-image` for multimodal matter image recreation). Set `GEMINI_API_KEY` in `.env`.
+3. **OpenAI:** `gpt-4.1-mini`, `gpt-4o`, `gpt-5`, `o3-mini`.
+4. **Google Gemini:** Direct endpoint (`gemini-3.8-flash` for high-speed agent reasoning & text translation, and `gemini-nano-banana-2.1` / `gemini-3.1-flash-image` for multimodal matter image recreation). Set `GEMINI_API_KEY` in `.env`.
 
 Every stage can use a different provider or model (e.g., DeepSeek for splitting, local LM Studio for translation, Claude for front-matter synthesis, Gemini for multimodal matter image recreation).
 
 > [!NOTE]
-> **Multimodal Matter Translation (Stage 7):** While stages 1-6 and 8-10 use text models, Stage 7 performs both front/back matter text localization and end-to-end **multimodal image translation** (recreating covers and title plates from scratch with translated lettering). A multimodal model with vision input and image synthesis capabilities (such as `gemini-3.1-flash-image`) is required for this step.
+> **Multimodal Matter Translation (Stage 7):** While stages 1-6 and 8-10 use text models (such as DeepSeek Flash or Gemini 3.8 Flash), Stage 7 performs both front/back matter text localization and end-to-end **multimodal image translation** (recreating covers and title plates from scratch with translated lettering). A multimodal model with vision input and image synthesis capabilities (such as `gemini-nano-banana-2.1` or `gemini-3.1-flash-image`) is required for this step, because general text models like Gemini 3.8 Flash do not support image generation.
 
 ---
 

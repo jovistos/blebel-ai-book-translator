@@ -81,12 +81,12 @@ PROVIDERS: dict[str, dict[str, str]] = {
     },
     "claude": {
         "base_url": "https://openrouter.ai/api/v1",
-        "model": "anthropic/claude-3.5-haiku",
+        "model": "anthropic/claude-haiku-5-5",
         "key_env": "ANTHROPIC_API_KEY",
     },
     "anthropic": {
         "base_url": "https://openrouter.ai/api/v1",
-        "model": "anthropic/claude-3.5-haiku",
+        "model": "anthropic/claude-haiku-5-5",
         "key_env": "ANTHROPIC_API_KEY",
     },
     "lmstudio": {
@@ -101,7 +101,7 @@ PROVIDERS: dict[str, dict[str, str]] = {
     },
     "openrouter": {
         "base_url": "https://openrouter.ai/api/v1",
-        "model": "google/gemini-2.5-flash",
+        "model": "google/gemini-3.8-flash",
         "key_env": "OPENROUTER_API_KEY",
     },
 }

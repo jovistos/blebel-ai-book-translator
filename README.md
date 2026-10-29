@@ -125,8 +125,8 @@ git clone https://github.com/your-org/BleBelTranslateBook.git
 cd BleBelTranslateBook
 
 # Create and activate a virtual environment
-python3 -m venv .venv_splitter
-source .venv_splitter/bin/activate
+python3 -m venv .venv_book_translator
+source .venv_book_translator/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
@@ -138,10 +138,10 @@ Create a `.env` file in the project root:
 
 ```bash
 # Cloud Providers:
-DEEPSEEK_API_KEY=sk-your-deepseek-key      # Default: high speed, low cost
-OPENAI_API_KEY=sk-your-openai-key          # Optional: GPT-4o, o3-mini
-GEMINI_API_KEY=AIzaSy-your-gemini-key      # Optional: Gemini 2.5 Flash / Pro
-ANTHROPIC_API_KEY=sk-ant-your-claude-key   # Optional: Claude 3.7 Sonnet
+DEEPSEEK_API_KEY=sk-your-deepseek-key      # Default: DeepSeek Flash (V4.1) / V4.1 Pro
+OPENAI_API_KEY=sk-your-openai-key          # Optional: GPT-4.1 Mini, GPT-4o, GPT-5
+GEMINI_API_KEY=AIzaSy-your-gemini-key      # Optional: Gemini 3.8 Flash (text) / Gemini 3.1 Flash Image (matter cover recreation)
+ANTHROPIC_API_KEY=sk-ant-your-claude-key   # Optional: Claude Haiku 5.5 / Sonnet 5.5
 
 # Local / Offline Execution:
 # No API keys required! Just launch LM Studio on http://127.0.0.1:1234
@@ -244,19 +244,25 @@ provider = "deepseek"
 model = "deepseek-flash"
 temperature = 0.0
 
-# Stage 2 (Split Agent): Use ultra-fast Gemini Flash to locate chapters
+# Stage 2 (Split Agent): Use ultra-fast Gemini 3.8 Flash to locate chapters
 [llm.split]
 provider = "gemini"
-model = "gemini-2.5-flash"
+model = "gemini-3.8-flash"
 
 # Stage 3 (Preprocess Agent): Scrub OCR artifacts with DeepSeek Flash
 [llm.preprocess]
 model = "deepseek-flash"
 
-# Stage 4 (Glossary Agent): Lock terminology with Claude 3.5 Haiku
+# Stage 4 (Glossary Agent): Lock terminology with Claude Haiku 5.5
 [llm.dictionary]
 provider = "claude"
-model = "anthropic/claude-3.5-haiku"
+model = "anthropic/claude-haiku-5-5"
+
+# Stage 7 (Matter Image Recreation): Multimodal model with native image generation
+# (Note: Gemini 3.8 Flash is text-only; an image-capable model is required here)
+[llm.matter_image]
+provider = "gemini"
+model = "gemini-nano-banana-2.1"  # or "gemini-3.1-flash-image"
 
 # Stage 8 (Body Translation): Use local, free, offline LM Studio
 [llm.translate]
