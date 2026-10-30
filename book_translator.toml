@@ -1,5 +1,5 @@
 # =============================================================================
-# BleBelTranslateBook — Model & Provider Configuration
+# blebel-ai-book-translator — Model & Provider Configuration
 # =============================================================================
 #
 # This file controls which AI model and provider each agent uses.

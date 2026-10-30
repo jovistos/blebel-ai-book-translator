@@ -1,6 +1,6 @@
-# Documentation Portal: BleBelTranslateBook (`book-translator`)
+# Documentation Portal: blebel-ai-book-translator (`book-translator`)
 
-Welcome to the comprehensive, systematic documentation for **BleBelTranslateBook** (package name: `book-translator`).
+Welcome to the comprehensive, systematic documentation for **blebel-ai-book-translator** (package name: `book-translator`).
 
 This documentation covers every facet of the system: from architectural principles and multi-agent state machines to stage-by-stage data contracts, CLI commands, model provider setup, and developer guidelines.
 

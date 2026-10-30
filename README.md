@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/banner.jpg" alt="BleBelTranslateBook Banner" width="100%">
+<img src="assets/banner.jpg" alt="blebel-ai-book-translator Banner" width="100%">
 
 <br/>
 
@@ -38,7 +38,7 @@ Translating an entire 80,000+ word book is one of the hardest NLP challenges in 
 
 ### The BleBel Hybrid Architecture
 
-**BleBelTranslateBook** solves this dilemma by coupling **fuzzy agentic intelligence** with **deterministic byte-for-byte funnels**:
+**blebel-ai-book-translator** solves this dilemma by coupling **fuzzy agentic intelligence** with **deterministic byte-for-byte funnels**:
 
 1. **Specialized LangGraph Agents for Messy Structural Reasoning:**  
    Four autonomous agents tackle the fuzzy, unpredictable tasks—discovering true chapter boundaries (`Split Agent`), scrubbing OCR headers and page damage (`Preprocess Agent`), researching and adapting front/back matter (`Matter Agent`), and harmonizing titles and TOC alignment (`Postprocess Agent`)—**all without ever reading the sensitive body prose**.
@@ -124,8 +124,8 @@ BleBel requires **Python 3.11, 3.12, or 3.13**.
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/BleBelTranslateBook.git
-cd BleBelTranslateBook
+git clone https://github.com/jovistos/blebel-ai-book-translator.git
+cd blebel-ai-book-translator
 
 # Create and activate a virtual environment (use python3.13/3.12 explicitly)
 python3.13 -m venv .venv_book_translator

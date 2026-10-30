@@ -1,6 +1,6 @@
 # System Architecture & Philosophy
 
-The **BleBelTranslateBook** (`book-translator`) repository provides an industrial-grade translation pipeline that turns long, complex books (EPUB, text-based PDF, or Markdown) into publisher-quality translated EPUB 3 books and Markdown editions.
+The **blebel-ai-book-translator** (`book-translator`) repository provides an industrial-grade translation pipeline that turns long, complex books (EPUB, text-based PDF, or Markdown) into publisher-quality translated EPUB 3 books and Markdown editions.
 
 Rather than feeding entire manuscripts into monolithic LLM prompts or relying on unstructured chat completions, `book-translator` implements a **staged, verifiable agentic pipeline** combining **specialized LangGraph state machine agents** with **rigorous deterministic funnels**.
 

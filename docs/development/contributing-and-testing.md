@@ -10,8 +10,8 @@ This guide covers setting up a local development environment, running the compre
 
 ```bash
 # Clone the repository
-git clone git@github.com:your-org/BleBelTranslateBook.git
-cd BleBelTranslateBook
+git clone https://github.com/jovistos/blebel-ai-book-translator.git
+cd blebel-ai-book-translator
 
 # Create a virtual environment (named .venv_book_translator by convention)
 # Explicitly use Python 3.13, 3.12, or 3.11
