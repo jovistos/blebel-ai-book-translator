@@ -182,6 +182,7 @@ def _model_settings(
         stage,
     )
     config_path = getattr(args, "llm_config", None)
+    require_key = not getattr(args, "dry_run", False)
     if translation:
         return resolve_translation_settings(
             provider=getattr(args, "translator", None),
@@ -191,6 +192,7 @@ def _model_settings(
             temperature=args.temperature,
             config_path=config_path,
             overrides=overrides,
+            require_key=require_key,
         )
     return resolve_settings(
         stage=stage,
@@ -201,6 +203,7 @@ def _model_settings(
         temperature=args.temperature,
         config_path=config_path,
         overrides=overrides,
+        require_key=require_key,
     )
 
 

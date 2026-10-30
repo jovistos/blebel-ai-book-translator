@@ -60,6 +60,13 @@ def _normalise(text: str) -> str:
     # like 'blebel-ai-book-translator' across lines with spaces:
     collapsed = re.sub(r"blebel-ai-book-\s+translator", "blebel-ai-book-translator", collapsed)
     collapsed = re.sub(r"blebel-ai-\s+book-translator", "blebel-ai-book-translator", collapsed)
+    # Normalize Python < 3.13 duplicate metavar on option aliases:
+    # '--flag METAVAR, -f METAVAR' -> '--flag, -f METAVAR'
+    collapsed = re.sub(
+        r"(-{1,2}[a-zA-Z0-9_-]+)\s+([A-Z_{}a-z0-9,]+),\s+(-{1,2}[a-zA-Z0-9_-]+)\s+\2\b",
+        r"\1, \3 \2",
+        collapsed,
+    )
     for raw in {str(ROOT), str(ROOT.resolve())}:
         collapsed = collapsed.replace(" ".join(raw.split()), "<ROOT>")
         collapsed = collapsed.replace(raw, "<ROOT>")
