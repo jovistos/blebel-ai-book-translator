@@ -63,7 +63,7 @@ def _normalise(text: str) -> str:
     # Normalize Python < 3.13 duplicate metavar on option aliases:
     # '--flag METAVAR, -f METAVAR' -> '--flag, -f METAVAR'
     collapsed = re.sub(
-        r"(-{1,2}[a-zA-Z0-9_-]+)\s+([A-Z_{}a-z0-9,]+),\s+(-{1,2}[a-zA-Z0-9_-]+)\s+\2\b",
+        r"(-{1,2}[a-zA-Z0-9_-]+)\s+([A-Z_{}a-z0-9,]+),\s+(-{1,2}[a-zA-Z0-9_-]+)\s+\2(?=\s|$)",
         r"\1, \3 \2",
         collapsed,
     )
