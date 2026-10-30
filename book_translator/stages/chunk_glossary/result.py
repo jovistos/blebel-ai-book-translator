@@ -80,6 +80,7 @@ def finish_chunk_glossary(
         CHUNK_GLOSSARY_TRACE_FILENAME,
     )
     from book_translator.core.store import ArtifactStore
+
     from .artifacts import (
         _totals,
         chunk_glossary_manifest_payload,

@@ -257,8 +257,8 @@ def test_token_usage_adds_and_reports_known():
 
 
 def test_reasoning_content_preserved_for_multi_turn():
-    from langchain_core.messages import AIMessage
     import langchain_openai.chat_models.base as base
+    from langchain_core.messages import AIMessage
 
     settings = SimpleNamespace(
         model="deepseek-flash",

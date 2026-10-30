@@ -26,7 +26,6 @@ from typing import Any
 from book_translator.core.constants import (
     DEFAULT_PREPROCESS_ATTEMPTS,
     DEFAULT_RECURSION_LIMIT,
-    MAX_FEEDBACK_LOOPS,
     PREPROCESS_MANIFEST_FILENAME,
     PREPROCESS_TRACE_FILENAME,
 )

@@ -21,9 +21,6 @@ from book_translator.core.constants import (
 from book_translator.documents.chapters import (
     chapters_dir,
     has_chapter_files,
-    postprocessed_chapters_dir,
-    preprocessed_dir,
-    translated_chapters_dir,
 )
 from book_translator.paths import (
     resolve_book_path,

@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 import book_translator
-import pytest
 
 from _fixtures import ROOT
 

@@ -520,10 +520,10 @@ def test_a_dry_run_does_not_synthesize_front_or_back_matter(tmp_path: Path):
 
 def test_report_matter_localization_large_text_not_truncated():
     import json
+
     from book_translator.stages.matter.inspect import MatterSection
     from book_translator.toolkit.context import ToolContext
     from book_translator.toolkit.matter.tools import report_matter_localization
-    from book_translator.stage_graph.nodes import absorb_plan
 
     source = "# NOTES\n\n" + ("This is a note entry. " * 2000)
     translation = "# NAPOMENE\n\n" + ("Ovo je unos napomene. " * 2000)

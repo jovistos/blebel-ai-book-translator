@@ -14,6 +14,7 @@ from book_translator.documents.images import (
     restore_images,
     strip_images,
 )
+from book_translator.documents.text import preserve_trailing_newlines
 
 from .plan import TranslationPlan
 from .prompts import build_chunk_prompt
@@ -32,7 +33,6 @@ from .support import (
     _write_prompt_files,
     _write_translation_file,
     load_chunk_glossary_rows,
-    preserve_trailing_newlines,
 )
 
 

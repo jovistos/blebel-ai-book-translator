@@ -29,13 +29,13 @@ from typing import Any
 
 from langchain_core.tools import tool
 
-from book_translator.toolkit.registry import preprocess_stage
 from book_translator.stages.preprocess.apply import apply_cleaning_plan, text_of
 from book_translator.stages.preprocess.corpus import scan_corpus_damage
 from book_translator.stages.preprocess.damage import damage_digest, scan_chapter_damage
 from book_translator.stages.preprocess.inspect import inspect_chapter
 from book_translator.stages.preprocess.plan import validate_cleaning_plan
 from book_translator.stages.preprocess.verify import verify_cleaning_plan
+from book_translator.toolkit.registry import preprocess_stage
 
 from ...core.artifacts import write_text
 from ...core.constants import (

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import tempfile
-import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -65,6 +64,119 @@ class PhaseFailed(RuntimeError):
 
 class PhaseExecutionMixin:
     """Mixin providing execution implementations for all pipeline phases."""
+
+    source: Path
+    original_source: Path
+    args: Any
+    options: Any
+    console: Any
+    reporter: Any
+    _convert_temp_dir: Path | None
+    _count_width: int
+    _last_tick: float
+    _llm_overrides: Any
+    _name_width: int
+    _progress_lock: Any
+    first_chapters: int | None
+    chapter_limit: int | None
+    translate_first_chapters: int | None
+    translate_limit: int | None
+    glossary_enabled: bool
+
+    # Properties and methods provided by PipelineDriver
+    @property
+    def markdown_out(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def chapters_dir(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def preprocessed_out(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def reduced_out(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def unique_out(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def glossary_out(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def chunk_in(self) -> Path | None:
+        raise NotImplementedError
+
+    @property
+    def chunks_out(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def chunk_glossary_out(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def translations_out(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def translation_prompts_out(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def matter_out(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def matter_prompts_out(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def translated_chapters_out(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def postprocess_out(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def translated_book_out(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def epub_out(self) -> Path:
+        raise NotImplementedError
+
+    @property
+    def llm_config(self) -> Any:
+        raise NotImplementedError
+
+    @property
+    def settings(self) -> Any:
+        raise NotImplementedError
+
+    @property
+    def translation_settings(self) -> Any:
+        raise NotImplementedError
+
+    @property
+    def text_input(self) -> Any:
+        raise NotImplementedError
+
+    @property
+    def chunk_input(self) -> Any:
+        raise NotImplementedError
+
+    _stage_runtime: Any
+    _shared_model_args: Any
+    _window_text: Any
+    _kv_text_input: Any
+    settings_for: Any
 
     def _ensure_markdown_source(self) -> Path:
         """Run stage 1 on demand for a phase started past ``convert``.

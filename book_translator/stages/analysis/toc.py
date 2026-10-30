@@ -30,11 +30,11 @@ def _clean_toc_title(raw: str) -> str:
     if link_m:
         text = link_m.group(1).strip()
     text = re.sub(r"^\s*(?:[-*•]|\d{1,3}[.)])\s+", "", text)
-    m = DOT_LEADER_RE.match(text)
-    if m:
-        text = m.group(1).strip()
-    else:
-        text = re.sub(r"(?:\s*[.\-•_]{2,}\s*|\s{3,})\d{1,4}\s*$", "", text)
+    text = (
+        m.group(1).strip()
+        if (m := DOT_LEADER_RE.match(text))
+        else re.sub(r"(?:\s*[.\-•_]{2,}\s*|\s{3,})\d{1,4}\s*$", "", text)
+    )
     return text.strip(" .\t#*")
 
 
@@ -44,9 +44,7 @@ def _is_explicit_toc_entry(raw: str) -> bool:
         return True
     if re.match(r"^\s*(?:[-*•]|\d{1,3}[.)])\s+", raw):
         return True
-    if re.match(r"^\[.+\]\(", clean):
-        return True
-    return False
+    return bool(re.match(r"^\[.+\]\(", clean))
 
 
 def detect_toc_block(

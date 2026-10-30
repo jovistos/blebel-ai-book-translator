@@ -185,11 +185,9 @@ def test_wizard_json_output(capsys: pytest.CaptureFixture) -> None:
 
 
 def test_checkpoint_pause_glossary_displays_csv(tmp_path, capsys: pytest.CaptureFixture) -> None:
-    import json
-    from book_translator.stages.glossary.records import GlossaryTerm
-    from book_translator.stages.glossary.book import GlossaryBook
     from book_translator.stages.glossary.artifacts import write_glossary, write_glossary_csv
-    from book_translator.stages.glossary.records import GlossaryResult
+    from book_translator.stages.glossary.book import GlossaryBook
+    from book_translator.stages.glossary.records import GlossaryResult, GlossaryTerm
 
     glossary_dir = tmp_path / "04-glossary"
     glossary_dir.mkdir(parents=True)
@@ -218,10 +216,10 @@ def test_checkpoint_pause_glossary_displays_csv(tmp_path, capsys: pytest.Capture
 
 def test_checkpoint_pause_syncs_csv_edits(tmp_path) -> None:
     import json
-    from book_translator.stages.glossary.records import GlossaryTerm
-    from book_translator.stages.glossary.book import GlossaryBook
+
     from book_translator.stages.glossary.artifacts import write_glossary, write_glossary_csv
-    from book_translator.stages.glossary.records import GlossaryResult
+    from book_translator.stages.glossary.book import GlossaryBook
+    from book_translator.stages.glossary.records import GlossaryResult, GlossaryTerm
 
     glossary_dir = tmp_path / "04-glossary"
     glossary_dir.mkdir(parents=True)
@@ -252,12 +250,10 @@ def test_checkpoint_pause_syncs_csv_edits(tmp_path) -> None:
 
 
 def test_chunk_glossary_load_syncs_csv(tmp_path) -> None:
-    import json
-    from book_translator.stages.glossary.records import GlossaryTerm
-    from book_translator.stages.glossary.book import GlossaryBook
-    from book_translator.stages.glossary.artifacts import write_glossary, write_glossary_csv
-    from book_translator.stages.glossary.records import GlossaryResult
     from book_translator.stages.chunk_glossary.matching import load_glossary
+    from book_translator.stages.glossary.artifacts import write_glossary, write_glossary_csv
+    from book_translator.stages.glossary.book import GlossaryBook
+    from book_translator.stages.glossary.records import GlossaryResult, GlossaryTerm
 
     glossary_dir = tmp_path / "04-glossary"
     glossary_dir.mkdir(parents=True)

@@ -30,7 +30,6 @@ from .artifacts import (
     _skipped_record,
     _timing,
     resolve_sentences_dir,
-    sync_glossary_from_csv,
     write_glossary,
     write_glossary_csv,
     write_glossary_manifest,

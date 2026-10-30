@@ -34,15 +34,11 @@ from book_translator.core.settings import (
     resolve_translation_settings,
 )
 from book_translator.documents.chapters import (
-    chapters_dir,
-    discover_chapters,
-    file_sha256,
     has_chapter_files,
     has_chunk_files,
     has_postprocessed_chapter_files,
     has_translated_chapter_files,
     has_translation_files,
-    load_split_manifest,
 )
 from book_translator.documents.window import (
     chapter_window_limit_for_path,
@@ -621,7 +617,7 @@ class PipelineDriver(PhaseExecutionMixin):
     def _finish(self) -> int:
         total = time.monotonic() - self.started
         aborted = any(not record.ok for record in self.records)
-        return self.reporter.finish(total, aborted)
+        return int(self.reporter.finish(total, aborted))
 
     def _print_finish_header(self, console: Any, total: float, aborted: bool) -> None:
         print_finish_header(console, total, aborted, len(self.records), len(self._selected_phases()))

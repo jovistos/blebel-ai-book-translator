@@ -248,7 +248,7 @@ def _patch_langchain_openai_reasoning() -> None:
 
         base._convert_dict_to_message = patched_dict_to_msg
         base._convert_message_to_dict = patched_msg_to_dict
-        base._reasoning_patched = True
+        base._reasoning_patched = True  # type: ignore[attr-defined]
     except Exception:
         pass
 

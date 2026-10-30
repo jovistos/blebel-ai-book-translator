@@ -28,7 +28,6 @@ from typing import Annotated, Any
 
 from langchain_core.tools import InjectedToolArg, tool
 
-from book_translator.toolkit.registry import matter_stage
 from book_translator.stages.matter.inspect import (
     MatterBook,
     MatterSection,
@@ -41,6 +40,7 @@ from book_translator.stages.matter.plan import (
 from book_translator.stages.matter.plan import (
     validate_matter_translation as validate_matter_translation_fn,
 )
+from book_translator.toolkit.registry import matter_stage
 
 from ...core.constants import (
     DEFAULT_MATTER_CREDIT,

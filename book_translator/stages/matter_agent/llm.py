@@ -10,15 +10,16 @@ from __future__ import annotations
 
 import json
 import urllib.request
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from langchain_core.messages import AIMessage
 
 from book_translator.core.llm import build_chat_model
 from book_translator.core.settings import LLMSettings, resolve_settings
 from book_translator.stages.agent.llm import bind_tools
-from book_translator.toolkit.registry import tool_by_name
 from book_translator.toolkit.matter import BOOK_TOOL_NAMES, CHUNK_TOOL_NAMES
+from book_translator.toolkit.registry import tool_by_name
 
 DEFAULT_MATTER_IMAGE_MODEL = "gemini-nano-banana-2.1"
 DEFAULT_MATTER_IMAGE_PROVIDER = "gemini"

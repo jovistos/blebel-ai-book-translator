@@ -32,7 +32,6 @@ from typing import Annotated, Any
 
 from langchain_core.tools import InjectedToolArg, tool
 
-from book_translator.toolkit.registry import postprocess_stage
 from book_translator.stages.postprocess.inspect import (
     inspect_heading_context as inspect_heading_context_fn,
 )
@@ -61,6 +60,7 @@ from book_translator.stages.postprocess.toc import (
     detect_toc,
     verify_toc,
 )
+from book_translator.toolkit.registry import postprocess_stage
 
 from ...core.artifacts import write_text
 from ...core.constants import (

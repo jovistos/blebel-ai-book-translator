@@ -8,9 +8,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw
-from langchain_core.messages import AIMessage
-
 from book_translator.stages.chunking import run_chunking
 from book_translator.stages.matter.images import (
     DEFAULT_MULTIMODAL_MODEL,
@@ -23,6 +20,8 @@ from book_translator.stages.matter.images import (
     synthesize_and_translate_image,
 )
 from book_translator.stages.matter_agent import run_matter
+from langchain_core.messages import AIMessage
+from PIL import Image, ImageDraw
 
 
 class ScriptedMultimodalModel:
@@ -30,7 +29,7 @@ class ScriptedMultimodalModel:
 
     def __init__(self, responses: list[Any]):
         self.responses = list(responses)
-        self.seen_messages = []
+        self.seen_messages: list[Any] = []
 
     def invoke(self, messages, *_, **__):
         self.seen_messages.append(list(messages))
@@ -50,7 +49,7 @@ class ScriptedChatModel:
 
     def __init__(self, responses):
         self.responses = list(responses)
-        self.seen_messages = []
+        self.seen_messages: list[Any] = []
 
     def invoke(self, messages, *_, **__):
         self.seen_messages.append(list(messages))

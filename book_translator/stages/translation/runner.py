@@ -66,6 +66,7 @@ from book_translator.core.constants import (
 )
 from book_translator.core.run import RunContext
 from book_translator.documents.manifest import load_translation_manifest
+from book_translator.documents.text import preserve_trailing_newlines
 
 from .loop import translate_chunks
 from .plan import prepare_translation
@@ -84,7 +85,6 @@ from .support import (
     has_chunk_glossary_files,
     load_book_glossary_rows,
     load_chunk_glossary_rows,
-    preserve_trailing_newlines,
     prompt_filename,
     resolve_chunk_glossary_dir,
     resolve_chunks_dir,

@@ -55,10 +55,20 @@ from book_translator.documents.markdown import (
 from book_translator.documents.text import excerpt, norm
 from book_translator.stages.postprocess.titles import (
     FILENAME_CHAPTER_RE as _FILENAME_CHAPTER_RE,
+)
+from book_translator.stages.postprocess.titles import (
     FILENAME_NUMBER_RE as _FILENAME_NUMBER_RE,
-    LABELLED_NUMBER_RE as _LABELLED_NUMBER_RE,
+)
+from book_translator.stages.postprocess.titles import (
     LABEL_RE as _LABEL_RE,
+)
+from book_translator.stages.postprocess.titles import (
+    LABELLED_NUMBER_RE as _LABELLED_NUMBER_RE,
+)
+from book_translator.stages.postprocess.titles import (
     NUMBERED_TITLE_RE as _NUMBERED_TITLE_RE,
+)
+from book_translator.stages.postprocess.titles import (
     SENTENCE_END_RE as _SENTENCE_END_RE,
 )
 

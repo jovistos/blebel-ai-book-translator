@@ -39,25 +39,13 @@ from book_translator.documents.text import excerpt
 from book_translator.stages.preprocess.inspect import classify_header, inspect_chapter
 
 from .titles import (
-    BACK_TITLE_RE,
-    FILENAME_CHAPTER_RE,
-    FILENAME_NUMBER_RE,
-    FRONT_TITLE_RE,
-    LABELLED_NUMBER_RE,
     LABEL_RE,
-    NUMBERED_TITLE_RE,
     SENTENCE_END_RE,
-    _is_short_title_shape,
-    _looks_like_title,
     _next_nonblank,
-    _number_heading_is_title,
-    _subtitle_after,
     chapter_number,
     find_title_candidate,
-    is_bare_chapter_label,
     matter_kind,
     opening_records,
-    strip_chapter_label,
     title_from_filename,
 )
 

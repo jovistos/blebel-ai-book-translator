@@ -13,9 +13,10 @@ import base64
 import contextlib
 import mimetypes
 import re
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from book_translator.core.constants import IMAGES_DIRNAME, MARKDOWN_DIRNAME
 from book_translator.core.llm import parse_json_object
@@ -90,9 +91,7 @@ def is_translated_image_match(source_ref: str, target_ref: str) -> bool:
     path_b = Path(src_b)
     stem_a = path_a.stem
     stem_b = path_b.stem
-    if stem_b == f"{stem_a}_translated" or stem_b.startswith(f"{stem_a}_translated"):
-        return True
-    return False
+    return stem_b == f"{stem_a}_translated" or stem_b.startswith(f"{stem_a}_translated")
 
 
 def resolve_matter_image_path(

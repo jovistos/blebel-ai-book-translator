@@ -40,7 +40,6 @@ from book_translator.documents.manifest import (
 )
 from book_translator.documents.text import (
     book_title_from_source,
-    preserve_trailing_newlines,
 )
 from book_translator.stages.chunk_glossary.matching import clean_term, load_glossary, match_key
 

@@ -8,7 +8,6 @@ from typing import Any
 
 from book_translator.core.constants import (
     DEFAULT_PREPROCESS_ATTEMPTS,
-    MAX_FEEDBACK_LOOPS,
 )
 from book_translator.core.errors import ConfigError
 from book_translator.documents.window import (

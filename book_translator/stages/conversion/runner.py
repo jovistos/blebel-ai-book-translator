@@ -577,7 +577,10 @@ def _extract_epub_cover(epub_path: Path, dest_dir: Path) -> Path | None:
             try:
                 container = z.read("META-INF/container.xml")
                 root = ET.fromstring(container)
-                opf_path = root.find(".//{*}rootfile").attrib["full-path"]
+                rootfile = root.find(".//{*}rootfile")
+                if rootfile is None:
+                    return None
+                opf_path = rootfile.attrib["full-path"]
                 opf_data = z.read(opf_path)
                 opf = ET.fromstring(opf_data)
             except Exception:
@@ -612,7 +615,7 @@ def _extract_epub_cover(epub_path: Path, dest_dir: Path) -> Path | None:
                     href = ref.attrib.get("href", "")
                     if "cover" in ref_type and href:
                         clean_href = href.split("#")[0]
-                        for item_id, (m_href, m_props, m_media) in manifest_items.items():
+                        for m_href, _m_props, m_media in manifest_items.values():
                             if m_href == clean_href and m_media.startswith("image/"):
                                 cover_href = clean_href
                                 break
@@ -620,7 +623,7 @@ def _extract_epub_cover(epub_path: Path, dest_dir: Path) -> Path | None:
                         break
 
             if not cover_href:
-                for item_id, (href, props, media) in manifest_items.items():
+                for item_id, (href, _props, media) in manifest_items.items():
                     if "cover" in item_id.lower() and media.startswith("image/"):
                         cover_href = href
                         break

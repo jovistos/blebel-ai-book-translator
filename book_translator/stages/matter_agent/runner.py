@@ -176,6 +176,7 @@ def run_matter(
 
     if image_model is None and recreate_images and not dry_run:
         from book_translator.core.settings import resolve_settings
+
         from .llm import make_matter_image_llm
 
         with contextlib.suppress(Exception):

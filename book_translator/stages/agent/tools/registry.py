@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from book_translator.toolkit.registry import (
+    _EXTRA_STAGES,
+    _REGISTRY,
+    _STAGE,
     MATTER,
     MATTER_WRITE_TOOLS,
     POSTPROCESS,
@@ -13,9 +16,6 @@ from book_translator.toolkit.registry import (
     SPLIT,
     SPLIT_WRITE_TOOLS,
     STAGES,
-    _EXTRA_STAGES,
-    _REGISTRY,
-    _STAGE,
     all_tools,
     bind_all,
     describe_tools,
