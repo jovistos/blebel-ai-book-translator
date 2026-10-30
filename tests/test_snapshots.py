@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import re
 from pathlib import Path
 from typing import Any
 
@@ -54,10 +55,18 @@ def _normalise(text: str) -> str:
     chooses to wrap them depends on the terminal width and the Python patch
     version, so whitespace is canonicalised rather than frozen.
     """
+    collapsed = " ".join(text.split())
+    # When argparse wraps at 80 columns, it breaks hyphenated repo or dir names
+    # like 'blebel-ai-book-translator' across lines with spaces:
+    collapsed = re.sub(r"blebel-ai-book-\s+translator", "blebel-ai-book-translator", collapsed)
+    collapsed = re.sub(r"blebel-ai-\s+book-translator", "blebel-ai-book-translator", collapsed)
     for raw in {str(ROOT), str(ROOT.resolve())}:
-        text = text.replace(raw, "<ROOT>")
-    text = text.replace(str(Path.home()), "<HOME>")
-    return " ".join(text.split())
+        collapsed = collapsed.replace(" ".join(raw.split()), "<ROOT>")
+        collapsed = collapsed.replace(raw, "<ROOT>")
+    home = " ".join(str(Path.home()).split())
+    collapsed = collapsed.replace(home, "<HOME>")
+    collapsed = collapsed.replace(str(Path.home()), "<HOME>")
+    return collapsed
 
 
 def test_every_help_output_matches_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:

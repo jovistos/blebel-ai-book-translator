@@ -386,6 +386,7 @@ def run_fixture_pipeline(
     """Run stages 1 -> 12 into ``work`` and return the book folder and results."""
     work = work.resolve()
     _freeze_stage_clock(monkeypatch)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-fixture-test")
     input_dir = work / "input"
     input_dir.mkdir(parents=True)
     source = input_dir / "fixture.txt"
