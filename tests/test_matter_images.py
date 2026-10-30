@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import base64
-import io
 import json
+import struct
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +22,6 @@ from book_translator.stages.matter.images import (
 )
 from book_translator.stages.matter_agent import run_matter
 from langchain_core.messages import AIMessage
-from PIL import Image, ImageDraw
 
 
 class ScriptedMultimodalModel:
@@ -64,21 +64,25 @@ def _tool_call(name, args, call_id="call_1"):
     )
 
 
+def _png_bytes(width: int = 10, height: int = 10, color: tuple[int, int, int] = (230, 230, 230)) -> bytes:
+    sig = b"\x89PNG\r\n\x1a\n"
+    ihdr_data = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    ihdr = struct.pack(">I", len(ihdr_data)) + b"IHDR" + ihdr_data + struct.pack(">I", zlib.crc32(b"IHDR" + ihdr_data))
+    raw = (b"\x00" + bytes(color) * width) * height
+    compressed = zlib.compress(raw)
+    idat = struct.pack(">I", len(compressed)) + b"IDAT" + compressed + struct.pack(">I", zlib.crc32(b"IDAT" + compressed))
+    iend = struct.pack(">I", 0) + b"IEND" + struct.pack(">I", zlib.crc32(b"IEND"))
+    return sig + ihdr + idat + iend
+
+
 def _create_sample_image(path: Path, text: str = "", color: tuple[int, int, int] = (230, 230, 230)) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    im = Image.new("RGB", (300, 150), color=color)
-    if text:
-        draw = ImageDraw.Draw(im)
-        draw.text((20, 20), text, fill=(10, 10, 10))
-    im.save(path)
+    path.write_bytes(_png_bytes(color=color))
     return path
 
 
 def _sample_image_bytes(color: tuple[int, int, int] = (40, 80, 120)) -> bytes:
-    buf = io.BytesIO()
-    im = Image.new("RGB", (300, 150), color=color)
-    im.save(buf, format="PNG")
-    return buf.getvalue()
+    return _png_bytes(color=color)
 
 
 def test_default_model_is_gemini_image_generator():
